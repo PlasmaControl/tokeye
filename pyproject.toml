@@ -23,6 +23,7 @@ dependencies = [
     "pydantic",
     "lightning",
     "omegaconf",
+    "scikit-learn>=1.7.2",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,10 @@ dev = [
     # Notebook/Interactive tools
     "ipykernel",
     "ipywidgets",
+]
+eval = [
+    "wavio",
+    "h5py",
 ]
 
 [tool.hatch.build.targets.wheel]

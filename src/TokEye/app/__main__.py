@@ -26,12 +26,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # Current working directory
 cwd = Path.cwd()
 
-
-def create_directories():
-    for directory in ["cache", "outputs", "annotations", "model", "data"]:
-        (cwd / directory).mkdir(exist_ok=True)
-
-
 def create_app() -> gr.Blocks:
     with gr.Blocks(
         title=APP_TITLE,
@@ -75,7 +69,6 @@ def launch(app, port):
 if __name__ == "__main__":
     logging.info(f"Initializing TokEye in: {cwd}")
     # Set up
-    create_directories()
     app = create_app()
     # Launch application
     port = get_port()

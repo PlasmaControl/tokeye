@@ -209,10 +209,15 @@ __marimo__/
 # Custom directories
 cache/
 outputs/
+data/input/
+data/eval/
+
+# Directories
+scripts/
 
 # Filetypes
 *.ckpt
-*.pt2
 *.pt
+*.pt2
 *.npy
 *.zip
