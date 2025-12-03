@@ -20,8 +20,6 @@ def compute_stft(
         sxx = sxx[0] * np.conj(sxx[1])
     elif sxx.shape[0] == 1:
         sxx = sxx[0]
-    else:
-        raise ValueError("Sxx can only have 1 or 2 channels")
 
     sxx = np.abs(sxx)
     sxx = np.log1p(sxx)
