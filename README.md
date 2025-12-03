@@ -60,6 +60,14 @@ Coming soon.
 python -m TokEye.app
 ```
 
+This will start a web app on `http://localhost:8888`.
+
+If you are on a remote server, you can use SSH port forwarding to access the web app on your local machine:
+```bash
+ssh -L 8888:localhost:7860 user@remote_server
+```
+Then open your web browser and navigate to `http://localhost:8888`.
+
 ## Models
 Pre-trained models are available at [this link](https://drive.google.com/drive/folders/1rXllPXB3eWhMvSIlp0CDSFx68lJOQG1u?usp=drive_link).
 Copy them into the `models/` directory after downloading them.
