@@ -1,10 +1,11 @@
 import logging
+from pathlib import Path
 
 import gradio as gr
 
 from .load import (
-    get_available_models,
-    get_available_signals,
+    find_models,
+    find_signals,
     load_multi,
     load_single,
     model_infer,
@@ -29,10 +30,9 @@ def setup_stft_transform(n_fft, hop_length, clip_dc, clip_low, clip_high):
     }
 
 
-def refresh_dropdowns():
-    """Refresh model and signal dropdowns."""
-    models = get_available_models()
-    signals = get_available_signals()
+def refresh_dropdowns(signal_directory):
+    models = find_models()
+    signals = find_signals(signal_directory)
     return [
         gr.Dropdown(choices=models),
         gr.Dropdown(choices=signals),
@@ -41,12 +41,45 @@ def refresh_dropdowns():
     ]
 
 
+def update_signal_dropdowns(signal_directory):
+    """Update signal dropdowns when signal directory changes."""
+    signals = find_signals(signal_directory)
+    return [
+        gr.Dropdown(choices=signals),
+        gr.Dropdown(choices=signals),
+        gr.Dropdown(choices=signals),
+    ]
+
+
 def toggle_view_groups(mode):
-    """Toggle visibility of enhanced and mask groups based on view mode."""
     return [
         gr.Group(visible=(mode == "Enhanced")),
-        gr.Group(visible=(mode == "Mask")),
+        gr.Group(visible=(mode == "Mask" or mode == "Amplitude")),
     ]
+
+
+def wrapper_model_load(model_file):
+    """Wrapper to convert string path to Path object for model_load."""
+    if not model_file:
+        return None
+    return model_load(Path(model_file))
+
+
+def wrapper_load_single(signal_directory, signal_file, transform_args):
+    """Wrapper to construct filepath from signal directory + signal file."""
+    if not signal_directory or not signal_file or transform_args is None:
+        return None
+    return load_single(Path(signal_directory) / signal_file, transform_args)
+
+
+def wrapper_load_multi(signal_directory, signal_1, signal_2, transform_args):
+    """Wrapper to construct list of filepaths from signal directory + signal files."""
+    if not signal_directory or not signal_1 or not signal_2 or transform_args is None:
+        return None
+    return load_multi(
+        [Path(signal_directory) / signal_1, Path(signal_directory) / signal_2],
+        transform_args,
+    )
 
 
 def analyze_tab():
@@ -60,7 +93,7 @@ def analyze_tab():
             model_file = gr.Dropdown(
                 label="Analysis Model",
                 info="Select Model For Analysis",
-                choices=get_available_models(),
+                choices=find_models(),
                 interactive=True,
                 allow_custom_value=True,
             )
@@ -78,11 +111,18 @@ def analyze_tab():
                 clip_dc = gr.Checkbox(value=True, label="Remove DC (Bottom) Bin")
                 setup_tranform_stft_btn = gr.Button("Setup Transform")
 
+        ## Signal Directory
+        signal_directory = gr.Textbox(
+            label="Signal Directory",
+            value="data/input",
+            info="Directory containing shot subdirectories",
+        )
+
         with gr.Tab("Single Signal Input"), gr.Column():
             signal_single = gr.Dropdown(
                 label="Signal",
                 info="Select Signal for Analysis",
-                choices=get_available_signals(),
+                choices=[],
                 interactive=True,
                 allow_custom_value=True,
             )
@@ -93,14 +133,14 @@ def analyze_tab():
             signal_1 = gr.Dropdown(
                 label="Signal 1",
                 info="Select First Signal for Analysis",
-                choices=get_available_signals(),
+                choices=[],
                 interactive=True,
                 allow_custom_value=True,
             )
             signal_2 = gr.Dropdown(
                 label="Signal 2",
                 info="Select Second Signal for Analysis",
-                choices=get_available_signals(),
+                choices=[],
                 interactive=True,
                 allow_custom_value=True,
             )
@@ -116,7 +156,7 @@ def analyze_tab():
         with gr.Column():
             with gr.Row():
                 view_mode = gr.Radio(
-                    choices=["Original", "Enhanced", "Mask"],
+                    choices=["Original", "Enhanced", "Mask", "Amplitude"],
                     value="Enhanced",
                     label="View Mode",
                 )
@@ -148,13 +188,20 @@ def analyze_tab():
     ## Refresh Page
     refresh_btn.click(
         fn=refresh_dropdowns,
-        inputs=[],
+        inputs=[signal_directory],
         outputs=[model_file, signal_single, signal_1, signal_2],
+    )
+
+    ## Signal Directory - Update signal dropdowns when directory changes
+    signal_directory.change(
+        fn=update_signal_dropdowns,
+        inputs=[signal_directory],
+        outputs=[signal_single, signal_1, signal_2],
     )
 
     ## Model
     load_model_btn.click(
-        fn=model_load,
+        fn=wrapper_model_load,
         inputs=[model_file],
         outputs=[model],
     )
@@ -174,8 +221,9 @@ def analyze_tab():
 
     ## Signal
     load_single_btn.click(
-        fn=load_single,
+        fn=wrapper_load_single,
         inputs=[
+            signal_directory,
             signal_single,
             transform_args,
         ],
@@ -195,8 +243,9 @@ def analyze_tab():
         outputs=[extract_out],
     )
     load_multi_btn.click(
-        fn=load_multi,
+        fn=wrapper_load_multi,
         inputs=[
+            signal_directory,
             signal_1,
             signal_2,
             transform_args,

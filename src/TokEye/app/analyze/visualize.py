@@ -100,6 +100,46 @@ def mask(
     return rgb
 
 
+def amplitude(
+    arr_original: np.ndarray,
+    arr_extract: np.ndarray,
+    ch0_enabled: bool,
+    ch1_enabled: bool,
+    threshold: float,
+) -> np.ndarray:
+    """Create amplitude view (spectral gate).
+
+    Combines masks from both channels (union), then multiplies with original spectrogram.
+
+    Args:
+        arr_original: 2D array (height, width), original spectrogram
+        arr_extract: 3D array (n_channels, height, width), values in [0, 1]
+        ch0_enabled: Show channel 0 (green) - coherent events
+        ch1_enabled: Show channel 1 (red) - transient events
+        threshold: Binary threshold value
+
+    Returns:
+        2D array ready for plotting
+    """
+    n_channels, h, w = arr_extract.shape
+
+    # Create binary masks for both channels
+    mask_ch0 = (
+        (arr_extract[0] > threshold) if ch0_enabled else np.zeros((h, w), dtype=bool)
+    )
+    mask_ch1 = (
+        (arr_extract[1] > threshold) if ch1_enabled else np.zeros((h, w), dtype=bool)
+    )
+
+    # Combine masks (union)
+    combined_mask = mask_ch0 | mask_ch1
+
+    # Apply spectral gate: multiply original by combined mask
+    gated = arr_original * combined_mask.astype(np.float32)
+
+    return gated
+
+
 def show_image(
     view_mode: str,
     arr: np.ndarray,
@@ -113,14 +153,14 @@ def show_image(
     """Render visualization based on view mode.
 
     Args:
-        view_mode: One of "Original", "Enhanced", or "Mask"
+        view_mode: One of "Original", "Enhanced", "Mask", or "Amplitude"
         arr: 2D array for original view
-        arr_extract: 3D array (n_channels, height, width) for enhanced/mask views
+        arr_extract: 3D array (n_channels, height, width) for enhanced/mask/amplitude views
         out_1_enabled: Enable channel 0 visualization
         out_2_enabled: Enable channel 1 visualization
         vmin: Min value for clipping (enhanced view)
         vmax: Max value for clipping (enhanced view)
-        threshold: Threshold for binary mask (mask view)
+        threshold: Threshold for binary mask (mask and amplitude views)
     """
     try:
         if view_mode == "Original":
@@ -137,6 +177,14 @@ def show_image(
                 logger.warning("No inference data for Mask view")
                 return None
             display_arr = mask(arr_extract, out_1_enabled, out_2_enabled, threshold)
+
+        elif view_mode == "Amplitude":
+            if arr_extract is None:
+                logger.warning("No inference data for Amplitude view")
+                return None
+            display_arr = amplitude(
+                arr, arr_extract, out_1_enabled, out_2_enabled, threshold
+            )
 
         else:
             logger.error(f"Unknown view mode: {view_mode}")
