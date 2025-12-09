@@ -216,8 +216,9 @@ data/eval/
 scripts/
 
 # Filetypes
-*.ckpt
+*.npy
 *.pt
 *.pt2
 *.npy
+*.ckpt
 *.zip
