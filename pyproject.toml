@@ -1,9 +1,9 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build"]
+build-backend = "uv_build"
 
 [project]
-name = "tokeye"
+name = "TokEye"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -23,7 +23,8 @@ dependencies = [
     "pydantic",
     "lightning",
     "omegaconf",
-    "scikit-learn>=1.7.2",
+    "scikit-learn",
+    "tables",
 ]
 
 [project.optional-dependencies]
@@ -35,23 +36,14 @@ dev = [
     "pytest-xdist",
     "ruff",
 
-    # Notebook/Interactive tools
     "ipykernel",
     "ipywidgets",
 ]
 eval = [
     "wavio",
     "h5py",
+    "faith",
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/TokEye"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
 
 [tool.coverage.run]
 source = ["src/TokEye"]
@@ -89,3 +81,10 @@ ignore = [
 
 [tool.uv]
 package = true
+
+[tool.uv.build-backend]
+module-name = "TokEye"
+module-root = "src"
+
+[tool.uv.sources]
+faith = { path = "../FusionAIHub" }
