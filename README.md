@@ -78,6 +78,14 @@ Copy them into the `models/` directory after downloading them.
 - big_mode_v1.pt: Original training regime (window = 1024, hop = 128)
 - big_mode_v2.pt: Trained on multiscale (multiwindow, multihop) spectrograms
 
+Input should be a tensor that has shape (B, 1, H, W) where B, H, and W can vary
+Output will be a tensor of shape (B, 2, H, W)
+
+Best performance when spectrograms are oriented so that when they are plotted with matplotlib, the lowest frequency bin is oriented with the bottom when `origin='lower'`. Spectrograms should be standardized (mean = 0, std = 1). If baseline activity is very strong, clipping the input may help, but is generally not needed.
+
+The first channel of the output will return preferential measurements of coherent activity (useful for most tasks)
+THe second channel of the output will return preferential measurements of transient activity
+
 ## Data
 Right now, keep all data as 1d numpy float arrays. No need to normalize or preprocess them.
 Copy them into the `data/` directory.
