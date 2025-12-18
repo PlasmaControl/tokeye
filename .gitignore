@@ -211,6 +211,7 @@ cache/
 outputs/
 data/
 dev/
+logs/
 lightning_logs/
 
 # Filetypes
