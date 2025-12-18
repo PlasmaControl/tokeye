@@ -450,6 +450,9 @@ def get_loss_function(settings: dict) -> nn.Module:
     elif loss_type == "iou":
         return IoULoss()
 
+    elif loss_type == "mse":
+        return nn.MSELoss()
+
     else:
         raise ValueError(f"Unknown loss type: {loss_type}")
 
