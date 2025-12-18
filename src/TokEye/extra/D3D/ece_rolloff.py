@@ -1,89 +1,66 @@
-import sys
 from pathlib import Path
+import argparse
+import logging
 
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
-def load_rolloff_coefficients(file_path="data/extra/D3D/ece_rolloff.csv"):
-    """Load rolloff correction coefficients from CSV file."""
-    try:
-        df = pd.read_csv(file_path, header=None)
-        freq_rolloff = df.iloc[:, 0].values
-        rolloff_coeff = df.iloc[:, 1].values
-        return freq_rolloff, rolloff_coeff
-    except Exception as e:
-        raise RuntimeError(f"Error loading rolloff coefficients: {e}")
+default_settings = {
+    "csv_path": "data/extra/D3D/ece_rolloff.csv",
+}
+
+
+def load_rolloff(csv_path: str = default_settings["csv_path"]):
+    """Load rolloff frequency and coefficients from CSV."""
+    df = pd.read_csv(csv_path, header=None)
+    freq_rolloff = df.iloc[:, 0].values
+    rolloff_coeff = df.iloc[:, 1].values
+    return freq_rolloff, rolloff_coeff
+
+
+def interpolate_rolloff(spec_shape: tuple, freq_rolloff: np.ndarray, 
+                        rolloff_coeff: np.ndarray, fs: int) -> np.ndarray:
+    """Interpolate rolloff coefficients to match spectrogram frequency bins."""
+    freq_bins = spec_shape[0]
+    max_freq = freq_rolloff.max()
+    freq_per_bin = max_freq / fs
+    spec_freq_array = np.arange(freq_bins) * freq_per_bin
+    return np.interp(spec_freq_array, freq_rolloff, rolloff_coeff)
+
+
+def apply_rolloff(spec: np.ndarray, rolloff_coeff: np.ndarray) -> np.ndarray:
+    """Apply rolloff correction to spectrogram."""
+    return spec * rolloff_coeff[:, np.newaxis]
+
+
+def save_spectrogram(spec: np.ndarray, input_path: Path, output_dir: Path = Path("data/output")):
+    """Save corrected spectrogram to output directory."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / input_path.name
+    np.save(output_path, spec)
+    print(f"Saved corrected spectrogram to: {output_path}")
+    return output_path
+
+
+def process_spectrogram(input_path: str, fs: int, csv_path: str) -> Path:
+    """Main processing pipeline for applying ECE rolloff correction."""
+    logger.info(f"Apply rolloff with a sampling frequency of {fs} kHz")
+    
+    spec = np.load(Path(input_path))
+    freq_rolloff, rolloff_coeff = load_rolloff(csv_path)
+    spec_rolloff_coeff = interpolate_rolloff(spec.shape, freq_rolloff, rolloff_coeff, fs)
+    corrected_spec = apply_rolloff(spec, spec_rolloff_coeff)
+    
+    return save_spectrogram(corrected_spec, Path(input_path))
 
 
 if __name__ == "__main__":
-    # Parse arguments
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python ece_rolloff.py <spectrogram.npy> <bin_index> [--csv <path>]"
-        )
-        print("  bin_index: integer or 'max' for highest frequency bin")
-        sys.exit(1)
-
-    input_path = sys.argv[1]
-    bin_arg = sys.argv[2]
-
-    # Parse optional CSV path
-    csv_path = "data/extra/D3D/ece_rolloff.csv"
-    if "--csv" in sys.argv:
-        csv_idx = sys.argv.index("--csv") + 1
-        if csv_idx < len(sys.argv):
-            csv_path = sys.argv[csv_idx]
-
-    # Load spectrogram
-    try:
-        spec = np.load(Path(input_path))
-    except FileNotFoundError:
-        print(f"Error: Input file not found: {input_path}")
-        sys.exit(1)
-
-    if spec.ndim != 2:
-        print(f"Error: Input must be 2D spectrogram, got shape {spec.shape}")
-        sys.exit(1)
-
-    # Load rolloff coefficients
-    freq_rolloff, rolloff_coeff = load_rolloff_coefficients(csv_path)
-
-    # Parse bin index
-    if bin_arg.lower() == "max":
-        bin_index = spec.shape[0] - 1
-    else:
-        try:
-            bin_index = int(bin_arg)
-            if bin_index <= 0 or bin_index >= spec.shape[0]:
-                print(
-                    f"Error: bin_index must be in range (0, {spec.shape[0]}), got {bin_index}"
-                )
-                sys.exit(1)
-        except ValueError:
-            print(f"Error: bin_index must be integer or 'max', got '{bin_arg}'")
-            sys.exit(1)
-
-    # Calculate frequency mapping
-    freq_bins = spec.shape[0]
-    max_freq = freq_rolloff.max()
-    freq_per_bin = max_freq / bin_index
-
-    # Generate frequency array for all spectrogram bins
-    spec_freq_array = np.arange(freq_bins) * freq_per_bin
-
-    # Interpolate rolloff coefficients to match spectrogram bins
-    spec_rolloff_coeff = np.interp(spec_freq_array, freq_rolloff, rolloff_coeff)
-
-    # Apply correction (broadcast multiply across time axis)
-    corrected_spec = spec * spec_rolloff_coeff[:, np.newaxis]
-
-    # Save output
-    output_dir = Path("data/output")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    input_name = Path(input_path).name
-    output_path = output_dir / input_name
-
-    np.save(output_path, corrected_spec)
-    print(f"Saved corrected spectrogram to: {output_path}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_path", type=str, help="Path to input spectrogram")
+    parser.add_argument("fs", type=int, help="Sampling frequency [kHz]", default=500)
+    parser.add_argument("--csv", type=str, help="Path to CSV file", default=default_settings["csv_path"])
+    args = parser.parse_args()
+    
+    process_spectrogram(args.input_path, args.fs, args.csv)
