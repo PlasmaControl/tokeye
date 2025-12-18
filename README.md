@@ -27,8 +27,6 @@ Recall Scores:
 - TJII2021: 0.8254
 - DCLDE2011 (Delphinus capensis): 0.7708
 - DCLDE2011 (Delphinus delphis): 0.7953
-- DCLDE2011 (StenellaLongirostrisLongirostris): 0.6980
-- DCLDE2011 (Tursiops truncatus-SoCal): 0.6310
 
 With more data, comes better models. Please contribute to the project!
 
