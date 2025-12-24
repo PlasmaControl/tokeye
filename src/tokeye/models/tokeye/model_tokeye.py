@@ -34,14 +34,14 @@ class TokEyeConvBlock(nn.Module):
             layers.extend([nn.Dropout2d(p=dropout_rate)])
 
         layers.extend([
-                nn.Conv2d(
-                    in_channels=mid_channels,
-                    out_channels=out_channels,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                ),
-                nn.BatchNorm2d(out_channels),
-                nn.LeakyReLU(inplace=True),
+            nn.Conv2d(
+                in_channels=mid_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(inplace=True),
             ])
 
         if dropout_rate > 0:
@@ -120,19 +120,3 @@ class TokEyeUpBlock(nn.Module):
 
         hidden_states = torch.cat([hidden_states_2, hidden_states_1], dim=1)
         return self.conv(hidden_states)
-
-
-if __name__ == "__main__":
-    # python -m tokeye.models.modules.nn
-    conv_model = TokEyeConvBlock(3, 64)
-    x = torch.randn(1, 3, 256, 256)
-    print(conv_model(x).shape)
-
-    down_model = TokEyeDownBlock(3, 64)
-    x = torch.randn(1, 3, 256, 256)
-    print(down_model(x).shape)
-
-    up_model = TokEyeUpBlock(3, 64)
-    x1 = torch.randn(1, 3, 128, 128)
-    x2 = torch.randn(1, 64, 256, 256)
-    print(up_model(x1, x2).shape)
