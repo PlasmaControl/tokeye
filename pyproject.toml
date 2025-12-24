@@ -46,7 +46,7 @@ eval = [
 ]
 
 [tool.coverage.run]
-source = ["src/TokEye"]
+source = ["src/tokeye"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
@@ -83,7 +83,7 @@ ignore = [
 package = true
 
 [tool.uv.build-backend]
-module-name = "TokEye"
+module-name = "tokeye"
 module-root = "src"
 
 [tool.uv.sources]
