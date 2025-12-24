@@ -16,33 +16,6 @@ from .modules.nn import (
 
 
 class UNet(nn.Module):
-    """
-    UNet architecture with encoder-decoder structure and skip connections.
-
-    This implementation uses a symmetric encoder-decoder architecture with skip
-    connections between corresponding levels. The network progressively downsamples
-    features in the encoder and upsamples in the decoder, combining features via
-    concatenation at each level.
-
-    Args:
-        in_channels: Number of input channels (default: 3 for RGB-like input)
-        out_channels: Number of output channels (default: 1 for binary segmentation)
-        num_layers: Number of downsampling/upsampling layers (default: 4)
-        first_layer_size: Number of filters in the first layer (default: 16).
-                         Subsequent layers double this value at each level.
-        dropout_rate: Dropout probability applied after activations (default: 0.0)
-
-    Example:
-        >>> model = UNet(in_channels=1, out_channels=2, num_layers=4)
-        >>> x = torch.randn(2, 1, 256, 256)
-        >>> logits, = model(x)
-        >>> print(logits.shape)  # torch.Size([2, 2, 256, 256])
-
-    Notes:
-        - Input dimensions should be divisible by 2^(num_layers-1) to avoid issues
-        - Returns a tuple containing logits for compatibility with loss functions
-        - Uses LeakyReLU activation and batch normalization throughout
-    """
 
     def __init__(
         self,
@@ -95,23 +68,6 @@ class UNet(nn.Module):
         )
 
     def forward(self, in_BCHW: torch.Tensor) -> tuple[torch.Tensor]:
-        """
-        Forward pass through the UNet.
-
-        Args:
-            in_BCHW: Input tensor of shape (batch, in_channels, height, width)
-
-        Returns:
-            Tuple containing single element:
-            - logits: Output tensor of shape (batch, out_channels, height, width)
-                     Raw logits before activation (apply sigmoid/softmax externally)
-
-        Example:
-            >>> model = UNet(in_channels=1, out_channels=1)
-            >>> x = torch.randn(4, 1, 256, 256)
-            >>> logits, = model(x)
-            >>> probabilities = torch.sigmoid(logits)
-        """
         skip_BCHW: list[torch.Tensor] = []
 
         # Initial convolution
@@ -137,27 +93,47 @@ class UNet(nn.Module):
         # Final 1x1 convolution
         logits = self.out_conv(decode_BCHW)
 
-        return (logits,)
+        return logits
+
+def build_model(
+    num_layers: int = 5, 
+    first_layer_size: int = 32, 
+    dropout_rate: float = 0.2,
+):
+    model = UNet(
+            in_channels=1,
+            out_channels=2,  # 2 channels: normal (ch0) and baseline (ch1)
+            num_layers=num_layers,
+            first_layer_size=first_layer_size,
+            dropout_rate=dropout_rate,
+        )
+    return model
+
+def load_model(
+    model_path: str,
+    device: str = "auto",
+):
+    model = build_model()
+    model.load_state_dict(torch.load(
+        model_path, 
+        map_location=device,
+        weights_only=True,
+    ))
+    return model
 
 
 if __name__ == "__main__":
     # python -m TokEye.models.unet
     import torch
-    from torchinfo import summary  # type: ignore[import-not-found]
+    from torchinfo import summary
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = UNet(
-        in_channels=1,
-        out_channels=2,
-        num_layers=5,
-        first_layer_size=16,
-        dropout_rate=0.2,
-    )
+    model = build_model(first_layer_size=16)
     input_size = (2, 1, 513, 516)
     dtype = torch.float32
 
     summary(model, input_size=input_size, dtypes=[dtype], device=device)
 
     with torch.no_grad():
-        (output,) = model(torch.randn(input_size).to(device))
+        output = model(torch.randn(input_size).to(device))
         print(f"Output shape: {output.shape}")
