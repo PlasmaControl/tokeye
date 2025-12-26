@@ -70,10 +70,14 @@ ssh -L 8888:localhost:7860 user@remote_server
 Then open your web browser and navigate to `http://localhost:8888`.
 
 ## Models
-Pre-trained models are available at [this link](https://drive.google.com/drive/folders/1rXllPXB3eWhMvSIlp0CDSFx68lJOQG1u?usp=drive_link).
+Pre-trained models are available at [this link](https://huggingface.co/collections/nc1/tokeye).
+
+(soon to be deprecated) Pre-trained models are available at [this link](https://drive.google.com/drive/folders/1rXllPXB3eWhMvSIlp0CDSFx68lJOQG1u?usp=drive_link).
+
 Copy them into the `models/` directory after downloading them.
 - big_mode_v1.pt: Original training regime (window = 1024, hop = 128)
 - big_mode_v2.pt: Trained on multiscale (multiwindow, multihop) spectrograms
+- big_tf_unet_251210.pt: Trained on multiscale (multiwindow, multihop) spectrograms
 
 Input should be a tensor that has shape (B, 1, H, W) where B, H, and W can vary
 Output will be a tensor of shape (B, 2, H, W)
