@@ -1,19 +1,17 @@
+import logging
 import sys
 from pathlib import Path
 
 import joblib
-
 import torch
 from torchaudio.transforms import Preemphasis
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
+    load_input_paths,
     load_settings,
     setup_directory,
-    load_input_paths,
 )
 from .utils.parmap import ParallelMapper
 
@@ -33,7 +31,7 @@ def process_single(
     """Process a single input path."""
 
     data = joblib.load(input_path)
-    key = [k for k in data.keys() if k != "time_ms"][0]
+    key = [k for k in data if k != "time_ms"][0]
 
     filtered_data = data[key]
     filtered_data = torch.from_numpy(filtered_data)

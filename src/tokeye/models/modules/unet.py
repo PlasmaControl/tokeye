@@ -91,23 +91,21 @@ class UNet(nn.Module):
             )
 
         # Final 1x1 convolution
-        logits = self.out_conv(decode_BCHW)
+        return self.out_conv(decode_BCHW)
 
-        return logits
 
 def build_model(
-    num_layers: int = 5, 
-    first_layer_size: int = 32, 
+    num_layers: int = 5,
+    first_layer_size: int = 32,
     dropout_rate: float = 0.2,
 ):
-    model = UNet(
+    return UNet(
             in_channels=1,
             out_channels=2,  # 2 channels: normal (ch0) and baseline (ch1)
             num_layers=num_layers,
             first_layer_size=first_layer_size,
             dropout_rate=dropout_rate,
         )
-    return model
 
 def load_model(
     model_path: str,
@@ -115,7 +113,7 @@ def load_model(
 ):
     model = build_model()
     model.load_state_dict(torch.load(
-        model_path, 
+        model_path,
         map_location=device,
         weights_only=True,
     ))

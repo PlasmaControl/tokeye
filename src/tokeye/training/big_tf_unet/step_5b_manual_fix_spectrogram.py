@@ -1,14 +1,14 @@
-import sys
 import io
+import logging
+import sys
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox, ttk
+
+import joblib
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import tkinter as tk
-from tkinter import ttk, messagebox
 from PIL import Image
-import joblib
-
-import logging
 
 logger = logging.getLogger(__name__)
 

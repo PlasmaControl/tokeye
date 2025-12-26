@@ -2,8 +2,10 @@
 # Author: James Lyons 2012
 # Edited by Joshua Zingale 2023
 
-import numpy as np
 import logging
+
+import numpy as np
+
 
 def frame_signal(signal, frame_len: int, frame_step: float):
     '''Frame a signal into overlapping frames. The input must have frame_len <= len(signal)
@@ -27,7 +29,7 @@ def frame_signal(signal, frame_len: int, frame_step: float):
 
     # Get the first index of each frame
     starting_indices = np.linspace(0, slen - frame_len, num_frames).round().astype(int)
-    
+
     # Get set of indices that will make up each frame's values
     frame_indices = np.arange(0, frame_len) + starting_indices.reshape(-1, 1)
 

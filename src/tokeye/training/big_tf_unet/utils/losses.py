@@ -38,8 +38,7 @@ class LabelSmoothingBCELoss(nn.Module):
         targets_smooth = targets * (1 - self.smoothing) + self.smoothing
 
         # Compute BCE with logits
-        loss = F.binary_cross_entropy_with_logits(logits, targets_smooth)
-        return loss
+        return F.binary_cross_entropy_with_logits(logits, targets_smooth)
 
 
 class SymmetricCrossEntropyLoss(nn.Module):
@@ -83,8 +82,7 @@ class SymmetricCrossEntropyLoss(nn.Module):
         rce = rce.mean()
 
         # Combine
-        loss = self.alpha * rce + self.beta * ce
-        return loss
+        return self.alpha * rce + self.beta * ce
 
 
 class DiceLoss(nn.Module):
@@ -148,7 +146,7 @@ class CombinedLoss(nn.Module):
         Compute weighted combination of all losses.
         """
         total_loss = 0.0
-        for loss_fn, weight in zip(self.losses, self.weights):
+        for loss_fn, weight in zip(self.losses, self.weights, strict=False):
             total_loss += weight * loss_fn(logits, targets)
         return total_loss
 
@@ -284,7 +282,7 @@ class PixelContrastiveLoss(nn.Module):
         _, C, H_mask, W_mask = masks.shape
 
         # Downsample masks to match embedding spatial resolution
-        if H != H_mask or W != W_mask:
+        if H_mask != H or W_mask != W:
             masks = F.interpolate(masks, size=(H, W), mode="nearest")
 
         # Flatten spatial dimensions: (B, D, H*W) -> (B*H*W, D)
@@ -381,9 +379,8 @@ class PixelContrastiveLoss(nn.Module):
         )
         mean_log_prob_pos = mean_log_prob_pos[valid_rows]
 
-        loss = -mean_log_prob_pos.mean()
+        return -mean_log_prob_pos.mean()
 
-        return loss
 
 
 def get_loss_function(settings: dict) -> nn.Module:
@@ -401,19 +398,19 @@ def get_loss_function(settings: dict) -> nn.Module:
     if loss_type == "bce":
         return nn.BCEWithLogitsLoss()
 
-    elif loss_type == "label_smooth_bce":
+    if loss_type == "label_smooth_bce":
         smoothing = settings.get("label_smoothing", 0.1)
         return LabelSmoothingBCELoss(smoothing=smoothing)
 
-    elif loss_type == "symmetric_bce":
+    if loss_type == "symmetric_bce":
         alpha = settings.get("symmetric_alpha", 0.1)
         beta = settings.get("symmetric_beta", 1.0)
         return SymmetricCrossEntropyLoss(alpha=alpha, beta=beta)
 
-    elif loss_type == "dice":
+    if loss_type == "dice":
         return DiceLoss()
 
-    elif loss_type == "dice_bce":
+    if loss_type == "dice_bce":
         dice_weight = settings.get("dice_weight", 0.5)
         bce_weight = settings.get("bce_weight", 0.5)
         return CombinedLoss(
@@ -421,7 +418,7 @@ def get_loss_function(settings: dict) -> nn.Module:
             weights=[dice_weight, bce_weight],
         )
 
-    elif loss_type == "symmetric_bce_dice":
+    if loss_type == "symmetric_bce_dice":
         # Default: symmetric BCE + Dice for maximum robustness
         symmetric_weight = settings.get("symmetric_weight", 0.5)
         dice_weight = settings.get("dice_weight", 0.5)
@@ -432,12 +429,12 @@ def get_loss_function(settings: dict) -> nn.Module:
             weights=[symmetric_weight, dice_weight],
         )
 
-    elif loss_type == "focal":
+    if loss_type == "focal":
         alpha = settings.get("focal_alpha", 0.25)
         gamma = settings.get("focal_gamma", 2.0)
         return FocalLoss(alpha=alpha, gamma=gamma)
 
-    elif loss_type == "focal_dice":
+    if loss_type == "focal_dice":
         focal_weight = settings.get("focal_weight", 0.5)
         dice_weight = settings.get("dice_weight", 0.5)
         alpha = settings.get("focal_alpha", 0.25)
@@ -447,14 +444,13 @@ def get_loss_function(settings: dict) -> nn.Module:
             weights=[focal_weight, dice_weight],
         )
 
-    elif loss_type == "iou":
+    if loss_type == "iou":
         return IoULoss()
 
-    elif loss_type == "mse":
+    if loss_type == "mse":
         return nn.MSELoss()
 
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
+    raise ValueError(f"Unknown loss type: {loss_type}")
 
 
 def dice_coefficient(
@@ -483,8 +479,7 @@ def dice_coefficient(
     if union == 0:
         return torch.tensor(1.0, device=logits.device)
 
-    dice = (2.0 * intersection) / union
-    return dice
+    return (2.0 * intersection) / union
 
 
 def iou_score(
@@ -513,5 +508,4 @@ def iou_score(
     if union == 0:
         return torch.tensor(1.0, device=logits.device)
 
-    iou = intersection / union
-    return iou
+    return intersection / union

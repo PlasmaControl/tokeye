@@ -3,9 +3,6 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from sympy import Array
-
-from TokEye.processing.postprocess import apply_threshold
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +132,8 @@ def amplitude(
     combined_mask = mask_ch0 | mask_ch1
 
     # Apply spectral gate: multiply original by combined mask
-    gated = arr_original * combined_mask.astype(np.float32)
+    return arr_original * combined_mask.astype(np.float32)
 
-    return gated
 
 
 def show_image(

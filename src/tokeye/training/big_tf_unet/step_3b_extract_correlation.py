@@ -1,18 +1,16 @@
+import logging
 import sys
 from pathlib import Path
 
-from tqdm.auto import tqdm
-
 import joblib
-
-import logging
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 
