@@ -33,4 +33,4 @@ jobs:
           uv run ruff check .
       - name: Test with pytest
         run: |
-          pytest
+          uv run pytest
