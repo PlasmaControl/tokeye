@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from skimage.morphology import closing, opening, disk, footprint_rectangle
+from skimage.morphology import closing, footprint_rectangle, opening
 
 
 class AzaSpectral:
@@ -23,8 +23,7 @@ class AzaSpectral:
             thr = self.quantfilt_threshold
         minimum = data.min()
         filt = np.quantile(data, thr, axis=1, keepdims=True)
-        out = np.where(data < filt, minimum, data)
-        return out
+        return np.where(data < filt, minimum, data)
 
     # gaussian filtering
     def gaussblr(self, data, filt=None):
@@ -53,8 +52,7 @@ class AzaSpectral:
         x = self.gaussblr(x)
         x = self.meansub(x)
         x = self.morph(x)
-        x = self.meansub(x)
-        return x
+        return self.meansub(x)
 
 
 class KourocheSpectral:
@@ -69,5 +67,4 @@ class KourocheSpectral:
         x_gate = x_gate.astype(np.float32)
         x_gate = gaussian_filter(x_gate, self.gate_smooth)
         x_gate = (x_gate - x_gate.min()) / (x_gate.max() - x_gate.min())
-        x = x * (x_gate * self.gate_factor + (1 - self.gate_factor))
-        return x
+        return x * (x_gate * self.gate_factor + (1 - self.gate_factor))

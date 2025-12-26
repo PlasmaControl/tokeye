@@ -1,6 +1,6 @@
-from pathlib import Path
 import argparse
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ def load_rolloff(csv_path: str = default_settings["csv_path"]):
     return freq_rolloff, rolloff_coeff
 
 
-def interpolate_rolloff(spec_shape: tuple, freq_rolloff: np.ndarray, 
+def interpolate_rolloff(spec_shape: tuple, freq_rolloff: np.ndarray,
                         rolloff_coeff: np.ndarray, fs: int) -> np.ndarray:
     """Interpolate rolloff coefficients to match spectrogram frequency bins."""
     freq_bins = spec_shape[0]
@@ -47,12 +47,12 @@ def save_spectrogram(spec: np.ndarray, input_path: Path, output_dir: Path = Path
 def process_spectrogram(input_path: str, fs: int, csv_path: str) -> Path:
     """Main processing pipeline for applying ECE rolloff correction."""
     logger.info(f"Apply rolloff with a sampling frequency of {fs} kHz")
-    
+
     spec = np.load(Path(input_path))
     freq_rolloff, rolloff_coeff = load_rolloff(csv_path)
     spec_rolloff_coeff = interpolate_rolloff(spec.shape, freq_rolloff, rolloff_coeff, fs)
     corrected_spec = apply_rolloff(spec, spec_rolloff_coeff)
-    
+
     return save_spectrogram(corrected_spec, Path(input_path))
 
 
@@ -62,5 +62,5 @@ if __name__ == "__main__":
     parser.add_argument("fs", type=int, help="Sampling frequency [kHz]", default=500)
     parser.add_argument("--csv", type=str, help="Path to CSV file", default=default_settings["csv_path"])
     args = parser.parse_args()
-    
+
     process_spectrogram(args.input_path, args.fs, args.csv)

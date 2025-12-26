@@ -1,18 +1,17 @@
+import logging
 import sys
-import numpy as np
 from pathlib import Path
 
 import joblib
+import numpy as np
 import tifffile as tif
 from tqdm.auto import tqdm
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
@@ -33,7 +32,7 @@ def load_train_directories(train_dirs_file: Path) -> list[Path]:
         return []
 
     directories = []
-    with open(train_dirs_file, "r") as f:
+    with open(train_dirs_file) as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
@@ -193,16 +192,14 @@ def process_data_img(
     magnitude = (magnitude - mean) / std
 
     # Ensure float32 for ImageJ compatibility
-    magnitude = magnitude.astype(np.float32)
+    return magnitude.astype(np.float32)
 
-    return magnitude
 
 
 def process_data_mask(data: np.ndarray) -> np.ndarray:
     """Process mask data: extract first channel and convert to float32."""
     data = data[..., 0]
-    data = data.astype(np.float32)
-    return data
+    return data.astype(np.float32)
 
 
 def process_data_mask_dual(
@@ -216,8 +213,7 @@ def process_data_mask_dual(
     mask_normal[-4:] = 0
 
     # Stack as (2, H, W) where channel 0 = normal, channel 1 = baseline
-    mask_stacked = np.stack([mask_normal, mask_baseline], axis=0)
-    return mask_stacked
+    return np.stack([mask_normal, mask_baseline], axis=0)
 
 
 def get_num_channels(input_path: Path) -> int:
@@ -362,7 +358,7 @@ def process_pairs_parallel(
     ]
 
     # Create task tuples (img_path, mask_path, mask_path_baseline, offset) for parallel processing
-    tasks = list(zip(img_paths, mask_paths, mask_paths_baseline, file_offsets))
+    tasks = list(zip(img_paths, mask_paths, mask_paths_baseline, file_offsets, strict=False))
 
     # Process pairs in parallel
     logger.info("Processing pairs in parallel...")
@@ -440,7 +436,7 @@ def main(
         # Save statistics to file
         with open(stats_file, "a") as f:
             f.write(f"Directory: {train_dir}\n")
-            for i, (mean, std) in enumerate(zip(stats["means"], stats["stds"])):
+            for i, (mean, std) in enumerate(zip(stats["means"], stats["stds"], strict=False)):
                 f.write(f"  Channel {i}: mean={mean:.6f}, std={std:.6f}\n")
             f.write("\n")
 
@@ -459,7 +455,7 @@ def main(
         logger.info(f"Completed directory: {train_dir}")
 
     logger.info(f"\n{'=' * 80}")
-    logger.info(f"Processing complete!")
+    logger.info("Processing complete!")
     logger.info(f"Processed: {total_processed} directories")
     logger.info(f"Skipped: {total_skipped} directories")
     logger.info(f"Total TIF pairs created: {global_save_index}")

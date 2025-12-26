@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class crop(nn.Module):
@@ -9,8 +8,7 @@ class crop(nn.Module):
 
     def forward(self, x):
         N, C, H, W = x.shape
-        x = x[0:N, 0:C, 0 : H - 1, 0:W]  # crop last row
-        return x
+        return x[0:N, 0:C, 0 : H - 1, 0:W]  # crop last row
 
 
 class shift(nn.Module):
@@ -21,8 +19,7 @@ class shift(nn.Module):
 
     def forward(self, x):
         x = self.shift_down(x)
-        x = self.crop(x)
-        return x
+        return self.crop(x)
 
 
 class super_shift(nn.Module):
@@ -34,8 +31,7 @@ class super_shift(nn.Module):
 
         x = nn.ZeroPad2d((0, 0, shift_offset, 0))(x)  # left right top bottom
         N, C, H, W = x.shape
-        x = x[0:N, 0:C, 0 : H - shift_offset, 0:W]  # crop last rows
-        return x
+        return x[0:N, 0:C, 0 : H - shift_offset, 0:W]  # crop last rows
 
 
 class Conv(nn.Module):
@@ -70,8 +66,7 @@ class Conv(nn.Module):
         x = self.conv(x)
         if self.blind:
             x = self.crop(x)
-        x = self.relu(x)
-        return x
+        return self.relu(x)
 
 
 class Pool(nn.Module):
@@ -85,8 +80,7 @@ class Pool(nn.Module):
     def forward(self, x):
         if self.blind:
             x = self.shift(x)
-        x = self.pool(x)
-        return x
+        return self.pool(x)
 
 
 class rotate(nn.Module):
@@ -97,8 +91,7 @@ class rotate(nn.Module):
         x90 = x.transpose(2, 3).flip(3)
         x180 = x.flip(2).flip(3)
         x270 = x.transpose(2, 3).flip(2)
-        x = torch.cat((x, x90, x180, x270), dim=0)
-        return x
+        return torch.cat((x, x90, x180, x270), dim=0)
 
 
 class unrotate(nn.Module):
@@ -110,8 +103,7 @@ class unrotate(nn.Module):
         x90 = x90.transpose(2, 3).flip(2)
         x180 = x180.flip(2).flip(3)
         x270 = x270.transpose(2, 3).flip(3)
-        x = torch.cat((x0, x90, x180, x270), dim=1)
-        return x
+        return torch.cat((x0, x90, x180, x270), dim=1)
 
 
 class ENC_Conv(nn.Module):
@@ -351,9 +343,8 @@ class ATBSN(nn.Module):
             x = self.shift(x, hole_size)
 
         x = self.unrotate(x)
-        x = self.unconcat(x)
+        return self.unconcat(x)
 
-        return x
 
 
 class N_BSN(nn.Module):  # student c, 1.00m (1.02m in the paper is a typo)
@@ -386,9 +377,8 @@ class N_BSN(nn.Module):  # student c, 1.00m (1.02m in the paper is a typo)
                 m.bias.data.zero_()
 
     def forward(self, x):
-        x0 = self.unet(x)
+        return self.unet(x)
 
-        return x0
 
 
 class DoubleNet(nn.Module):
@@ -404,9 +394,11 @@ class DoubleNet(nn.Module):
     def forward(
         self,
         x,
-        hole_size=[0, 1, 3, 5, 7, 9, 11],
+        hole_size=None,
         mode="test",
     ):
+        if hole_size is None:
+            hole_size = [0, 1, 3, 5, 7, 9, 11]
         if mode == "train":
             res_list = []
             with torch.no_grad():
@@ -414,9 +406,9 @@ class DoubleNet(nn.Module):
                     res_list.append(self.bsn(x, hs))
             x_atbsn = self.nbsn(x)
             return x_atbsn, res_list
-        elif mode == "test":
-            x_atbsn = self.nbsn(x)
-            return x_atbsn
+        if mode == "test":
+            return self.nbsn(x)
+        return None
 
 
 if __name__ == "__main__":

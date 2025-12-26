@@ -1,12 +1,11 @@
+import logging
 import sys
-import numpy as np
-import pandas as pd
 from pathlib import Path
 
 import joblib
+import numpy as np
+import pandas as pd
 from tqdm.auto import tqdm
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +25,7 @@ default_settings = {
 
 def load_frame_info(csv_path: Path) -> pd.DataFrame:
     """Load and parse frame_info.csv."""
-    df = pd.read_csv(csv_path)
-    return df
+    return pd.read_csv(csv_path)
 
 
 def get_shot_files(shotn: int, frame_info: pd.DataFrame) -> list[int]:

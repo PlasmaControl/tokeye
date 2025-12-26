@@ -1,18 +1,19 @@
-from pathlib import Path
 
 import torch
 import torch.nn as nn
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 from torchvision.models.detection import (
-    maskrcnn_resnet50_fpn_v2,
     MaskRCNN_ResNet50_FPN_V2_Weights,
+    maskrcnn_resnet50_fpn_v2,
 )
-from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
 
 from .config_ae_tf_maskrcnn import AETFMaskConfig
+
 
 class AETFMaskModel(nn.Module):
     def __init__(self, config: AETFMaskConfig):
@@ -23,13 +24,13 @@ class AETFMaskModel(nn.Module):
             weights=MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
             )
         in_features = model.roi_heads.box_predictor.cls_score.in_features  # type: ignore[union-attr]
-        
+
         model.roi_heads.box_predictor = FastRCNNPredictor(
-            in_features, 
+            in_features,
             config.num_classes
             )
         in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels  # type: ignore[union-attr]
-        
+
         model.roi_heads.mask_predictor = MaskRCNNPredictor(
             in_features_mask,
             config.hidden_layer,
@@ -52,20 +53,20 @@ class AETFMaskModel(nn.Module):
         for img in images:
             val = img.shape[-2:]
             original_image_sizes.append((val[0], val[1]))
-        
+
         images, targets = self.transform(images, targets)
         features = self.backbone(images.tensors)
         if isinstance(features, torch.Tensor):
             features = {"0": features}
-        
+
         proposals, proposal_losses = self.rpn(images, features, targets)
         detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
-        
+
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
-        
+
         if self.training:
             return losses
         return detections

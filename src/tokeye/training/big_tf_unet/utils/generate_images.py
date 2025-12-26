@@ -1,13 +1,13 @@
+import logging
 import sys
 from pathlib import Path
-import pandas as pd
-import numpy as np
-import joblib
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from scipy.ndimage import label
 
-import logging
+import joblib
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.ndimage import label
 
 logger = logging.getLogger(__name__)
 

@@ -1,18 +1,17 @@
+import logging
+import shutil
 import sys
 from pathlib import Path
-import shutil
 
-import numpy as np
 import h5py
+import numpy as np
 import tifffile as tif
-
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from .utils.parmap import ParallelMapper
 from .utils.configuration import load_settings
+from .utils.parmap import ParallelMapper
 
 default_settings = {
     "input_dir": Path("data/cache/step_6a_convert_tif"),  # Original images and masks
@@ -112,7 +111,7 @@ def apply_refinement_logic(
     )
 
     # Stack refined masks as (2, H, W) and convert to float32
-    refined_mask = np.stack(
+    return np.stack(
         [
             refined_coherent_modes.astype(np.float32),
             refined_transient_modes.astype(np.float32),
@@ -120,7 +119,6 @@ def apply_refinement_logic(
         axis=0,
     )
 
-    return refined_mask
 
 
 def process_single_sample(
@@ -191,7 +189,7 @@ def process_all_samples(settings):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get all input files
-    input_img_files = sorted([p for p in input_dir.glob("*_img.tif")])
+    input_img_files = sorted(input_dir.glob("*_img.tif"))
     n_samples = len(input_img_files)
 
     logger.info(f"Found {n_samples} samples to process")
@@ -220,10 +218,7 @@ def process_all_samples(settings):
 
 
 def main(config_path=None):
-    if config_path is None:
-        settings = default_settings
-    else:
-        settings = load_settings(config_path)
+    settings = default_settings if config_path is None else load_settings(config_path)
 
     process_all_samples(settings)
 

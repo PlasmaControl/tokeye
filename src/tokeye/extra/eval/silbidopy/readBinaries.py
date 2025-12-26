@@ -3,7 +3,6 @@ Read annotations
 Source: https://github.com/joshua-zingale/silbidopy/blob/master/silbidopy/readBinaries.py
 """
 
-from datetime import datetime
 import struct
 
 SHORT_LEN = 2
@@ -23,24 +22,24 @@ class TonalHeader:
 
         # feature bit-mask - describes what has been populated and allows
         # backward compatibility
-            
+
         # features produced for every point
         self.TIME = 1
         self.FREQ = 1 << 1
         self.SNR = 1 << 2
         self.PHASE = 1 << 3
-            
+
         self.RIDGE = 1 << 6
-        
+
         self.TIMESTAMP = 1 << 7  # base timestamp for detections
         self.USERCOMMENT = 1 << 8  # user comment field
-            
+
         # features produced once per call
         self.SCORE = 1 << 4
         self.CONFIDENCE = 1 << 5
         self.SPECIES = 1 << 9
         self.CALL = 1 << 10
-    
+
         self.DEFAULT = self.TIME | self.FREQ
 
         # length of header identifier string
@@ -77,14 +76,14 @@ class TonalHeader:
                 # field.  If none of the string flags are set, read a comment.
                 if (self.bitMask & (self.USERCOMMENT | self.TIMESTAMP)) > 0:
                     # format specifies included fields
-                    
+
                     # Read user comment if applicable
                     if (self.bitMask & self.USERCOMMENT) > 0 :
                         comment_len = int.from_bytes(file.read(2), byteorder = "big")
                         self.comment = str(file.read(comment_len), 'utf-8')
                     else:
                         self.comment = ""
-                    
+
                     # Read base timestamp (UTC ISO8601) if applicable
                     if (self.bitMask & self.TIMESTAMP) > 0:
                         timestamp_len = int.from_bytes(file.read(2), byteorder = "big")
@@ -106,11 +105,11 @@ class TonalHeader:
             self.version = -1
 
 
-    
+
     def getComment(self):
         '''Return any comment specified by the user'''
         return self.comment
-    
+
     def getTimestamp(self):
         '''Return any timestamp specified in the annotation'''
         return self.timestamp
@@ -118,7 +117,7 @@ class TonalHeader:
     def getUserVersion(self):
         '''Return a version specified by the user'''
         return self.userVersion
-	
+
     def getFileFormatVersion(self):
         '''Return the version of the file format'''
         return self.version
@@ -130,7 +129,7 @@ class TonalHeader:
     def hasScore(self):
         '''Are scores available for each tonal?'''
         return (self.bitMask & self.SCORE) > 0
-	
+
     def hasConfidence(self):
         '''Are confidences available for each tonal?'''
         return (self.bitMask & self.CONFIDENCE) > 0
@@ -138,15 +137,15 @@ class TonalHeader:
     def hasTime(self):
         '''Is time available for each tonal?'''
         return (self.bitMask & self.TIME) > 0
-    
+
     def hasFreq(self):
         '''Is frequency available for each tonal?'''
         return (self.bitMask & self.FREQ) > 0
-    
+
     def hasRidge(self):
         '''Is time available for each tonal?'''
         return (self.bitMask & self.RIDGE) > 0
-	
+
     def hasSNR(self):
         '''Is signal to noise ratio available for each tonal?'''
         return (self.bitMask & self.SNR) > 0
@@ -154,11 +153,11 @@ class TonalHeader:
     def hasPhase(self):
         '''Is phase available for each tonal?'''
         return (self.bitMask & self.PHASE) > 0
-    
+
     def hasSpecies(self):
         '''Is there a species entry for each tonal? (Might be an empty string.)'''
         return (self.bitMask & self.SPECIES) > 0
-    
+
     def hasCall(self):
         '''Is there a call for each species? (Might be an empty string.)'''
         return (self.bitMask & self.CALL) > 0
@@ -183,29 +182,28 @@ class tonalReader:
         return self
     def __len__(self):
 
-        length = len([t for t in self])
+        length = len(list(self))
         self.file.close()
         self.__init__(self.filename)
 
         return length
-    
+
     def getHeader(self):
         '''Returns the header object for the loaded file'''
         return self.hdr
-    
+
     def refresh(self):
         '''Resets the file pointer to the first tonal'''
         self.file.close()
         self.__init__(self.filename)
 
-    
+
     def getTimeFrequencyContours(self):
         '''Given the current state of the file pointer, returns contours for
         all succeeding contours in the form of a list of lists of
         (time, frequency) tuples.'''
-        
-        tonals = [[(n["time"], n["freq"]) for n in tonal["tfnodes"]] for tonal in self]
-        return tonals
+
+        return [[(n["time"], n["freq"]) for n in tonal["tfnodes"]] for tonal in self]
 
     def __next__(self):
         '''Returns the next tonal (i.e. the next contour) along with a graph Id in a tuple, (tonal, id)'''
@@ -242,7 +240,7 @@ class tonalReader:
         # Read tonal itself
         if self.hdr.getFileFormatVersion() > 2:
             graphId = int.from_bytes(self.file.read(LONG_LEN), byteorder = "big")
-        
+
         # Read current tonal
         N = int.from_bytes(self.file.read(INT_LEN), byteorder = "big")
         tfnodes = []
@@ -269,7 +267,7 @@ class tonalReader:
 
             tfnodes.append(tfnode)
 
-        tonal = {
+        return {
             "species": species,
             "call": call,
             "graphId": graphId,
@@ -278,4 +276,3 @@ class tonalReader:
             "tfnodes": tfnodes,
         }
 
-        return tonal

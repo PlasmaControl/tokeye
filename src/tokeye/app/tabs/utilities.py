@@ -4,20 +4,17 @@ Utilities Tab for TokEye
 This module provides audio conversion tools and .npy file inspection utilities.
 """
 
+from pathlib import Path
+
 import gradio as gr
 import numpy as np
-from pathlib import Path
-from typing import Optional, Tuple, List
-import io
-import tempfile
-
 
 # ============================================================================
 # Audio Conversion Functions
 # ============================================================================
 
 
-def load_audio_file(audio_file) -> Tuple[Optional[np.ndarray], Optional[int], str]:
+def load_audio_file(audio_file) -> tuple[np.ndarray | None, int | None, str]:
     """
     Load audio file and extract waveform.
 
@@ -71,8 +68,8 @@ def load_audio_file(audio_file) -> Tuple[Optional[np.ndarray], Optional[int], st
 
 
 def convert_audio_to_npy(
-    waveform: Optional[np.ndarray], sample_rate: Optional[int], normalize: bool = True
-) -> Tuple[Optional[str], str]:
+    waveform: np.ndarray | None, sample_rate: int | None, normalize: bool = True
+) -> tuple[str | None, str]:
     """
     Convert audio waveform to .npy file.
 
@@ -130,7 +127,7 @@ Consider saving as: {filepath.stem}_sr{sample_rate}.npy
 
 def process_recorded_audio(
     audio_data,
-) -> Tuple[Optional[np.ndarray], Optional[int], str]:
+) -> tuple[np.ndarray | None, int | None, str]:
     """
     Process audio from gr.Audio component.
 
@@ -240,7 +237,7 @@ def inspect_npy_file(file) -> str:
 # ============================================================================
 
 
-def batch_convert_audio_files(files: List) -> Tuple[str, List[str]]:
+def batch_convert_audio_files(files: list) -> tuple[str, list[str]]:
     """
     Convert multiple audio files to .npy format.
 
@@ -269,7 +266,7 @@ def batch_convert_audio_files(files: List) -> Tuple[str, List[str]]:
     success_count = 0
     failed_files = []
 
-    for i, audio_file in enumerate(files):
+    for _i, audio_file in enumerate(files):
         try:
             # Load audio
             try:
@@ -476,8 +473,7 @@ def utilities_tab():
             filepath, status = convert_audio_to_npy(waveform, sample_rate, normalize)
             if filepath:
                 return status, filepath
-            else:
-                return status, None
+            return status, None
 
         convert_audio_btn.click(
             fn=handle_audio_conversion,
@@ -511,8 +507,7 @@ def utilities_tab():
             )
             if filepath:
                 return status, filepath
-            else:
-                return status, None
+            return status, None
 
         convert_recording_btn.click(
             fn=handle_recording_conversion,
@@ -530,8 +525,7 @@ def utilities_tab():
             status, output_files = batch_convert_audio_files(files)
             if output_files:
                 return status, output_files
-            else:
-                return status, None
+            return status, None
 
         batch_convert_btn.click(
             fn=handle_batch_conversion,

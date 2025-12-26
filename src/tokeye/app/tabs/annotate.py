@@ -6,11 +6,11 @@ The backdrop (loaded from .npy files) is read-only and used as reference only.
 Only the mask layer is editable and saved.
 """
 
+from pathlib import Path
+
 import gradio as gr
 import numpy as np
-from pathlib import Path
 from PIL import Image
-from typing import Optional, Tuple
 
 
 def pil_to_numpy(img: Image.Image) -> np.ndarray:
@@ -22,10 +22,7 @@ def numpy_to_pil(arr: np.ndarray) -> Image.Image:
     """Convert numpy array to PIL Image with RGBA support."""
     # Normalize to 0-255 if needed
     if arr.dtype == np.float32 or arr.dtype == np.float64:
-        if arr.max() <= 1.0:
-            arr = (arr * 255).astype(np.uint8)
-        else:
-            arr = arr.astype(np.uint8)
+        arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
     elif arr.dtype != np.uint8:
         # Clip to valid range
         arr = np.clip(arr, 0, 255).astype(np.uint8)
@@ -57,7 +54,7 @@ def numpy_to_pil(arr: np.ndarray) -> Image.Image:
 # ============================================================================
 
 
-def find_existing_mask(npy_filename: str) -> Optional[str]:
+def find_existing_mask(npy_filename: str) -> str | None:
     """
     Find if there's an existing mask annotation for this npy file.
 
@@ -91,12 +88,12 @@ def find_existing_mask(npy_filename: str) -> Optional[str]:
 
 def load_npy_as_backdrop(
     npy_file,
-) -> Tuple[
-    Optional[Image.Image],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
+) -> tuple[
+    Image.Image | None,
+    np.ndarray | None,
+    np.ndarray | None,
     str,
-    Optional[str],
+    str | None,
 ]:
     """
     Load .npy file as backdrop image and look for existing mask.
@@ -196,10 +193,10 @@ def create_composite_image(
     # Create red overlay where mask is non-zero
     if mask_arr.max() > 0:
         # Create red overlay
-        overlay = Image.new("RGBA", composite.size, (0, 0, 0, 0))
+        Image.new("RGBA", composite.size, (0, 0, 0, 0))
 
         # Convert mask to PIL
-        mask_img = Image.fromarray(mask_arr, mode="L")
+        Image.fromarray(mask_arr, mode="L")
 
         # Create red overlay with alpha channel from mask
         red_overlay = Image.new("RGBA", composite.size)
@@ -220,8 +217,8 @@ def create_composite_image(
 
 
 def save_mask_annotation(
-    mask_arr: Optional[np.ndarray], npy_filename: str, format_choice: str = "npy"
-) -> Optional[str]:
+    mask_arr: np.ndarray | None, npy_filename: str, format_choice: str = "npy"
+) -> str | None:
     """
     Save ONLY the mask annotation (not the backdrop image).
 
@@ -267,8 +264,8 @@ def save_mask_annotation(
 
 
 def extract_mask_from_canvas(
-    canvas_output, backdrop_arr: Optional[np.ndarray]
-) -> Optional[np.ndarray]:
+    canvas_output, backdrop_arr: np.ndarray | None
+) -> np.ndarray | None:
     """
     Extract only the mask layer from the canvas, removing the backdrop.
 
@@ -512,8 +509,7 @@ def annotate_tab():
                 filepath = save_mask_annotation(mask_arr, filename, save_fmt)
                 if filepath:
                     return f"Mask saved successfully to: {filepath}"
-                else:
-                    return "Save failed"
+                return "Save failed"
             except Exception as e:
                 return f"Error: {str(e)}"
 

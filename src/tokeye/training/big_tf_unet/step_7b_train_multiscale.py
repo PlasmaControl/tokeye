@@ -3,15 +3,14 @@ import shutil
 import sys
 from pathlib import Path
 
+import lightning as L
 import numpy as np
 import torch
 import torch.nn.functional as F
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from PIL.Image import Resampling
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import resize
-
-import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 L.seed_everything(42)
 
@@ -139,8 +138,7 @@ def normalize_spectrogram(Sxx: torch.Tensor, norm_config: dict) -> torch.Tensor:
     # vmin = norm_config["mean"] - norm_config["std"] * 3
     # vmax = norm_config["mean"] + norm_config["std"] * 3
     # Sxx = torch.clip(Sxx, vmin, vmax)
-    Sxx = (Sxx - norm_config["mean"]) / (norm_config["std"] + 1e-8)
-    return Sxx
+    return (Sxx - norm_config["mean"]) / (norm_config["std"] + 1e-8)
 
 
 class MultiscaleDataset(Dataset):
@@ -171,7 +169,7 @@ class MultiscaleDataset(Dataset):
 
         logger.info(f"Found {len(self.samples)} samples across all diagnostics")
 
-        self.nfft_sizes = sorted(set(cfg[0] for cfg in scale_configs))
+        self.nfft_sizes = sorted({cfg[0] for cfg in scale_configs})
 
     def __len__(self):
         return len(self.samples)
@@ -441,7 +439,7 @@ class MultiscaleModule(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        elif lr_scheduler_type == "cosine":
+        if lr_scheduler_type == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max=self.settings.get("max_epochs", 100),
@@ -455,8 +453,7 @@ class MultiscaleModule(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        else:
-            return optimizer
+        return optimizer
 
 
 def main(config_path=None):

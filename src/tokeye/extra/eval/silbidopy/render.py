@@ -1,22 +1,21 @@
-import numpy as np
-from .sigproc import magspec, frame_signal
-import wavio
 import math
 from math import ceil
+
+import numpy as np
+import wavio
+
+from .sigproc import frame_signal, magspec
 
 
 def getFrames(audioFile, frame_time_span = 8, step_time_span = 2,
                    start_time = 0, end_time=-1, window_fn = None, get_sequence = False):
     '''Frames a portion of the pressure measurements from an audio file.'''
-    
-    freq_resolution = 1000 / frame_time_span
+
+    1000 / frame_time_span
 
     # Load audio file
-    if type(audioFile) == wavio.Wav:
-        wav_data = audioFile
-    else:
-        wav_data = wavio.read(audioFile)
-    
+    wav_data = audioFile if type(audioFile) == wavio.Wav else wavio.read(audioFile)
+
     # Rescale data if sample width is > 2
     if wav_data.sampwidth > 2:
             wav_data.data //= 2 ** (8 * (wav_data.sampwidth - 2))
@@ -35,12 +34,11 @@ def getFrames(audioFile, frame_time_span = 8, step_time_span = 2,
     if wav_data.data[start_frame:end_frame].shape[0] < frame_sample_span:
         frames = []
         return np.array(frames)
-    else:
-        frames = frame_signal(wav_data.data.ravel()[start_frame:end_frame], frame_sample_span, step_sample_span)
-    
-    if window_fn != None:
-       frames = frames * window_fn(frames.shape[1]) 
-    
+    frames = frame_signal(wav_data.data.ravel()[start_frame:end_frame], frame_sample_span, step_sample_span)
+
+    if window_fn is not None:
+       frames = frames * window_fn(frames.shape[1])
+
     if get_sequence:
         return frames, wav_data.data.ravel()[start_frame:end_frame]
     return frames
@@ -81,7 +79,7 @@ def getComplexSpectrogram(audioFile, frame_time_span = 8, step_time_span = 2,
     # No spectrogram if the audio file is too short
     if len(frames) == 0:
         return np.array([[]], dtype=float), start_time
-    
+
     # #
     # Make spectrogram
     # #
@@ -92,7 +90,7 @@ def getComplexSpectrogram(audioFile, frame_time_span = 8, step_time_span = 2,
 
     # Include only the desired frequency range
     clip_bottom = int(min_freq // freq_resolution)
-    clip_top = int(max_freq // freq_resolution) 
+    clip_top = int(max_freq // freq_resolution)
     spectrogram = singal_magspec.T[clip_bottom:clip_top]
 
     # Flip spectrogram to match expectations for display
@@ -137,12 +135,12 @@ def getSpectrogram(audioFile, frame_time_span = 8, step_time_span = 2, spec_clip
             step_time_span = step_time_span,
             start_time = start_time,
             end_time = end_time, window_fn = window_fn)
-    
+
     # If there was not a long enough segment to form a whole frame,
     # raise an error
     if frames.size == 0:
         raise ValueError(f"""
-        A long enough segment of audio samples was not available to calculate even a single discrete fourier transform 
+        A long enough segment of audio samples was not available to calculate even a single discrete fourier transform
         {start_time=}, {end_time=}
         """)
 
@@ -156,7 +154,7 @@ def getSpectrogram(audioFile, frame_time_span = 8, step_time_span = 2, spec_clip
 
     # Include only the desired frequency range
     clip_bottom = int(min_freq // freq_resolution)
-    clip_top = int(max_freq // freq_resolution) 
+    clip_top = int(max_freq // freq_resolution)
     spectrogram = singal_magspec.T[clip_bottom:clip_top]
     spectrogram = np.log10(spectrogram)
 
@@ -197,7 +195,7 @@ def getAnnotationMask(annotations, frame_time_span = 8, step_time_span = 2,
     '''
 
     freq_resolution = 1000 / frame_time_span
-    
+
     # The spectrogram must start at min_freq = 0. We therefore need to readjust the min and max frequencies
     max_freq = max_freq - (max_freq % freq_resolution)
     min_freq = min_freq - (min_freq % freq_resolution)
@@ -233,12 +231,12 @@ def getAnnotationMask(annotations, frame_time_span = 8, step_time_span = 2,
                 prev_freq_frame = freq_frame
                 first_flag = False
                 continue
-            
+
             # If the time frame is above image width,
             # all future ones will be in this annotation
             if prev_time_frame >= image_width:
                 break
-            
+
             # If time frame is before the image
             if time_frame < -0.5:
                 continue
@@ -249,14 +247,14 @@ def getAnnotationMask(annotations, frame_time_span = 8, step_time_span = 2,
                 continue
 
             # Interpolating line function
-            freq_time_line = (
-                lambda x: freq_frame + (prev_freq_frame - freq_frame) / 
-                (prev_time_frame - time_frame)*(x - time_frame) )
+            def freq_time_line(x):
+                return (freq_frame + (prev_freq_frame - freq_frame) /
+                            (prev_time_frame - time_frame)*(x - time_frame))
 
             distance = np.sqrt((time_frame-prev_time_frame)**2 + (freq_frame - prev_freq_frame)**2)
             # Draw interpolating line
             for t in np.linspace(prev_time_frame, time_frame, math.ceil(distance) + 1):
-                
+
                 t_rounded = round(t)
                 # check that time is within the image
                 if t_rounded < 0 or t_rounded >= image_width:
@@ -267,17 +265,17 @@ def getAnnotationMask(annotations, frame_time_span = 8, step_time_span = 2,
                     curr_freq_rounded = round(freq)
                 else:
                     curr_freq_rounded = round(freq_time_line(t))
-                
+
                 # Check that frequency is within the image
                 if curr_freq_rounded < 0 or curr_freq_rounded >= image_height:
                     continue
-                
+
                 # Draw pixel
                 mask[max(curr_freq_rounded - line_thickness//2,0): curr_freq_rounded + ceil(line_thickness/2), t_rounded] = 1
 
             prev_time_frame = time_frame
             prev_freq_frame = freq_frame
-    
+
     return mask
 
 def expand_annotation_mask(annotation_mask, spectrogram,
@@ -297,11 +295,11 @@ def expand_annotation_mask(annotation_mask, spectrogram,
     '''
 
     mask = annotation_mask.copy()
-    
+
     # if no tonal energy
     if mask.sum()== 0:
         return mask
-    
+
     background_energy = spectrogram[np.where(mask == 0)].sum()/(mask==0).sum()
 
     for i,j in np.ndindex(mask.shape):
@@ -309,26 +307,26 @@ def expand_annotation_mask(annotation_mask, spectrogram,
             continue
         min_j = max(0, j - max_distance)
         max_j = min(j+max_distance, mask.shape[1])
-        
+
         # Attempt to widen annotation pixel in the mask both to the left
         # and to the right
         left_and_right = [range(j-1, min_j - 1, -1), range(j+1, max_j)]
-        
+
         tonal_energy = spectrogram[i,j]
         if tonal_energy == 0:
             continue
         for direction in left_and_right:
             for jp in direction:
                 # if the mask already has energy here,
-                # continue to the next 
+                # continue to the next
                 if annotation_mask[i,jp] == 1:
                     continue
-                # if there is a drop off of energy from the tonal energy 
-                if min_snr != None and spectrogram[i,jp]/background_energy < min_snr:
+                # if there is a drop off of energy from the tonal energy
+                if min_snr is not None and spectrogram[i,jp]/background_energy < min_snr:
                     break
                 if spectrogram[i,jp]/tonal_energy < threshold:
                     break
-                
+
                 mask[i,jp] = 1
 
     return mask

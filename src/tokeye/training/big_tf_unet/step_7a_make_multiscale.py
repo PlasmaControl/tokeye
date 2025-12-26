@@ -69,8 +69,7 @@ def normalize_spectrogram(Sxx: torch.Tensor) -> torch.Tensor:
     Sxx_norm = (Sxx - Sxx.mean()) / (Sxx.std() + 1e-8)
     vmin = torch.quantile(Sxx_norm.flatten(), 0.01)
     vmax = torch.quantile(Sxx_norm.flatten(), 0.99)
-    Sxx_norm = torch.clip(Sxx_norm, vmin, vmax)
-    return Sxx_norm
+    return torch.clip(Sxx_norm, vmin, vmax)
 
 
 def process_spectrogram(
@@ -86,7 +85,7 @@ def process_spectrogram(
     pred_min, pred_max = 0.2, 1
     pred[pred < pred_min] = 0
     pred[pred > pred_max] = 1
-    
+
     return pred.cpu()
 
 
@@ -182,7 +181,7 @@ def main():
     # Process each diagnostic with its specific channel selection
     for diag_key, diag_dir in diagnostics.items():
         if diag_dir.exists():
-            channels = DIAGNOSTIC_CHANNELS.get(diag_key, None)
+            channels = DIAGNOSTIC_CHANNELS.get(diag_key)
             process_diagnostic(
                 diagnostic_key=diag_key,
                 data_dir=diag_dir,

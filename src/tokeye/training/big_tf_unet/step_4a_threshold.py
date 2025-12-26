@@ -1,22 +1,19 @@
+import logging
 import sys
-import numpy as np
-import pandas as pd
 from pathlib import Path
 
-from tqdm.auto import tqdm
-
 import joblib
-
+import numpy as np
+import pandas as pd
 from skimage.morphology import remove_small_objects
-
-import logging
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
@@ -77,15 +74,13 @@ def get_threshold(data, adjust=0.0, multiplier=100):
     threshold_idx = np.argmax(distances)
     binary = x_cdf[threshold_idx]
     binary = binary / multiplier * minmax + data_min
-    binary = binary + adjust * (data_2.max() - data_2.min())
+    return binary + adjust * (data_2.max() - data_2.min())
 
-    return binary
 
 
 def load_frame_info(csv_path: Path) -> pd.DataFrame:
     """Load and parse frame_info.csv."""
-    df = pd.read_csv(csv_path)
-    return df
+    return pd.read_csv(csv_path)
 
 
 def get_shot_files(shotn: int, frame_info: pd.DataFrame) -> list[int]:
@@ -110,8 +105,7 @@ def load_and_concatenate_shot(file_indices: list[int], input_dir: Path) -> np.nd
         raise ValueError(f"No data found for file indices {file_indices}")
 
     # Concatenate along time axis (axis=2)
-    concatenated = np.concatenate(data_list, axis=2)
-    return concatenated
+    return np.concatenate(data_list, axis=2)
 
 
 def compute_thresholds_for_shots(
@@ -188,8 +182,7 @@ def compute_thresholds_for_shots(
             continue
 
     # Create DataFrame
-    threshold_df = pd.DataFrame(threshold_data)
-    return threshold_df
+    return pd.DataFrame(threshold_data)
 
 
 def load_thresholds(threshold_path: Path) -> dict:

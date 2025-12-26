@@ -7,10 +7,9 @@ import torch
 import torch.nn as nn
 from PIL import Image
 from skimage import measure
-from tqdm.auto import tqdm
-
 from TokEye.processing.postprocess import apply_threshold, remove_small_objects
 from TokEye.processing.transforms import compute_stft
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -378,11 +377,11 @@ def update_visualization(
     try:
         if view_mode == "Original":
             return render_original(spectrogram)
-        elif view_mode == "Enhanced":
+        if view_mode == "Enhanced":
             return render_enhanced(inference, ch0_enh, ch1_enh, clip_min, clip_max)
-        elif view_mode == "Mask":
+        if view_mode == "Mask":
             return render_mask(inference, ch0_mask, ch1_mask, threshold_mask)
-        elif view_mode == "Labels":
+        if view_mode == "Labels":
             return render_labels(
                 inference, ch0_labels, ch1_labels, threshold_labels, min_size
             )
