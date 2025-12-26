@@ -10,12 +10,12 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_settings,
     setup_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "input_dir": Path("data/cache/step_5a_combine_spectrogram"),

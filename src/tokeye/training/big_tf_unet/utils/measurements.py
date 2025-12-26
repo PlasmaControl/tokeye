@@ -38,7 +38,6 @@ def cdf_threshold(data, adjust=0.0, multiplier=100):
     return binary + adjust * (data_2.max() - data_2.min())
 
 
-
 def spectral_entropy(data: np.ndarray) -> float:
     """Calculate spectral entropy of 2D data using FFT power spectrum."""
     fft = np.fft.fft2(data)
@@ -48,13 +47,14 @@ def spectral_entropy(data: np.ndarray) -> float:
     return entropy(power_spectrum[power_spectrum > 0])
 
 
-def shannon_entropy(data: np.ndarray) -> float:
-    """Calculate Shannon entropy using optimal thresholding (Otsu if threshold=None)."""
-    threshold = get_threshold(data)
-    binary = data > threshold
-    vals, counts = np.unique(binary, return_counts=True)
-    probs = counts / counts.sum()
-    return entropy(probs)
+# DEPRECATED: This function references get_threshold which is no longer imported.
+# def shannon_entropy(data: np.ndarray) -> float:
+#     """Calculate Shannon entropy using optimal thresholding (Otsu if threshold=None)."""
+#     threshold = get_threshold(data)
+#     binary = data > threshold
+#     vals, counts = np.unique(binary, return_counts=True)
+#     probs = counts / counts.sum()
+#     return entropy(probs)
 
 
 def variance(data: np.ndarray) -> float:

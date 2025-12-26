@@ -6,14 +6,14 @@ import joblib
 import torch
 from torchaudio.transforms import Preemphasis
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "preemphasis_coeff": 0.99,

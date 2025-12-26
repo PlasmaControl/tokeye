@@ -18,14 +18,13 @@ from pathlib import Path
 import joblib
 import numpy as np
 import torch
+from TokEye.autoprocess.utils.configuration import load_input_paths, setup_directory
 from tqdm import tqdm
 
 torch._dynamo.config.recompile_limit = 128
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
-
-from TokEye.autoprocess.utils.configuration import load_input_paths, setup_directory
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
