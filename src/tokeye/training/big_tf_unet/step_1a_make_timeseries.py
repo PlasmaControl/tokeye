@@ -4,14 +4,14 @@ from pathlib import Path
 
 import joblib
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "input_dir": Path("data/cache/step_0c_convert_faithdata"),

@@ -5,16 +5,15 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm
 
+from tokeye.extra.eval.silbidopy.data import AudioTonalDataset
+from tokeye.extra.eval.silbidopy.eval import Metrics
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-from TokEye.extra.eval.silbidopy.data import AudioTonalDataset
-from TokEye.extra.eval.silbidopy.eval import Metrics
-
 # Settings
-SETTINGS = {
-    "threshold": 0.5
-}
+SETTINGS = {"threshold": 0.5}
+
 
 # Helper functions
 class Processor:
@@ -24,6 +23,7 @@ class Processor:
 
     def __call__(self, x):
         return (x - self.mean) / self.std
+
 
 # Statistics
 STATS = {
@@ -56,11 +56,7 @@ model_path = root_path / "model" / "big_mode_v1-5.pt"
 output_path = root_path / "data" / "eval" / "results" / "DCLDE2011.csv"
 
 # Load model
-model = torch.load(
-    model_path,
-    weights_only=False,
-    map_location=device
-)
+model = torch.load(model_path, weights_only=False, map_location=device)
 model.eval()
 print("Model loaded")
 
@@ -75,19 +71,21 @@ for species_name in STATS:
 
         post_processing_function = Processor(
             mean=STATS[species_name]["mean"],
-             std=STATS[species_name]["std"],
+            std=STATS[species_name]["std"],
         )
 
         data_dir = eval_base_path / species_name
         dataset = AudioTonalDataset(
-            data_dir, data_dir,
-            annotation_extension = "ann",
-            time_patch_frames=250, freq_patch_frames=250,
+            data_dir,
+            data_dir,
+            annotation_extension="ann",
+            time_patch_frames=250,
+            freq_patch_frames=250,
             post_processing_function=post_processing_function,
         )
 
         for i in tqdm(range(len(dataset))):
-        # for i in range(len(dataset)):
+            # for i in range(len(dataset)):
             spec, ann = dataset[i]
 
             spec = np.flip(spec, axis=0)
@@ -105,13 +103,11 @@ for species_name in STATS:
                 spec_tensor = spec_tensor.to(device)
                 out_tensor = model(spec_tensor)[0]
 
-            out_tensor = out_tensor[:,0:1]
+            out_tensor = out_tensor[:, 0:1]
             out_tensor = torch.sigmoid(out_tensor)
             out_tensor = out_tensor.cpu()
 
-            metrics.update(
-                out_tensor > SETTINGS["threshold"], ann_tensor
-            )
+            metrics.update(out_tensor > SETTINGS["threshold"], ann_tensor)
 
         scores = metrics.compute()
         scores["species"] = species_name
@@ -122,7 +118,7 @@ for species_name in STATS:
 
 # Write to CSV
 output_path.parent.mkdir(parents=True, exist_ok=True)
-with open(output_path, "w", newline="") as f:
+with output_path.open("w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=["species"] + list(results[0].keys()))
     writer.writeheader()
     writer.writerows(results)

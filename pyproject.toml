@@ -10,24 +10,22 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "gradio",
-    "matplotlib",
+
     "numpy",
-    "opencv-python",
-    "pywavelets",
     "scipy",
+
     "torch",
     "torchcodec",
     "torchvision",
     "torchinfo",
-    "scikit-image",
+
     "omegaconf",
-    "scikit-learn",
     "tables",
+    "pydantic",
 ]
 
 [project.optional-dependencies]
 dev = [
-    # Testing & Linting
     "mypy",
     "pytest",
     "pytest-cov",
@@ -36,25 +34,14 @@ dev = [
 
     "ipykernel",
     "ipywidgets",
-
-    "pydantic",
-]
-train = [
-    "lightning",
-]
-eval = [
+    "matplotlib",
     "wavio",
     "h5py",
     "fusionaihub",
+    "scikit-learn",
 ]
-
-[tool.coverage.run]
-source = ["src/tokeye"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__pycache__/*",
-    "*/autoprocess/*",
+train = [
+    "lightning",
 ]
 
 [tool.ruff]
@@ -87,6 +74,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/*" = ["ARG"]
+"*.ipynb" = ["E402"]
 
 [tool.uv]
 package = true

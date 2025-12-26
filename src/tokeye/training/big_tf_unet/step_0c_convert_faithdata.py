@@ -5,17 +5,16 @@ from pathlib import Path
 
 import joblib
 import torch
-from tqdm.auto import tqdm
-
-logger = logging.getLogger(__name__)
-
 from faith.train.data.datasets.file_based import JoblibDataset
+from tqdm.auto import tqdm
 
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "subseq_len": 66000,
@@ -73,8 +72,8 @@ def main(config_path=None):
     dataset.worker_init()
     logger.info(f"Length of dataset: {len(dataset)}")
 
-    csv_path = settings["frame_info_path"]
-    with open(csv_path, "w", newline="") as f:
+    csv_path = Path(settings["frame_info_path"])
+    with csv_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["shotn", "time_start", "time_end"])
 

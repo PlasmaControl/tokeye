@@ -124,7 +124,7 @@ def convert_nnunet(
                 pbar.update(1)
 
     num_training = len(list(images_tr_dir.glob("*.tif")))
-    with open(dataset_dir / "dataset.json", "w") as f:
+    with (dataset_dir / "dataset.json").open("w") as f:
         json.dump(
             {
                 "channel_names": {"0": "Channel1"},
