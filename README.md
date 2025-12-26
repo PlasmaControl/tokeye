@@ -41,6 +41,11 @@ cd TokEye
 uv sync
 ```
 
+pip (from PyPI)
+```bash
+pip install tokeye
+```
+
 pip (from source)
 ```bash
 git clone git@github.com:PlasmaControl/TokEye.git
@@ -50,16 +55,6 @@ source venv/bin/activate
 pip install uv
 uv sync
 ```
-
-pip (from PyPI)
-```bash
-pip install tokeye
-```
-Coming soon.
-
-Containerized installation (Docker)
-Coming soon.
-
 
 ## Usage
 ```bash
