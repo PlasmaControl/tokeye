@@ -14,6 +14,8 @@ dependencies = [
     "numpy",
     "scipy",
 
+    "matplotlib",
+
     "torch",
     "torchcodec",
     "torchvision",
@@ -24,57 +26,12 @@ dependencies = [
     "pydantic",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "mypy",
-    "pytest",
-    "pytest-cov",
-    "pytest-xdist",
-    "ruff",
-
-    "ipykernel",
-    "ipywidgets",
-    "matplotlib",
-    "wavio",
-    "h5py",
-    "fusionaihub",
-    "scikit-learn",
+[pytest]
+minversion = "9.0"
+addopts = ["-ra", "-q"]
+testpaths = [
+    "tests",
 ]
-train = [
-    "lightning",
-]
-
-[tool.ruff]
-line-length = 88
-
-[tool.ruff.lint]
-extend-select = [
-    "F",        # Pyflakes rules
-    "W",        # PyCodeStyle warnings
-    "E",        # PyCodeStyle errors
-    "I",        # Sort imports properly
-    "UP",       # Warn if certain things can changed due to newer Python versions
-    "C4",       # Catch incorrect use of comprehensions, dict, list, etc
-    "FA",       # Enforce from __future__ import annotations
-    "ISC",      # Good use of string concatenation
-    "ICN",      # Use common import conventions
-    "RET",      # Good return practices
-    "SIM",      # Common simplification rules
-    "TID",      # Some good import practices
-    "TC",       # Enforce importing certain types in a TYPE_CHECKING block
-    "PTH",      # Use pathlib instead of os.path
-    "TD",       # Be diligent with TODO comments
-    "NPY",      # Some numpy-specific things
-]
-ignore = [
-    "E501",
-    "B008",
-    ]
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-"tests/*" = ["ARG"]
-"*.ipynb" = ["E402"]
 
 [tool.uv]
 package = true
@@ -83,9 +40,26 @@ package = true
 module-name = "tokeye"
 module-root = "src"
 
-[pytest]
-minversion = "9.0"
-addopts = ["-ra", "-q"]
-testpaths = [
-    "tests",
+[dependency-groups]
+dev = [
+    "ty",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "ruff",
+    "pre-commit",
+]
+train = [
+    "ipykernel",
+    "ipywidgets",
+
+    "h5py",
+    "wavio",
+
+    "lightning",
+
+    "scikit-learn",
+    "scikit-image",
+
+    "fusionaihub",
 ]
