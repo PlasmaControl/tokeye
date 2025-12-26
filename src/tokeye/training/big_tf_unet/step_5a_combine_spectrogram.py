@@ -7,12 +7,12 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_settings,
     setup_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "frame_info_csv": Path("data/frame_info.csv"),

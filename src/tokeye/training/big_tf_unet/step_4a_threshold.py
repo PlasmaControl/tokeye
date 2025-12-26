@@ -8,15 +8,15 @@ import pandas as pd
 from skimage.morphology import remove_small_objects
 from tqdm.auto import tqdm
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "min_size": 64,
@@ -75,7 +75,6 @@ def get_threshold(data, adjust=0.0, multiplier=100):
     binary = x_cdf[threshold_idx]
     binary = binary / multiplier * minmax + data_min
     return binary + adjust * (data_2.max() - data_2.min())
-
 
 
 def load_frame_info(csv_path: Path) -> pd.DataFrame:

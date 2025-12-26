@@ -7,11 +7,11 @@ import h5py
 import numpy as np
 import tifffile as tif
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import load_settings
 from .utils.parmap import ParallelMapper
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "input_dir": Path("data/cache/step_6a_convert_tif"),  # Original images and masks
@@ -118,7 +118,6 @@ def apply_refinement_logic(
         ],
         axis=0,
     )
-
 
 
 def process_single_sample(

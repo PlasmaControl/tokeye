@@ -1,32 +1,29 @@
+import logging
 import sys
 from pathlib import Path
 
 import joblib
+import lightning as L
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-
-# torch.set_float32_matmul_precision('high')
-torch.backends.cuda.matmul.fp32_precision = "ieee"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-import lightning as L
 from lightning.pytorch.callbacks import Callback
-from torchmetrics.image import TotalVariation
-
-L.seed_everything(42)
-
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from TokEye.models.unet import UNet
+from torch.utils.data import DataLoader, Dataset
+from torchmetrics.image import TotalVariation
 
 from .utils.configuration import (
     load_settings,
     setup_directory,
 )
+
+# torch.set_float32_matmul_precision('high')
+torch.backends.cuda.matmul.fp32_precision = "ieee"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+L.seed_everything(42)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "adjacent_channels": 3,
@@ -98,7 +95,7 @@ class ECEDataset(Dataset):
     def __getitem__(self, idx):
         file_path = self.data_files[idx]
 
-        with open(file_path, "rb") as f:
+        with Path(file_path).open("rb") as f:
             data = joblib.load(f)
         data = torch.from_numpy(data).float()
         # dim = C, H, W, Z
@@ -113,7 +110,6 @@ class ECEDataset(Dataset):
         mean = data.mean(dim=(1, 2), keepdim=True)
         std = data.std(dim=(1, 2), keepdim=True)
         return (data - mean) / (std + 1e-6)
-
 
 
 class ECEDataModule(L.LightningDataModule):

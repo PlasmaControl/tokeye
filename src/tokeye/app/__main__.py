@@ -26,6 +26,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # Current working directory
 cwd = Path.cwd()
 
+
 def create_app() -> gr.Blocks:
     with gr.Blocks(
         title=APP_TITLE,
@@ -59,7 +60,7 @@ def get_port():
 
 def launch(app, port):
     app.launch(
-        # favicon_path="assets/ICON.ico", # TODO: Set up favicon
+        # favicon_path="assets/ICON.ico",  # Set up favicon later
         share="--share" in sys.argv,
         inbrowser="--open" in sys.argv,
         server_port=port,

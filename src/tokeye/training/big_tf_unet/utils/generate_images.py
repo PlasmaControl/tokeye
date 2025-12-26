@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import label
 
-logger = logging.getLogger(__name__)
-
 from .configuration import load_settings, setup_directory
 from .parmap import ParallelMapper
+
+logger = logging.getLogger(__name__)
 
 # Step-to-directory mappings
 STEP_MAPPINGS = {

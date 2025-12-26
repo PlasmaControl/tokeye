@@ -300,7 +300,7 @@ if __name__ == "__main__":
 
     # Write script to file
     script_path = model_dir / "inference_example.py"
-    with open(script_path, "w") as f:
+    with script_path.open("w") as f:
         f.write(inference_script)
 
     logger.info(f"✓ Created inference example: {script_path}")

@@ -6,14 +6,14 @@ import joblib
 import numpy as np
 from pybaselines import Baseline2D
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "baseline_method": "fabc",

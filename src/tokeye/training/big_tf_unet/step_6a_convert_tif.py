@@ -7,14 +7,14 @@ import numpy as np
 import tifffile as tif
 from tqdm.auto import tqdm
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "output_channel": "single",
@@ -32,7 +32,7 @@ def load_train_directories(train_dirs_file: Path) -> list[Path]:
         return []
 
     directories = []
-    with open(train_dirs_file) as f:
+    with train_dirs_file.open() as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
@@ -193,7 +193,6 @@ def process_data_img(
 
     # Ensure float32 for ImageJ compatibility
     return magnitude.astype(np.float32)
-
 
 
 def process_data_mask(data: np.ndarray) -> np.ndarray:
@@ -358,7 +357,9 @@ def process_pairs_parallel(
     ]
 
     # Create task tuples (img_path, mask_path, mask_path_baseline, offset) for parallel processing
-    tasks = list(zip(img_paths, mask_paths, mask_paths_baseline, file_offsets, strict=False))
+    tasks = list(
+        zip(img_paths, mask_paths, mask_paths_baseline, file_offsets, strict=False)
+    )
 
     # Process pairs in parallel
     logger.info("Processing pairs in parallel...")
@@ -404,7 +405,7 @@ def main(
 
     # Open statistics file for writing
     stats_file = output_dir.parent / "normalization_statistics.txt"
-    with open(stats_file, "w") as f:
+    with stats_file.open("w") as f:
         f.write("# Directory-wise normalization statistics\n")
         f.write("# Format: Directory | Channel | Mean | Std\n\n")
 
@@ -434,9 +435,11 @@ def main(
         stats = collect_image_statistics(input_paths)
 
         # Save statistics to file
-        with open(stats_file, "a") as f:
+        with stats_file.open("a") as f:
             f.write(f"Directory: {train_dir}\n")
-            for i, (mean, std) in enumerate(zip(stats["means"], stats["stds"], strict=False)):
+            for i, (mean, std) in enumerate(
+                zip(stats["means"], stats["stds"], strict=False)
+            ):
                 f.write(f"  Channel {i}: mean={mean:.6f}, std={std:.6f}\n")
             f.write("\n")
 

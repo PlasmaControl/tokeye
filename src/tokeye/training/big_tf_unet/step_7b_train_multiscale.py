@@ -9,14 +9,6 @@ import torch
 import torch.nn.functional as F
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from PIL.Image import Resampling
-from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms.functional import resize
-
-L.seed_everything(42)
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from TokEye.autoprocess.utils.augmentations import get_augmentation
 from TokEye.autoprocess.utils.losses import (
     dice_coefficient,
@@ -24,6 +16,13 @@ from TokEye.autoprocess.utils.losses import (
     iou_score,
 )
 from TokEye.models.unet import UNet
+from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms.functional import resize
+
+L.seed_everything(42)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -47,19 +46,19 @@ SCALE_CONFIGS = [
 
 NORMALIZATION_CONFIGS = {
     "bes": {
-        "mean": 0.4*2,
-        "std": 0.5*2,
+        "mean": 0.4 * 2,
+        "std": 0.5 * 2,
     },
     "co2": {
-        "mean": 27.5*2,
-        "std": 1.3*2,
+        "mean": 27.5 * 2,
+        "std": 1.3 * 2,
     },
     "ece": {
         "mean": 0.38**2,
         "std": 0.5**2,
     },
     "mhr": {
-        "mean": 0.5*2,
+        "mean": 0.5 * 2,
         "std": 1,
     },
 }
@@ -95,7 +94,7 @@ default_settings = {
     # Augmentation
     "augmentation": False,
     # Loss function
-    "loss_type": "label_smooth_bce", # Options: 'bce', 'label_smooth_bce', 'symmetric_bce', 'dice', 'dice_bce', 'symmetric_bce_dice', 'focal', 'focal_dice', 'iou'
+    "loss_type": "label_smooth_bce",  # Options: 'bce', 'label_smooth_bce', 'symmetric_bce', 'dice', 'dice_bce', 'symmetric_bce_dice', 'focal', 'focal_dice', 'iou'
     "label_smoothing": 0.1,
     "symmetric_alpha": 0.1,
     "symmetric_beta": 1.0,
@@ -181,19 +180,18 @@ class MultiscaleDataset(Dataset):
         norm_config = NORMALIZATION_CONFIGS[diag_name]
 
         # Load data
-        timeseries = np.load(ts_path) # (n_samples,)
+        timeseries = np.load(ts_path)  # (n_samples,)
         base_label = np.load(label_path)  # (2, H_base, W_base)
         n_samples = len(timeseries)
         base_label_width = base_label.shape[2]  # W dimension
 
-        nfft, hop = self.scale_configs[
-            np.random.randint(len(self.scale_configs))
-            ]
+        rng = np.random.default_rng()
+        nfft, hop = self.scale_configs[rng.integers(len(self.scale_configs))]
 
         chunk_size = min(self.chunk_samples, n_samples)
         chunk_size = max(chunk_size, nfft + hop)
 
-        start_sample = np.random.randint(0, n_samples - chunk_size)
+        start_sample = rng.integers(0, n_samples - chunk_size)
         end_sample = start_sample + chunk_size
 
         ts_chunk = timeseries[start_sample:end_sample]

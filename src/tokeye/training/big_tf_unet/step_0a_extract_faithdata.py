@@ -5,9 +5,9 @@ from pathlib import Path
 from fusionaihub.preprocess import index_dataset, process
 from tqdm.auto import tqdm
 
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import load_settings, setup_directory
+
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "shots_path": Path("data/settings/shots.txt"),

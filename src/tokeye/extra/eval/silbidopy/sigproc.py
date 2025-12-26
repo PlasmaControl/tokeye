@@ -8,7 +8,7 @@ import numpy as np
 
 
 def frame_signal(signal, frame_len: int, frame_step: float):
-    '''Frame a signal into overlapping frames. The input must have frame_len <= len(signal)
+    """Frame a signal into overlapping frames. The input must have frame_len <= len(signal)
 
     :param signal: the audio signal to frame.
     :param frame_len: length of each frame measured in samples.
@@ -17,7 +17,7 @@ def frame_signal(signal, frame_len: int, frame_step: float):
                        between frames to allow that the beginning of the first frame be signal[0]
                        and the end of the last frame be signal[-1]
     :returns: an array of frames. Size is NUMFRAMES by frame_len.
-    '''
+    """
 
     slen = len(signal)
 
@@ -36,7 +36,7 @@ def frame_signal(signal, frame_len: int, frame_step: float):
     return signal[frame_indices]
 
 
-def magspec(frames,NFFT):
+def magspec(frames, NFFT):
     """Compute the magnitude spectrum of each frame in frames. If frames is an NxD matrix, output will be Nx(NFFT/2+1).
 
     :param frames: the array of frames. Each row is a frame.
@@ -44,8 +44,10 @@ def magspec(frames,NFFT):
     :returns: If frames is an NxD matrix, output will be Nx(NFFT/2+1). Each row will be the magnitude spectrum of the corresponding frame.
     """
     if np.shape(frames)[1] > NFFT:
-        logging.warn('frame length (%d) is greater than FFT size (%d), frame will be truncated. Increase NFFT to avoid.', numpy.shape(frames)[1], NFFT)
-    complex_spec = np.fft.rfft(frames,NFFT)
+        logging.warn(
+            "frame length (%d) is greater than FFT size (%d), frame will be truncated. Increase NFFT to avoid.",
+            np.shape(frames)[1],
+            NFFT,
+        )
+    complex_spec = np.fft.rfft(frames, NFFT)
     return np.absolute(complex_spec)
-
-

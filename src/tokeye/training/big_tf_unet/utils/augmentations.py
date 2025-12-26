@@ -11,6 +11,9 @@ import torch
 import torch.nn.functional as F
 from scipy.ndimage import gaussian_filter, map_coordinates
 
+# Module-level random generator for reproducibility
+_rng = np.random.default_rng()
+
 
 class SegmentationAugmentation:
     """
@@ -36,6 +39,7 @@ class SegmentationAugmentation:
         gamma_range: tuple[float, float] = (0.8, 1.2),
         apply_prob: float = 0.8,
         specaugment: SpecAugment | None = None,
+        rng: np.random.Generator | None = None,
     ):
         """
         Args:
@@ -55,6 +59,7 @@ class SegmentationAugmentation:
             gamma_range: Gamma correction range (min, max)
             apply_prob: Probability of applying augmentation at all
             specaugment: Optional SpecAugment instance for spectrogram-specific augmentations
+            rng: Optional random number generator for reproducibility
         """
         self.rotation_degrees = rotation_degrees
         self.prob_flip_h = prob_flip_h
@@ -72,6 +77,7 @@ class SegmentationAugmentation:
         self.gamma_range = gamma_range
         self.apply_prob = apply_prob
         self.specaugment = specaugment
+        self._rng = rng if rng is not None else _rng
 
     def __call__(
         self, image: torch.Tensor, mask: torch.Tensor
@@ -86,7 +92,7 @@ class SegmentationAugmentation:
         Returns:
             Augmented (image, mask) pair
         """
-        if np.random.rand() > self.apply_prob:
+        if self._rng.random() > self.apply_prob:
             return image, mask
 
         # Ensure proper shape
@@ -111,28 +117,28 @@ class SegmentationAugmentation:
 
         # Random rotation
         if self.rotation_degrees > 0:
-            angle = np.random.uniform(-self.rotation_degrees, self.rotation_degrees)
+            angle = self._rng.uniform(-self.rotation_degrees, self.rotation_degrees)
             image = self._rotate(image, angle, mode="bilinear")
             mask = self._rotate(mask, angle, mode="nearest")
 
         # Random horizontal flip
-        if np.random.rand() < self.prob_flip_h:
+        if self._rng.random() < self.prob_flip_h:
             image = torch.flip(image, dims=[-1])
             mask = torch.flip(mask, dims=[-1])
 
         # Random vertical flip
-        if np.random.rand() < self.prob_flip_v:
+        if self._rng.random() < self.prob_flip_v:
             image = torch.flip(image, dims=[-2])
             mask = torch.flip(mask, dims=[-2])
 
         # Random scaling
         if self.scale_range[0] != 1.0 or self.scale_range[1] != 1.0:
-            scale = np.random.uniform(self.scale_range[0], self.scale_range[1])
+            scale = self._rng.uniform(self.scale_range[0], self.scale_range[1])
             image = self._scale(image, scale, mode="bilinear")
             mask = self._scale(mask, scale, mode="nearest")
 
         # Elastic deformation
-        if self.elastic and np.random.rand() < 0.5:
+        if self.elastic and self._rng.random() < 0.5:
             image, mask = self._elastic_transform(image, mask)
 
         return image, mask
@@ -146,39 +152,40 @@ class SegmentationAugmentation:
 
         # Random brightness
         if self.brightness_range[0] != 1.0 or self.brightness_range[1] != 1.0:
-            brightness = np.random.uniform(
+            brightness = self._rng.uniform(
                 self.brightness_range[0], self.brightness_range[1]
             )
             image = image * brightness
 
         # Random contrast
         if self.contrast_range[0] != 1.0 or self.contrast_range[1] != 1.0:
-            contrast = np.random.uniform(self.contrast_range[0], self.contrast_range[1])
+            contrast = self._rng.uniform(self.contrast_range[0], self.contrast_range[1])
             mean = image.mean()
             image = (image - mean) * contrast + mean
 
         # Gaussian noise
-        if self.noise_std > 0 and np.random.rand() < 0.5:
+        if self.noise_std > 0 and self._rng.random() < 0.5:
             noise = torch.randn_like(image) * self.noise_std
             image = image + noise
 
         # Gaussian blur
-        if np.random.rand() < self.blur_prob:
-            sigma = np.random.uniform(
+        if self._rng.random() < self.blur_prob:
+            sigma = self._rng.uniform(
                 self.blur_sigma_range[0], self.blur_sigma_range[1]
             )
             image = self._gaussian_blur(image, sigma)
 
         # Gamma correction
-        if self.gamma_range[0] != 1.0 or self.gamma_range[1] != 1.0:
-            if np.random.rand() < 0.5:
-                gamma = np.random.uniform(self.gamma_range[0], self.gamma_range[1])
-                # Normalize to [0, 1], apply gamma, then denormalize
-                img_min, img_max = image.min(), image.max()
-                if img_max > img_min:
-                    image_norm = (image - img_min) / (img_max - img_min)
-                    image_norm = torch.pow(image_norm, gamma)
-                    image = image_norm * (img_max - img_min) + img_min
+        if (
+            self.gamma_range[0] != 1.0 or self.gamma_range[1] != 1.0
+        ) and self._rng.random() < 0.5:
+            gamma = self._rng.uniform(self.gamma_range[0], self.gamma_range[1])
+            # Normalize to [0, 1], apply gamma, then denormalize
+            img_min, img_max = image.min(), image.max()
+            if img_max > img_min:
+                image_norm = (image - img_min) / (img_max - img_min)
+                image_norm = torch.pow(image_norm, gamma)
+                image = image_norm * (img_max - img_min) + img_min
 
         return image
 
@@ -247,7 +254,7 @@ class SegmentationAugmentation:
         # Generate random displacement fields
         dx = (
             gaussian_filter(
-                (np.random.rand(*shape) * 2 - 1),
+                (self._rng.random(shape) * 2 - 1),
                 self.elastic_sigma,
                 mode="constant",
                 cval=0,
@@ -256,7 +263,7 @@ class SegmentationAugmentation:
         )
         dy = (
             gaussian_filter(
-                (np.random.rand(*shape) * 2 - 1),
+                (self._rng.random(shape) * 2 - 1),
                 self.elastic_sigma,
                 mode="constant",
                 cval=0,
@@ -314,6 +321,7 @@ class SpecAugment:
         num_freq_masks: int = 0,
         num_time_masks: int = 0,
         apply_prob: float = 0.8,
+        rng: np.random.Generator | None = None,
     ):
         """
         Args:
@@ -323,6 +331,7 @@ class SpecAugment:
             num_freq_masks: Number of frequency masks to apply (0 to disable)
             num_time_masks: Number of time masks to apply (0 to disable)
             apply_prob: Probability of applying SpecAugment
+            rng: Optional random number generator for reproducibility
         """
         self.time_warp_W = time_warp_W
         self.freq_mask_F = freq_mask_F
@@ -330,6 +339,7 @@ class SpecAugment:
         self.num_freq_masks = num_freq_masks
         self.num_time_masks = num_time_masks
         self.apply_prob = apply_prob
+        self._rng = rng if rng is not None else _rng
 
     def __call__(self, image: torch.Tensor) -> torch.Tensor:
         """
@@ -341,7 +351,7 @@ class SpecAugment:
         Returns:
             Augmented image
         """
-        if np.random.rand() > self.apply_prob:
+        if self._rng.random() > self.apply_prob:
             return image
 
         # Ensure proper shape
@@ -374,10 +384,10 @@ class SpecAugment:
             return image
 
         # Choose a random center point in the middle of time axis
-        center = np.random.randint(self.time_warp_W, W - self.time_warp_W)
+        center = self._rng.integers(self.time_warp_W, W - self.time_warp_W)
 
         # Random warp displacement
-        warp = np.random.randint(-self.time_warp_W, self.time_warp_W + 1)
+        warp = self._rng.integers(-self.time_warp_W, self.time_warp_W + 1)
 
         # Create warping grid
         # Generate base grid
@@ -427,13 +437,13 @@ class SpecAugment:
         C, H, W = image.shape
 
         # Random mask width
-        f = np.random.randint(0, self.freq_mask_F + 1)
+        f = self._rng.integers(0, self.freq_mask_F + 1)
 
         if f == 0 or f >= H:
             return image
 
         # Random starting frequency
-        f0 = np.random.randint(0, H - f + 1)
+        f0 = self._rng.integers(0, H - f + 1)
 
         # Create masked image
         masked = image.clone()
@@ -449,13 +459,13 @@ class SpecAugment:
         C, H, W = image.shape
 
         # Random mask width
-        t = np.random.randint(0, self.time_mask_T + 1)
+        t = self._rng.integers(0, self.time_mask_T + 1)
 
         if t == 0 or t >= W:
             return image
 
         # Random starting time
-        t0 = np.random.randint(0, W - t + 1)
+        t0 = self._rng.integers(0, W - t + 1)
 
         # Create masked image
         masked = image.clone()
