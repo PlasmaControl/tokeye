@@ -6,11 +6,10 @@ Also includes SpecAugment for spectrogram-specific augmentations.
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
-from typing import Tuple, Optional, Union
 
 
 class SegmentationAugmentation:
@@ -27,16 +26,16 @@ class SegmentationAugmentation:
         elastic: bool = True,
         elastic_alpha: float = 50.0,
         elastic_sigma: float = 5.0,
-        scale_range: Tuple[float, float] = (0.8, 1.2),
+        scale_range: tuple[float, float] = (0.8, 1.2),
         intensity_transforms: bool = True,
-        brightness_range: Tuple[float, float] = (0.8, 1.2),
-        contrast_range: Tuple[float, float] = (0.8, 1.2),
+        brightness_range: tuple[float, float] = (0.8, 1.2),
+        contrast_range: tuple[float, float] = (0.8, 1.2),
         noise_std: float = 0.05,
         blur_prob: float = 0.3,
-        blur_sigma_range: Tuple[float, float] = (0.5, 1.5),
-        gamma_range: Tuple[float, float] = (0.8, 1.2),
+        blur_sigma_range: tuple[float, float] = (0.5, 1.5),
+        gamma_range: tuple[float, float] = (0.8, 1.2),
         apply_prob: float = 0.8,
-        specaugment: Optional[SpecAugment] = None,
+        specaugment: SpecAugment | None = None,
     ):
         """
         Args:
@@ -76,7 +75,7 @@ class SegmentationAugmentation:
 
     def __call__(
         self, image: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Apply augmentation to image and mask consistently.
 
@@ -107,7 +106,7 @@ class SegmentationAugmentation:
 
     def _apply_geometric_transforms(
         self, image: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Apply geometric transforms consistently to image and mask."""
 
         # Random rotation
@@ -237,7 +236,7 @@ class SegmentationAugmentation:
 
     def _elastic_transform(
         self, image: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Apply elastic deformation to image and mask consistently.
         Based on Simard et al. "Best Practices for Convolutional Neural Networks"
@@ -370,7 +369,7 @@ class SpecAugment:
         """
         C, H, W = image.shape
 
-        if W <= 2 * self.time_warp_W:
+        if 2 * self.time_warp_W >= W:
             # Image too small for warping
             return image
 
@@ -397,7 +396,7 @@ class SpecAugment:
             # Warp left side
             warp_left = (left_dist / center) * warp if center > 0 else 0
             # Warp right side
-            warp_right = (right_dist / (W - center)) * warp if W > center else 0
+            warp_right = (right_dist / (W - center)) * warp if center < W else 0
 
             x_grid = x_grid + torch.where(x_grid < center, warp_left, -warp_right)
 
@@ -430,7 +429,7 @@ class SpecAugment:
         # Random mask width
         f = np.random.randint(0, self.freq_mask_F + 1)
 
-        if f == 0 or H <= f:
+        if f == 0 or f >= H:
             return image
 
         # Random starting frequency
@@ -452,7 +451,7 @@ class SpecAugment:
         # Random mask width
         t = np.random.randint(0, self.time_mask_T + 1)
 
-        if t == 0 or W <= t:
+        if t == 0 or t >= W:
             return image
 
         # Random starting time
@@ -470,11 +469,11 @@ class NoAugmentation:
 
     def __call__(
         self, image: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         return image, mask
 
 
-def get_augmentation(settings: dict) -> Union[SegmentationAugmentation, NoAugmentation]:
+def get_augmentation(settings: dict) -> SegmentationAugmentation | NoAugmentation:
     """
     Create augmentation pipeline from settings.
 

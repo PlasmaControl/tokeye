@@ -35,9 +35,8 @@ def cdf_threshold(data, adjust=0.0, multiplier=100):
     threshold_idx = np.argmax(distances)
     binary = x_cdf[threshold_idx]
     binary = binary / multiplier * minmax + data_min
-    binary = binary + adjust * (data_2.max() - data_2.min())
+    return binary + adjust * (data_2.max() - data_2.min())
 
-    return binary
 
 
 def spectral_entropy(data: np.ndarray) -> float:

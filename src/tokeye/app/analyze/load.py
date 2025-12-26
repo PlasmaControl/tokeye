@@ -104,9 +104,8 @@ def model_infer(
 
     out_tensor = torch.sigmoid(out_tensor)
     out_tensor = out_tensor.squeeze(0).squeeze(0).cpu()
-    out_array = out_tensor.numpy()
+    return out_tensor.numpy()
 
-    return out_array
 
 
 # Signal Functions
@@ -146,7 +145,7 @@ def load_single(
     clip_low = transform_args.get("percentile_low", 1.0)
     clip_high = transform_args.get("percentile_high", 99.0)
 
-    spec = compute_stft(
+    return compute_stft(
         signal_data,
         n_fft=n_fft,
         hop=hop,
@@ -154,7 +153,6 @@ def load_single(
         clip_low=clip_low,
         clip_high=clip_high,
     )
-    return spec
 
 
 def load_multi(
@@ -180,7 +178,7 @@ def load_multi(
     clip_low = transform_args.get("percentile_low", 1.0)
     clip_high = transform_args.get("percentile_high", 99.0)
 
-    spec = compute_stft(
+    return compute_stft(
         signal,
         n_fft=n_fft,
         hop=hop,
@@ -188,4 +186,3 @@ def load_multi(
         clip_low=clip_low,
         clip_high=clip_high,
     )
-    return spec

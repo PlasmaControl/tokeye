@@ -45,7 +45,7 @@ train = [
 eval = [
     "wavio",
     "h5py",
-#   "faith",
+    "fusionaihub",
 ]
 
 [tool.coverage.run]
@@ -61,17 +61,23 @@ omit = [
 line-length = 88
 
 [tool.ruff.lint]
-select = [
-    "E",
-    "W",
-    "F",
-    "I",
-    "N",
-    "UP",
-    "B",
-    "C4",
-    "ARG",
-    "SIM",
+extend-select = [
+    "F",        # Pyflakes rules
+    "W",        # PyCodeStyle warnings
+    "E",        # PyCodeStyle errors
+    "I",        # Sort imports properly
+    "UP",       # Warn if certain things can changed due to newer Python versions
+    "C4",       # Catch incorrect use of comprehensions, dict, list, etc
+    "FA",       # Enforce from __future__ import annotations
+    "ISC",      # Good use of string concatenation
+    "ICN",      # Use common import conventions
+    "RET",      # Good return practices
+    "SIM",      # Common simplification rules
+    "TID",      # Some good import practices
+    "TC",       # Enforce importing certain types in a TYPE_CHECKING block
+    "PTH",      # Use pathlib instead of os.path
+    "TD",       # Be diligent with TODO comments
+    "NPY",      # Some numpy-specific things
 ]
 ignore = [
     "E501",
@@ -88,6 +94,3 @@ package = true
 [tool.uv.build-backend]
 module-name = "tokeye"
 module-root = "src"
-
-# [tool.uv.sources]
-# faith = { path = "../FusionAIHub" }

@@ -239,9 +239,8 @@ def create_overlay(
     result = cv2.addWeighted(base_image, 1 - alpha, overlay, alpha, 0)
 
     # Convert BGR to RGB for standard display
-    result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+    return cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 
-    return result_rgb
 
 
 def compute_channel_threshold_bounds(

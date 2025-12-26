@@ -1,14 +1,15 @@
-import sys
 import json
-import shutil
-from pathlib import Path
 import logging
-import numpy as np
-import tifffile as tif
+import shutil
+import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
-from tqdm.auto import tqdm
+from pathlib import Path
+
+import numpy as np
+import tifffile as tif
 from scipy.ndimage import zoom
+from tqdm.auto import tqdm
 
 from .configuration import load_settings
 
@@ -176,10 +177,7 @@ def convert_omnipose(
 
 def main(config_path=None):
     """Convert data to nnUNet and/or Omnipose formats."""
-    if config_path is None:
-        settings = default_settings
-    else:
-        settings = load_settings(config_path)
+    settings = default_settings if config_path is None else load_settings(config_path)
 
     if nnunet := settings.get("nnunet"):
         logger.info("Converting to nnUNet format...")

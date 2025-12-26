@@ -1,19 +1,16 @@
+import logging
 import sys
 from pathlib import Path
 
 import joblib
-
 import numpy as np
-
 from pybaselines import Baseline2D
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper
@@ -31,8 +28,10 @@ default_settings = {
 def filter_baseline(
     data,
     method="arpls",
-    method_kwargs={"lam": 1e6},
+    method_kwargs=None,
 ):
+    if method_kwargs is None:
+        method_kwargs = {"lam": 1000000.0}
     H, W = data.shape
 
     x = np.arange(data.shape[0])

@@ -20,7 +20,7 @@ class BigTFUNetConvBlock(nn.Module):
             mid_channels = out_channels
 
         layers: list[nn.Module] = []
-        
+
         layers.extend([
             nn.Conv2d(
                 in_channels=in_channels,
@@ -129,10 +129,10 @@ class BigTFUNetModel(nn.Module):
     def __init__(self, config: BigTFUNetConfig):
         super().__init__()
         self.config = config
-        
+
         # Layer sizes
         layer_sizes: list[int] = [
-            config.first_layer_size * 2**i 
+            config.first_layer_size * 2**i
             for i in range(config.num_layers)
         ]
 

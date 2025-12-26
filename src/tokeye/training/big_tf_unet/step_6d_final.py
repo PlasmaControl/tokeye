@@ -299,7 +299,7 @@ class Module(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        elif lr_scheduler_type == "cosine":
+        if lr_scheduler_type == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max=self.settings.get("max_epochs", 40),
@@ -313,15 +313,11 @@ class Module(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        else:
-            return optimizer
+        return optimizer
 
 
 def main(config_path=None):
-    if config_path is None:
-        settings = default_settings
-    else:
-        settings = load_settings(config_path)
+    settings = default_settings if config_path is None else load_settings(config_path)
 
     input_dir = settings["input_dir"]
     model_dir = settings["model_dir"]

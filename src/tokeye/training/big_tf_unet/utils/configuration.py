@@ -1,24 +1,26 @@
-from pathlib import Path
-import shutil
-from omegaconf import OmegaConf
-
 import logging
+import shutil
+from pathlib import Path
+
+from omegaconf import OmegaConf
 
 logger = logging.getLogger(__name__)
 
 
 def load_settings(
     config_path: Path | str | None,
-    default_settings: dict = {},
+    default_settings: dict = None,
 ) -> dict:
     """Load settings from YAML file or use defaults."""
 
+    if default_settings is None:
+        default_settings = {}
     if config_path is None:
         cfg = default_settings
     else:
         config_path = Path(config_path)
         if not config_path.exists():
-            logger.error(f"Config file not found")
+            logger.error("Config file not found")
 
         cfg = OmegaConf.load(config_path)
         cfg = OmegaConf.to_container(cfg, resolve=True)

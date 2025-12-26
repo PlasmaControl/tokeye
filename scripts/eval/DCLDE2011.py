@@ -1,10 +1,10 @@
-import numpy as np
-
 import csv
 from pathlib import Path
+
+import numpy as np
+import torch
 from tqdm.auto import tqdm
 
-import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
@@ -23,8 +23,7 @@ class Processor:
         self.std = std
 
     def __call__(self, x):
-        x = (x - self.mean) / self.std
-        return x
+        return (x - self.mean) / self.std
 
 # Statistics
 STATS = {
@@ -58,8 +57,8 @@ output_path = root_path / "data" / "eval" / "results" / "DCLDE2011.csv"
 
 # Load model
 model = torch.load(
-    model_path, 
-    weights_only=False, 
+    model_path,
+    weights_only=False,
     map_location=device
 )
 model.eval()
@@ -68,7 +67,7 @@ print("Model loaded")
 results = []
 
 # Process each species
-for species_name in STATS.keys():
+for species_name in STATS:
     try:
         print(f"\nProcessing {species_name}...")
 
@@ -81,7 +80,7 @@ for species_name in STATS.keys():
 
         data_dir = eval_base_path / species_name
         dataset = AudioTonalDataset(
-            data_dir, data_dir, 
+            data_dir, data_dir,
             annotation_extension = "ann",
             time_patch_frames=250, freq_patch_frames=250,
             post_processing_function=post_processing_function,
@@ -113,7 +112,7 @@ for species_name in STATS.keys():
             metrics.update(
                 out_tensor > SETTINGS["threshold"], ann_tensor
             )
-        
+
         scores = metrics.compute()
         scores["species"] = species_name
         results.append(scores)

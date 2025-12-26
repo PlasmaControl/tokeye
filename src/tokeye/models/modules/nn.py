@@ -18,7 +18,7 @@ class TokEyeConvBlock(nn.Module):
             mid_channels = out_channels
 
         layers: list[nn.Module] = []
-        
+
         layers.extend([
             nn.Conv2d(
                 in_channels=in_channels,

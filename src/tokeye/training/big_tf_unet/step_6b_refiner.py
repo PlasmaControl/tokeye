@@ -1,41 +1,38 @@
-import sys
-
-from pathlib import Path
-import shutil
 import json
+import shutil
+import sys
+from pathlib import Path
 
-import tifffile as tif
-import numpy as np
 import h5py
-
+import numpy as np
+import tifffile as tif
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 torch.backends.cuda.matmul.fp32_precision = "ieee"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 import lightning as L
 from lightning.pytorch.callbacks import (
+    BasePredictionWriter,
     EarlyStopping,
     ModelCheckpoint,
-    BasePredictionWriter,
 )
 
 L.seed_everything(42)
 
-from sklearn.model_selection import KFold
-
 import logging
+
+from sklearn.model_selection import KFold
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from .utils.configuration import load_settings
-from .utils.augmentations import get_augmentation
-from .utils.losses import get_loss_function, dice_coefficient, iou_score
-
 from TokEye.models.unet import UNet
+
+from .utils.augmentations import get_augmentation
+from .utils.configuration import load_settings
+from .utils.losses import dice_coefficient, get_loss_function, iou_score
 
 default_settings = {
     # Data and training
@@ -377,7 +374,7 @@ class Module(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        elif lr_scheduler_type == "cosine":
+        if lr_scheduler_type == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max=self.settings.get("max_epochs", 40),
@@ -391,8 +388,7 @@ class Module(L.LightningModule):
                     "frequency": 1,
                 },
             }
-        else:
-            return optimizer
+        return optimizer
 
 
 class HDF5PredictionWriter(BasePredictionWriter):
@@ -564,10 +560,7 @@ class HDF5PredictionWriter(BasePredictionWriter):
 
 
 def main(config_path=None):
-    if config_path is None:
-        settings = default_settings
-    else:
-        settings = load_settings(config_path)
+    settings = default_settings if config_path is None else load_settings(config_path)
 
     input_dir = settings["input_dir"]
     output_dir = settings["output_dir"]

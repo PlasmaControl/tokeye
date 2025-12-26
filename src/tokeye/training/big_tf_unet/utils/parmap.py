@@ -3,10 +3,10 @@
 import gc
 import multiprocessing as mp
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from ctypes import c_ulong
 from multiprocessing.sharedctypes import Value
-from typing import Any, Callable
+from typing import Any
 
 
 def _identity(x: Any) -> Any:
@@ -119,15 +119,13 @@ class ParallelMapper:
     def _get_counter(self) -> int:
         """Return the current value of the counter."""
         with self._counter.get_lock():
-            out = self._counter.value
-        return out
+            return self._counter.value
 
     def _inc_counter(self, value: int = 1) -> int:
         """Increment the counter by value and return the new value."""
         with self._counter.get_lock():
             self._counter.value += value
-            out = self._counter.value
-        return out
+            return self._counter.value
 
     def _fun(
         self,

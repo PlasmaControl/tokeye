@@ -1,12 +1,13 @@
+from torchmetrics.classification import (
+    Precision,
+    Recall,
+)
 from torchmetrics.segmentation import (
     GeneralizedDiceScore,
     HausdorffDistance,
     MeanIoU,
 )
-from torchmetrics.classification import (
-    Precision,
-    Recall,
-)
+
 
 class Metrics:
     def __init__(self, device="cpu"):
@@ -39,18 +40,18 @@ class Metrics:
 
     def compute(self):
         return {
-            key: score.compute() 
-            for key, score 
+            key: score.compute()
+            for key, score
             in self.scores.items()
         }
 
     def __repr__(self):
         return "\n".join(
-            [f"{key}: {score.compute()}" 
-            for key, score 
+            [f"{key}: {score.compute()}"
+            for key, score
             in self.scores.items()]
             )
-    
+
     def __call__(self, output, ann):
         scores = {}
         for key, score in self.scores.items():

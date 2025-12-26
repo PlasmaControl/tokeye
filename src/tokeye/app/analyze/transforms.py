@@ -33,6 +33,5 @@ def compute_stft(
         sxx,
         [clip_low, clip_high],
     )
-    sxx = np.clip(sxx, vmin, vmax)
+    return np.clip(sxx, vmin, vmax)
 
-    return sxx

@@ -1,6 +1,6 @@
-import numpy as np
 import matplotlib.pyplot as plt
-from skimage.morphology import opening, disk, remove_small_objects
+import numpy as np
+from skimage.morphology import remove_small_objects
 
 # from autotslabel.autosegment.multichannel.step_5_threshold import get_threshold
 
@@ -15,7 +15,7 @@ def plot_data(
 ):
     if data.dtype == bool:
         fig, axs = plt.subplots(1, 2, figsize=(8, 4), dpi=dpi)
-        im = axs[0].imshow(data, cmap="gray", origin="lower", aspect="auto")
+        axs[0].imshow(data, cmap="gray", origin="lower", aspect="auto")
         axs[0].axis("off")
         # axs[0].set_xticks([])
         # axs[0].set_yticks([])
@@ -27,7 +27,7 @@ def plot_data(
         else:
             quantiles = (data.min(), data.max())
         # threshold = get_threshold(data, adjust=adjust_threshold)
-        im = axs[0].imshow(
+        axs[0].imshow(
             data,
             cmap=cmap,
             origin="lower",

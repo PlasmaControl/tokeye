@@ -6,10 +6,8 @@ UNet processing and reconstructing the full prediction from tiled outputs.
 """
 
 import warnings
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-
 from TokEye.exceptions import InvalidSpectrogramError, TilingError
 
 
@@ -17,7 +15,7 @@ def tile_spectrogram(
     spectrogram: np.ndarray,
     tile_size: int,
     overlap: int = 0,
-) -> Tuple[List[np.ndarray], Dict]:
+) -> tuple[list[np.ndarray], dict]:
     """
     Cut spectrogram into square tiles for UNet processing.
 
@@ -136,8 +134,8 @@ def tile_spectrogram(
 
 
 def stitch_predictions(
-    tiles: List[np.ndarray],
-    metadata: Dict,
+    tiles: list[np.ndarray],
+    metadata: dict,
     blend_overlap: bool = True,
 ) -> np.ndarray:
     """
@@ -239,10 +237,7 @@ def stitch_predictions(
 
     # Remove padding
     if padding > 0:
-        if has_channels:
-            output = output[:, :, :-padding]
-        else:
-            output = output[:, :-padding]
+        output = output[:, :, :-padding] if has_channels else output[:, :-padding]
 
     # Verify final shape matches original
     expected_final_shape = (
@@ -255,7 +250,7 @@ def stitch_predictions(
         warnings.warn(
             f"Stitched output shape {output.shape} doesn't match expected "
             f"{expected_final_shape}. This may indicate an issue with tiling.",
-            RuntimeWarning,
+            RuntimeWarning, stacklevel=2,
         )
 
     return output

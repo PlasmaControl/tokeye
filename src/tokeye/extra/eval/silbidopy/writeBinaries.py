@@ -3,8 +3,8 @@ Write annotations
 Source: https://github.com/joshua-zingale/silbidopy/blob/master/silbidopy/writeBinaries.py
 """
 
-import struct
 import dataclasses
+import struct
 
 SHORT_LEN = 2
 INT_LEN = 4
@@ -12,23 +12,23 @@ DOUBLE_LEN = 8
 LONG_LEN = 8
 
 
-HEADER_STR = "silbido!".encode("utf-8")
+HEADER_STR = b"silbido!"
 DET_VERSION = 4
 
 # feature bit-mask - describes what has been populated and allows
 # backward compatibility
-    
+
 # features produced for every point
 TIME = 1
 FREQ = 1 << 1
 SNR = 1 << 2
 PHASE = 1 << 3
-    
+
 RIDGE = 1 << 6
 
 TIMESTAMP = 1 << 7  # base timestamp for detections
 USERCOMMENT = 1 << 8  # user comment field
-    
+
 # features produced once per call
 SCORE = 1 << 4
 CONFIDENCE = 1 << 5
@@ -51,7 +51,7 @@ def writeContoursBinary(filename, contours,
     comment and timestamp being the empty string means that there will not be saved
     a comment or timestamp respectively. The graphid is set to an arbitrary constant value
     for each tonal.
-    
+
     :param filename: the name of the file to which to be written
     :param contours: an array containing dictionaries, each of which represents on contour
         Each dictionary must contain the fields specified in the keyword arguments.
@@ -63,12 +63,12 @@ def writeContoursBinary(filename, contours,
             ...,
         ]}
     '''
-    
+
     version = DET_VERSION.to_bytes(SHORT_LEN, byteorder = "big")
     bitMask = 0
-    
+
     headerSize = 3 * SHORT_LEN + INT_LEN + len(HEADER_STR)
-    
+
     if time:
         bitMask += TIME
     if frequency:
@@ -117,9 +117,9 @@ def writeContoursBinary(filename, contours,
     # graphId is an arbitrary value as of now
     graphId = (14567891234567891234).to_bytes(LONG_LEN, byteorder = "big")
 
-    # Write tonals  
+    # Write tonals
     for contour in contours:
-        
+
         if confidence:
             file.write(struct.pack(">d", contour["confidence"]))
         if score:
@@ -138,11 +138,11 @@ def writeContoursBinary(filename, contours,
 
             file.write(L.to_bytes(SHORT_LEN, byteorder="big"))
             file.write(contour["call"].encode("utf-8"))
-        
+
         file.write(graphId)
 
         N = len(contour["tfnodes"]).to_bytes(INT_LEN, byteorder = "big") # number of points in contour
-        
+
         file.write(N)
 
         # Write all time and frequency nodes for the current contour
@@ -222,14 +222,11 @@ def writeTimeFrequencyBinary(filename, contours, userVersion=0):
     # DOI: 10.1121/1.3624821.  Unused here.
     graphId = (0).to_bytes(LONG_LEN, byteorder="big")
 
-    # Write tonals  
+    # Write tonals
     for contour in contours:
 
         # number of points in contour
-        if expect_fields:
-            N = len(contour.time)
-        else:
-            N = len(contour)
+        N = len(contour.time) if expect_fields else len(contour)
 
         if expect_fields:
             # contour is a dataclass with fields

@@ -1,12 +1,11 @@
-import numpy as np
-
 import csv
 from pathlib import Path
+
+import numpy as np
+import torch
+from PIL import Image
 from tqdm.auto import tqdm
 
-from PIL import Image
-
-import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 from TokEye.extra.eval.silbidopy.eval import Metrics

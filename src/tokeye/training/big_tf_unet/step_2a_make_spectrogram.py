@@ -1,17 +1,15 @@
+import logging
 import sys
 from pathlib import Path
 
 import joblib
-
 import torch
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 from .utils.parmap import ParallelMapper

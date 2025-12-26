@@ -1,22 +1,19 @@
+import csv
+import logging
 import sys
 from pathlib import Path
 
-from tqdm.auto import tqdm
-
 import joblib
-import csv
-
 import torch
-
-import logging
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
 from faith.train.data.datasets.file_based import JoblibDataset
 
 from .utils.configuration import (
-    load_settings,
     load_input_paths,
+    load_settings,
     setup_directory,
 )
 
