@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from tqdm.auto import tqdm
 
 # Import model loading function from the analyze module
 from TokEye.app.analyze.load import model_load
+from tqdm.auto import tqdm
 
 # Configure logging
 logging.basicConfig(
