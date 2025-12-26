@@ -45,7 +45,7 @@ train = [
 eval = [
     "wavio",
     "h5py",
-    "faith",
+#   "faith",
 ]
 
 [tool.coverage.run]
@@ -89,5 +89,5 @@ package = true
 module-name = "tokeye"
 module-root = "src"
 
-[tool.uv.sources]
-faith = { path = "../FusionAIHub" }
+# [tool.uv.sources]
+# faith = { path = "../FusionAIHub" }
