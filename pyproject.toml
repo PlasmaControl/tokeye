@@ -20,8 +20,6 @@ dependencies = [
     "torchvision",
     "torchinfo",
     "scikit-image",
-    "pydantic",
-    "lightning",
     "omegaconf",
     "scikit-learn",
     "tables",
@@ -38,6 +36,11 @@ dev = [
 
     "ipykernel",
     "ipywidgets",
+
+    "pydantic",
+]
+train = [
+    "lightning",
 ]
 eval = [
     "wavio",
