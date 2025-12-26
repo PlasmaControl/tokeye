@@ -1,11 +1,9 @@
+import logging
 import sys
 from pathlib import Path
 
+from fusionaihub.preprocess import index_dataset, process
 from tqdm.auto import tqdm
-
-from faith.preprocess import process, index_dataset
-
-import logging
 
 logger = logging.getLogger(__name__)
 

@@ -3,15 +3,16 @@ Utility functions for reading/writing HDF5 files.
 Provides helper functions to access predictions from step_6b and step_6c outputs.
 """
 
+import contextlib
 from pathlib import Path
-import numpy as np
+
 import h5py
-from typing import Optional, List, Tuple
+import numpy as np
 
 
 def read_fold_prediction(
     hdf5_path: Path, fold_idx: int, sample_idx: int, data_type: str = "pred"
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """
     Read a single prediction from a fold HDF5 file.
 
@@ -34,15 +35,14 @@ def read_fold_prediction(
             dataset_name = f"sample_{sample_idx}_{data_type}"
             if dataset_name in fold_group:
                 return fold_group[dataset_name][:]
-            else:
-                return None
+            return None
     except (KeyError, OSError):
         return None
 
 
 def read_ensemble_prediction(
     hdf5_path: Path, sample_idx: int, data_type: str = "ensemble_mean"
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """
     Read an ensemble prediction from the ensemble HDF5 file.
 
@@ -64,8 +64,7 @@ def read_ensemble_prediction(
             dataset_name = f"sample_{sample_idx}_{data_type}"
             if dataset_name in f:
                 return f[dataset_name][:]
-            else:
-                return None
+            return None
     except (KeyError, OSError):
         return None
 
@@ -85,7 +84,7 @@ def get_channel(data: np.ndarray, channel: str = "normal") -> np.ndarray:
     return data[channel_idx]
 
 
-def list_samples(hdf5_path: Path, fold_idx: Optional[int] = None) -> List[int]:
+def list_samples(hdf5_path: Path, fold_idx: int | None = None) -> list[int]:
     """
     List all sample indices in an HDF5 file.
 
@@ -114,17 +113,15 @@ def list_samples(hdf5_path: Path, fold_idx: Optional[int] = None) -> List[int]:
             for key in keys:
                 if "sample_" in key:
                     idx_str = key.split("_")[1]
-                    try:
+                    with contextlib.suppress(ValueError):
                         sample_indices.add(int(idx_str))
-                    except ValueError:
-                        pass
 
-            return sorted(list(sample_indices))
+            return sorted(sample_indices)
     except (KeyError, OSError):
         return []
 
 
-def get_metadata(hdf5_path: Path, fold_idx: Optional[int] = None) -> dict:
+def get_metadata(hdf5_path: Path, fold_idx: int | None = None) -> dict:
     """
     Get metadata from an HDF5 file.
 
@@ -144,16 +141,15 @@ def get_metadata(hdf5_path: Path, fold_idx: Optional[int] = None) -> dict:
                 # Step 6b output
                 fold_group = f[f"fold_{fold_idx}"]
                 return dict(fold_group.attrs)
-            else:
-                # Step 6c output
-                return dict(f.attrs)
+            # Step 6c output
+            return dict(f.attrs)
     except (KeyError, OSError):
         return {}
 
 
 def read_all_samples(
-    hdf5_path: Path, fold_idx: Optional[int] = None, data_type: str = "pred"
-) -> Tuple[List[int], np.ndarray]:
+    hdf5_path: Path, fold_idx: int | None = None, data_type: str = "pred"
+) -> tuple[list[int], np.ndarray]:
     """
     Read all samples from an HDF5 file.
 
@@ -189,8 +185,7 @@ def read_all_samples(
 
     if samples:
         return valid_indices, np.stack(samples, axis=0)
-    else:
-        return [], np.array([])
+    return [], np.array([])
 
 
 # Example usage functions

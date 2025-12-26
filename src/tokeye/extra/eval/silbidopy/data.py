@@ -1,13 +1,15 @@
-from .render import getSpectrogram, getAnnotationMask
-from .readBinaries import tonalReader
-from torch.utils.data import Dataset, IterableDataset
-from math import floor
-import numpy as np
-import fnmatch
-import wavio
 import glob
-import h5py
 import os
+from math import floor
+
+import h5py
+import numpy as np
+import wavio
+from torch.utils.data import Dataset, IterableDataset
+
+from .readBinaries import tonalReader
+from .render import getAnnotationMask, getSpectrogram
+
 
 class AudioTonalDataset(Dataset):
     def __init__(self, audio_dir, annotation_dir, frame_time_span = 8, step_time_span = 2,
@@ -31,7 +33,7 @@ class AudioTonalDataset(Dataset):
         :param annotation_dir: the file path where the annotation files corresponding to
             the audio files are stored. For each annotation file,
             there must be a corresponding audio file with the same
-            name but with a different extension, namely .wav 
+            name but with a different extension, namely .wav
         :param frame_time_span: ms, length of time for one time window for dft
         :param step_time_span: ms, length of time step for spectrogram
         :param spec_clip_min: log magnitude spectrogram min-max normalization, minimum value
@@ -64,13 +66,13 @@ class AudioTonalDataset(Dataset):
             after it is generated. The function  must accept one positional argument that
             is a two-dimensional numpy array with floating point dtype and then return a same-sized
             array. Each spectrogram, call it s, will be passed into this function, call it f,
-            before returning it, i.e. f(s) is returned for each spectrogram. 
+            before returning it, i.e. f(s) is returned for each spectrogram.
         :param mask_processing_function: a function that processes the tonal mask before returning
             it. Must receive (anno, spec), two m by n NumPy array and then return an equally shaped
             NumPy array, where anno is the annotation mask and spec is the coresponding spectrogram
         :param post_processing_time_patch_padding: The number of time frames of padding used
             when post prossesing the spectrogram. After post prosessing, the size is shrunk to
-            the size specified by time_patch_frames. 
+            the size specified by time_patch_frames.
         :param post_process_full_frequency_range: If true, uses the entire frequency range when
             calculating post_processing_function for each spectrogram. After post_processing, the
             size is shrunk to the size specified by freq_patch_frames.
@@ -81,10 +83,10 @@ class AudioTonalDataset(Dataset):
         wav_files = findfiles(audio_dir, "wav")
         # collect all .wav filenames
         wav_names = list(map(os.path.basename, wav_files))
-    
+
         # map each file name to its full file path
         wav_file_dict = {wav_names[i] : wav_files[i] for i in range(len(wav_names))}
-        
+
         # Get all annotation file paths
         bin_files = findfiles(annotation_dir, f"{annotation_extension}")
         print(bin_files)
@@ -100,13 +102,13 @@ class AudioTonalDataset(Dataset):
             anno_wav_files = [wav_file_dict[filename] for filename in anno_wav_filenames]
         except KeyError as ex:
             raise Exception(f"Could not find audio file {str(ex)} corresponding to binary file.")
-       
+
        ## SAVE DATASET VALUES ##
         freq_resolution = 1000 / frame_time_span
         self.freq_patch_length_hz = freq_resolution * freq_patch_frames
-        self.freq_patch_advance_hz = self.freq_patch_length_hz if freq_patch_advance == None else freq_resolution * freq_patch_advance
+        self.freq_patch_advance_hz = self.freq_patch_length_hz if freq_patch_advance is None else freq_resolution * freq_patch_advance
         self.time_patch_length_ms = step_time_span * time_patch_frames
-        self.time_patch_advance_ms = self.time_patch_length_ms if time_patch_advance == None else step_time_span * time_patch_advance
+        self.time_patch_advance_ms = self.time_patch_length_ms if time_patch_advance is None else step_time_span * time_patch_advance
 
         self.frame_time_span = frame_time_span
         self.step_time_span = step_time_span
@@ -118,7 +120,7 @@ class AudioTonalDataset(Dataset):
         self.freq_patch_frames = freq_patch_frames
         self.time_patch_advance = time_patch_advance
         self.freq_patch_advance = freq_patch_advance
-        
+
         self.cache_wavs = cache_wavs
         self.cache_annotations = cache_annotations
 
@@ -126,7 +128,7 @@ class AudioTonalDataset(Dataset):
         self.anno_wav_files = anno_wav_files
 
         self.line_thickness = line_thickness
-        
+
         self.window_fn = window_fn
 
         self.post_processing_function = post_processing_function
@@ -138,16 +140,16 @@ class AudioTonalDataset(Dataset):
         # Get length of dataset
         self.num_patches = []
         self.file_info = []
-        for i, wav_file in enumerate((wavio.read(w) for w in anno_wav_files)):
+        for i, wav_file in enumerate(wavio.read(w) for w in anno_wav_files):
             num_samples = wav_file.data.shape[0]
 
             file_length_ms = num_samples * 1000 / wav_file.rate
-            
+
             nyquist_freq = int(wav_file.rate / 2)
 
             # determine & append number of patches in file
             num_freq_divisions = floor(( min(max_freq, nyquist_freq) - min_freq - self.freq_patch_length_hz)/ self.freq_patch_advance_hz) + 1
-            
+
 
             num_time_divisions = floor((file_length_ms - self.time_patch_length_ms - frame_time_span) / self.time_patch_advance_ms) + 1
 
@@ -162,7 +164,7 @@ class AudioTonalDataset(Dataset):
                 self.file_info[i]["wav_data"] = wav_file
             if cache_annotations:
                 self.file_info[i]["contours"] =  tonalReader(self.bin_files[i]).getTimeFrequencyContours()
-    
+
     def get_balanced_dataset(self, positive_proportion = 0.5, seed = None):
         '''
         Builds a new dataset that wraps around the current one. The new
@@ -207,11 +209,11 @@ class AudioTonalDataset(Dataset):
         # Get the possible number of patches that could overlap with a node
         freq_patch_range = self.freq_patch_length_hz / self.freq_patch_advance_hz
         time_patch_range = self.time_patch_length_ms / self.time_patch_advance_ms
-       
+
         # Set up an array to find out how many file patches were used before each file
         patches_cumsum = np.cumsum(np.append([0], self.num_patches))
         positive_set = set()
-       
+
         # Get the index of each patch that has at least one node in it
         for file_idx in range(len(self.bin_files)):
             contours = None
@@ -232,7 +234,7 @@ class AudioTonalDataset(Dataset):
                         continue
                     # seconds to miliseconds
                     time = time *1000
-                    
+
                     # Determine the grid patches to which this t-f node belongs
 
                     # The highest frequency patch that is allowed given the min and max
@@ -248,7 +250,7 @@ class AudioTonalDataset(Dataset):
                     # with the node
                     freq_overlap = np.ceil(freq_patch_range - freq_patch % 1).astype(int)
                     time_overlap = np.ceil(time_patch_range - time_patch % 1).astype(int)
-                    
+
                     # Add indices to positive set
                     for f_idx in range(min(int(freq_patch), max_freq_patch), max(int(freq_patch) - freq_overlap, -1), -1):
                         for t_idx in range(int(time_patch), max(int(time_patch) - time_overlap, -1), -1):
@@ -259,24 +261,24 @@ class AudioTonalDataset(Dataset):
                                 positive_set.add(idx)
 
         return positive_set
-    
+
     def get_index_source(self, idx):
         ''' Finds the source audio file and timestamp for an index
         in this dataset. Returns a three item tuple,
         (file_name: str, start_time: float, start_frequency: float)'''
-        
+
         ## Determine which file corresponds to idx ##
         if idx >= len(self):
             raise IndexError(f"Dataset index ({idx}) out of bounds for length ({len(self)}).")
         patches_cumsum = np.cumsum(self.num_patches)
         file_idx = np.argmax(patches_cumsum > idx)
 
-        audio_file = self.file_info[file_idx]["audio_file"] 
+        audio_file = self.file_info[file_idx]["audio_file"]
 
         # Adjust idx to be relative to the file index
         if file_idx != 0:
             idx -= patches_cumsum[file_idx - 1]
-        
+
         # get starting time and frequency
         num_time_divisions = self.file_info[file_idx]["num_time_divisions"]
         start_time = (idx % num_time_divisions) * self.time_patch_advance_ms
@@ -286,7 +288,7 @@ class AudioTonalDataset(Dataset):
 
     def __len__(self):
         return sum(self.num_patches)
-    
+
     def __getitem__(self, idx):
         '''Returns the spectrogram patch with index "idx" along with its annotation mask.
         The return value is a tuple, (spectrogram, annotation_mask)
@@ -311,7 +313,7 @@ class AudioTonalDataset(Dataset):
         # Adjust idx to be relative to the file index
         if file_idx != 0:
             idx -= patches_cumsum[file_idx - 1]
-        
+
         # get starting time and frequency
         num_time_divisions = self.file_info[file_idx]["num_time_divisions"]
         start_time = (idx % num_time_divisions) * self.time_patch_advance_ms
@@ -323,7 +325,7 @@ class AudioTonalDataset(Dataset):
         # padding for post-processing function
         padded_start_time = max(start_time - self.post_processing_time_patch_padding * self.step_time_span, 0)
         padded_end_time = end_time + self.post_processing_time_patch_padding * self.step_time_span
-       
+
         # get wav file
         wav_data = None
         if self.cache_wavs:
@@ -341,14 +343,14 @@ class AudioTonalDataset(Dataset):
                 max_freq = self.max_freq if self.full_freq else end_freq,
                 start_time = padded_start_time, end_time = padded_end_time,
                 window_fn = self.window_fn, return_db = return_db)
-        
+
         # get contours
         contours = None
         if self.cache_annotations:
             contours = self.file_info[file_idx]["contours"]
         else:
             contours = tonalReader(self.bin_files[file_idx]).getTimeFrequencyContours()
-        
+
         label = getAnnotationMask(contours,
                 frame_time_span = self.frame_time_span,
                 step_time_span = self.step_time_span,
@@ -357,13 +359,13 @@ class AudioTonalDataset(Dataset):
                 start_time = padded_start_time, end_time = actual_end_time,
                 line_thickness = self.line_thickness)
 
-       
+
         # apply post processing function if one is to be used
-        if self.post_processing_function != None:
+        if self.post_processing_function is not None:
             datum = self.post_processing_function(datum)
-        if self.mask_processing_function != None:
+        if self.mask_processing_function is not None:
             label = self.mask_processing_function(label, datum)
-        
+
         # Remove padding added for the post processing function
         left_time_padding = (start_time - padded_start_time)/self.step_time_span
         leftover = left_time_padding % 1
@@ -403,14 +405,14 @@ class BalancedDataset(Dataset):
         :param seed: if not None, seeds to creation of the BalancedDataset with this integer value
 
         '''
-        
+
 
         positive_indices = np.array(list(positive_set))
         negative_indices = np.array(list(set(range(len(dataset))) - positive_set))
 
 
         # Seed shuffle to make dataset formation deterministic
-        if seed != None:
+        if seed is not None:
             np.sort(positive_indices)
             np.sort(negative_indices)
             np.random.seed(seed)
@@ -421,7 +423,7 @@ class BalancedDataset(Dataset):
         # Get number of positive and negative indices to be included
         init_len_p = len(positive_indices)
         init_len_n = len(negative_indices)
-        
+
         if positive_proportion == 1:
             len_p = init_len_p
             len_n = 0
@@ -439,7 +441,7 @@ class BalancedDataset(Dataset):
 
         positive_indices = positive_indices[:len_p]
         negative_indices = negative_indices[:len_n]
-        
+
         # Combine the positive and negative index arrays
         self.indices = np.append(positive_indices, negative_indices)
         np.random.shuffle(self.indices)
@@ -464,7 +466,7 @@ class Hdf5Dataset(Dataset):
     def __init__(self, hdf5_file, data_name = "data", labels_name = "labels"):
         '''A map-style PyTorch Dataset that loads data and labels
         from an hdf5file.
-        
+
         :param hdf5_file: the name of the hdf5 file that will be loaded
                           by this Dataset
         :param data_name: the name of the dataset inside the hdf5 file that
@@ -472,11 +474,11 @@ class Hdf5Dataset(Dataset):
         :param labels_name: the name of the dataset inside the hdf5 file that
                             stores the output, or labels, that correspond
                             the the data inputs'''
-        
+
         self.file = h5py.File(hdf5_file, 'r')
         self.data_name = data_name
         self.labels_name = labels_name
-    
+
     def __len__(self):
         return self.file[self.data_name].shape[0]
 
@@ -488,12 +490,12 @@ def dataset_to_hdf5(dataset, filename, transpose = False):
     '''Given a map-style PyTorch dataset, returns an hdf5 file
     named and at filename. If transpose is set to True, a transpose is
     applied to each label and datum.'''
-    
+
     length = len(dataset)
     datum1, label1 = dataset[0]
 
     h5 = h5py.File(filename, 'w')
-    
+
 
     h5.create_dataset("data", (length,) + datum1.shape, dtype='float32', chunks = (1,) + datum1.shape)
     h5.create_dataset("labels", (length,) + label1.shape, dtype='float32', chunks = (1,) + label1.shape)
@@ -530,7 +532,7 @@ class BalancedIterableDataset(IterableDataset):
                            If None, which is default, epoch_size is set to
                            be twice the size of the minority class.
         '''
-        
+
         length = len(dataset)
         negative_set = set(range(length)) - positive_set
 
@@ -541,7 +543,7 @@ class BalancedIterableDataset(IterableDataset):
 
         self.next_is_positive = True
 
-        if epoch_size == None:
+        if epoch_size is None:
             self.epoch_size = 2 * min(len(self.positive_indices), len(self.negative_indices))
         else:
             self.epoch_size = epoch_size

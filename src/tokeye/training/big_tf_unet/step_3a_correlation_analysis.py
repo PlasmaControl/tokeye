@@ -2,19 +2,17 @@ import sys
 from pathlib import Path
 
 import joblib
-
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 # torch.set_float32_matmul_precision('high')
 torch.backends.cuda.matmul.fp32_precision = "ieee"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-from torchmetrics.image import TotalVariation
-
 import lightning as L
 from lightning.pytorch.callbacks import Callback
+from torchmetrics.image import TotalVariation
 
 L.seed_everything(42)
 
@@ -27,7 +25,6 @@ from TokEye.models.unet import UNet
 
 from .utils.configuration import (
     load_settings,
-    load_input_paths,
     setup_directory,
 )
 
@@ -115,9 +112,8 @@ class ECEDataset(Dataset):
 
         mean = data.mean(dim=(1, 2), keepdim=True)
         std = data.std(dim=(1, 2), keepdim=True)
-        spectrogram = (data - mean) / (std + 1e-6)
+        return (data - mean) / (std + 1e-6)
 
-        return spectrogram
 
 
 class ECEDataModule(L.LightningDataModule):
@@ -181,8 +177,7 @@ class BTN(nn.Module):
         x_real, x_imag = x[..., 0], -x[..., 1]
         x_real = self.unet(x_real)
         x_imag = self.unet(x_imag)
-        x = torch.stack([x_real, x_imag], dim=-1)
-        return x
+        return torch.stack([x_real, x_imag], dim=-1)
 
 
 class BTNModule(L.LightningModule):
@@ -254,10 +249,9 @@ class BTNModule(L.LightningModule):
         target_channel = x[:, target_channel : target_channel + 1]
         target_channel = torch.rot90(target_channel, k=2, dims=[2, 3])
 
-        x = torch.cat([front_channels, back_channels], dim=1)
+        return torch.cat([front_channels, back_channels], dim=1)
         # x[:, 0:0+1] = (target_channel +  x[:, 0:0+1]) / 2
         # x[:, -1:-1+1] = (target_channel + x[:, -1:-1+1]) / 2
-        return x
 
     def _load_target_channels(self, x, target_channel):
         if target_channel is None:
@@ -265,8 +259,7 @@ class BTNModule(L.LightningModule):
         if target_channel < 0:
             target_channel = self.total_channels + target_channel
         x = x[:, target_channel : target_channel + 1]
-        x = x.repeat(1, self.in_channels, 1, 1, 1)
-        return x
+        return x.repeat(1, self.in_channels, 1, 1, 1)
 
     def _single_channel_loss(self, y_hat, y) -> torch.Tensor:
         loss = self.loss_fn(y_hat, y.flip(-1))
@@ -285,8 +278,7 @@ class BTNModule(L.LightningModule):
         return loss / self.in_channels
 
     def forward(self, x):
-        x = self.unet(x)
-        return x
+        return self.unet(x)
 
     def training_step(self, batch, batch_idx):
         batch = batch
@@ -357,11 +349,10 @@ class BTNModule(L.LightningModule):
         self.predict_tv.reset()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
+        return torch.optim.AdamW(
             self.parameters(),
             lr=1e-4,
         )
-        return optimizer
 
 
 def main(config_path=None):
@@ -406,7 +397,7 @@ def main(config_path=None):
     else:
         trainer.fit(model, datamodule)
 
-    predictions = trainer.predict(model, datamodule)
+    trainer.predict(model, datamodule)
 
 
 if __name__ == "__main__":
