@@ -30,7 +30,7 @@ jobs:
           if [ -f pyproject.toml ]; then uv sync --extra dev; fi
       - name: Lint with ruff
         run: |
-          ruff check .
+          uv run ruff check .
       - name: Test with pytest
         run: |
           pytest
