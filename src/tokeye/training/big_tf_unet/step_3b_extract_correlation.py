@@ -5,14 +5,14 @@ from pathlib import Path
 import joblib
 from tqdm.auto import tqdm
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from .utils.configuration import (
     load_input_paths,
     load_settings,
     setup_directory,
 )
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 default_settings = {
     "reference_dir": Path("data/cache/step_2b_filter_spectrogram"),

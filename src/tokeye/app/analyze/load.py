@@ -107,7 +107,6 @@ def model_infer(
     return out_tensor.numpy()
 
 
-
 # Signal Functions
 def signal_load(filepath) -> np.ndarray | None:
     try:
@@ -137,8 +136,7 @@ def load_single(
     signal_data = np.expand_dims(signal, axis=0)
     logger.info(f"Raw signal shape: {signal.shape}")
 
-    # Apply STFT transform
-    # TODO: Generalize
+    # Apply STFT transform (generalize later)
     n_fft = transform_args.get("n_fft", 1024)
     hop = transform_args.get("hop_length", 256)
     clip_dc = transform_args.get("clip_dc", True)
@@ -170,8 +168,7 @@ def load_multi(
     signal = np.array(signal)
     logger.info(f"Raw signal shape: {signal.shape}")
 
-    # Apply STFT to both signals
-    # TODO: Generalize
+    # Apply STFT to both signals (generalize later)
     n_fft = transform_args.get("n_fft", 1024)
     hop = transform_args.get("hop_length", 256)
     clip_dc = transform_args.get("clip_dc", True)

@@ -6,14 +6,12 @@ import torch
 from PIL import Image
 from tqdm.auto import tqdm
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 from TokEye.extra.eval.silbidopy.eval import Metrics
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 # Settings
-SETTINGS = {
-    "threshold": 0.5
-}
+SETTINGS = {"threshold": 0.5}
 
 # Statistics
 MEAN = 17.84620821169868
@@ -30,7 +28,7 @@ model = torch.load(
     model_path,
     weights_only=False,
     map_location=device,
-    )
+)
 model.eval()
 print("Model loaded")
 
@@ -43,8 +41,8 @@ for shotn in tqdm(shotns):
         input_path = data_path / "input" / f"spectrogram_{shotn}.png"
         gt_path = data_path / "gt" / f"spectrogram_{shotn}.png"
 
-        spec = Image.open(input_path).convert('L')
-        ann = Image.open(gt_path).convert('L')
+        spec = Image.open(input_path).convert("L")
+        ann = Image.open(gt_path).convert("L")
 
         spec, ann = np.array(spec), np.array(ann)
         spec, ann = np.flip(spec, axis=0), np.flip(ann, axis=0)
@@ -63,7 +61,7 @@ for shotn in tqdm(shotns):
             spec_tensor = input_tensor.to(device)
             out_tensor = model(spec_tensor)[0]
 
-        out_tensor = out_tensor[:,0:1]
+        out_tensor = out_tensor[:, 0:1]
         out_tensor = torch.sigmoid(out_tensor)
         out_tensor = out_tensor.cpu()
 
@@ -74,7 +72,7 @@ for shotn in tqdm(shotns):
 
 scores = metrics.compute()
 output_path.parent.mkdir(parents=True, exist_ok=True)
-with open(output_path, "w", newline="") as f:
+with output_path.open("w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=list(scores.keys()))
     writer.writeheader()
     writer.writerow(scores)

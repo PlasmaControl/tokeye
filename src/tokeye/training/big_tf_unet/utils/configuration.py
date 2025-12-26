@@ -26,9 +26,8 @@ def load_settings(
         cfg = OmegaConf.to_container(cfg, resolve=True)
 
         for key, value in cfg.items():
-            if key.endswith("_dir") or key.endswith("_path"):
-                if value is not None:
-                    cfg[key] = Path(value)
+            if (key.endswith("_dir") or key.endswith("_path")) and value is not None:
+                cfg[key] = Path(value)
 
     return cfg
 

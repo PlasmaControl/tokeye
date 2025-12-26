@@ -1,29 +1,26 @@
+import logging
 import shutil
 import sys
 from pathlib import Path
 
+import lightning as L
 import tifffile as tif
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset
-
-torch.backends.cuda.matmul.fp32_precision = "ieee"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
-
-L.seed_everything(42)
-
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from TokEye.models.unet import UNet
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from .utils.augmentations import get_augmentation
 from .utils.configuration import load_settings
 from .utils.losses import dice_coefficient, get_loss_function, iou_score
+
+torch.backends.cuda.matmul.fp32_precision = "ieee"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+L.seed_everything(42)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 default_settings = {
     # Data and training
