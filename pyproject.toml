@@ -82,3 +82,10 @@ package = true
 [tool.uv.build-backend]
 module-name = "tokeye"
 module-root = "src"
+
+[pytest]
+minversion = "9.0"
+addopts = ["-ra", "-q"]
+testpaths = [
+    "tests",
+]
