@@ -3,7 +3,7 @@ message: "If you use this software, please cite it as below."
 authors:
 - family-names: Chen
   given-names: Nathaniel
-orcid: https://orcid.org/0000-0001-8362-414X
+  orcid: https://orcid.org/0000-0001-8362-414X
 title:PlasmaControl/tokeye: Release for Zenodo, demonstration updates
 version: v0.9.3
 date-released: 2026-02-10
