@@ -94,10 +94,13 @@ Copy them into the `data/` directory.
 ## Citation
 If you use this code in your research, please cite:
 ```bibtex
-@article{NaN,
-  title={Paper not yet published},
-  author={Nathaniel Chen},
-  year={2025}
+@article{chen_TokEye_2025,
+  title={TokEye},
+  author={Chen, Nathaniel},
+  year={2025},
+  publisher={Zenodo},
+  doi={10.5281/zenodo.18600162},
+  url={https://doi.org/10.5281/zenodo.18600162}
 }
 ```
 
