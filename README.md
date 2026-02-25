@@ -94,13 +94,13 @@ Copy them into the `data/` directory.
 ## Citation
 If you use this code in your research, please cite:
 ```bibtex
-@article{chen_TokEye_2025,
-  title={TokEye},
+@article{chen_TokEye_2026,
+  title={Fast Spectrogram Event Extraction via Offline Self-Supervised Learning},
   author={Chen, Nathaniel},
-  year={2025},
-  publisher={Zenodo},
-  doi={10.5281/zenodo.18600162},
-  url={https://doi.org/10.5281/zenodo.18600162}
+  year={2026},
+  publisher={ArXiv},
+  doi={10.48550/arXiv.2602.20317},
+  url={https://www.arxiv.org/abs/2602.20317}
 }
 ```
 
