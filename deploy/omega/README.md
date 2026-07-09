@@ -14,7 +14,8 @@ Background/reference: `docs/omega-cluster.md` (cluster facts) and `docs/diiid.md
 Files:
 - `environment-omega.yml` — the mamba env spec (Python 3.13 + MDSplus + `tokeye[app]`).
 - `modulefiles/tokeye.lua` — the Lmod modulefile (PATH-prepend; sets `TOKEYE_DIR`/`TOKEYE_CACHE`).
-- `tokeye-app.sh` — launcher that prints the exact tunnel command, then runs `tokeye app`.
+- `tokeye-app.sh` — cluster-side launcher: prints the exact tunnel command, then runs `tokeye app`.
+- `tokeye-connect.sh` — laptop-side one-step launcher: tunnel + remote app + open browser.
 
 ---
 
@@ -76,31 +77,39 @@ tokeye --help          # subcommands incl. `fetch` and `app`
 (For a quick dev check straight from the checkout, `module use $PWD/deploy/omega/modulefiles`
 works too — the modulefile still points `PATH` at the shared env.)
 
-## 3. Run the web app + tunnel
+## 3. Run the web app
 
-On somega:
+### One step, from your laptop (recommended)
+
+Copy the laptop-side launcher once, then run it — it opens the tunnel, starts the
+app on the cluster over that same connection, and opens your browser when ready:
 
 ```bash
-module load tokeye
-tokeye-app          # on PATH; prints the exact tunnel line, then launches (or just: tokeye app)
+scp <you>@somega.gat.com:/cscratch/chenn/tokeye/deploy/omega/tokeye-connect.sh ~/
+~/tokeye-connect.sh <you>@somega.gat.com        # Ctrl-C stops the app + tunnel
 ```
 
-It binds `127.0.0.1:7860`. From your laptop, open the tunnel it printed, e.g.:
+That's it — the **DIII-D** tab opens in your browser. (The cluster app can't open
+your local browser itself: it binds 127.0.0.1 on the cluster, so the tunnel +
+browser-open must be driven from the laptop — which is all this script does. The
+`somega` round-robin is fine: the forward rides the same SSH session that runs
+the app, so it always points at the node the app actually landed on.)
+
+### Manual, two terminals
 
 ```bash
+# terminal 1 — on somega:
+module load tokeye && tokeye-app       # prints the exact tunnel line (or: tokeye app)
+# terminal 2 — on your laptop (use the line it printed):
 ssh -N -L 7860:localhost:7860 <you>@omega14.gat.com
-# then browse to http://localhost:7860  →  "DIII-D" tab
+# then browse to http://localhost:7860
 ```
+
+Add `LocalForward 7860 localhost:7860` under the host in your laptop `~/.ssh/config`
+to make the tunnel automatic (then `ssh <node>` alone forwards the port).
 
 In the **DIII-D** tab: enter a shot, pick **Fast Magnetics / Mirnov** + a probe
 (e.g. `MPI66M067D`) and a time window → **Load shot** → **Analyze**.
-
-To make the tunnel automatic, add to your laptop `~/.ssh/config`:
-
-```
-Host omega14.gat.com
-    LocalForward 7860 localhost:7860
-```
 
 Do **not** use `tokeye app --share` on GA (relays through Gradio's cloud, off-network).
 
