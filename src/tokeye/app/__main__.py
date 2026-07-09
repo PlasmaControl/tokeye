@@ -15,6 +15,7 @@ import gradio as gr
 from .analyze.analyze import analyze_tab
 from .tabs.annotate import annotate_tab
 from .tabs.diiid import diiid_tab
+from .tabs.diiid_modespec import diiid_modespec_tab
 from .tabs.diiid_offline import diiid_offline_tab
 from .tabs.utilities import utilities_tab
 from .utils.theme import make_theme
@@ -63,10 +64,13 @@ def create_app() -> gr.Blocks:
             utilities_tab()
         with gr.Tab("DIII-D"):
             diiid_shot = diiid_tab()
+        with gr.Tab("DIII-D Modespec"):
+            diiid_modespec_shot = diiid_modespec_tab()
         with gr.Tab("DIII-D Offline"):
             diiid_offline_tab()
-        # Fill the DIII-D shot with the latest on page load (no-op off-cluster).
+        # Fill the DIII-D shot fields with the latest on page load (no-op off-cluster).
         app.load(fn=_latest_shot, inputs=None, outputs=[diiid_shot])
+        app.load(fn=_latest_shot, inputs=None, outputs=[diiid_modespec_shot])
     return app
 
 

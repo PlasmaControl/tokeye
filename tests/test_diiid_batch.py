@@ -80,6 +80,58 @@ def test_build_sbatch_script_threads_decimation():
     assert "--decimation 6" in s
 
 
+def test_build_sbatch_script_emits_gate_source_when_gating():
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    s = build_sbatch_script(
+        outdir="/x",
+        shots=[1],
+        diag="mag",
+        probe="MPI66M067D",
+        tlim=None,
+        model="big_tf_unet",
+        threshold=0.5,
+        do_tokeye=False,
+        do_modespec=True,
+        do_gate=True,
+        n_range=(-5, 5),
+        f_min=5.0,
+        f_max=200.0,
+        partition="gpus",
+        gres="gpu:v100:1",
+        time_limit="0-02:00:00",
+        gate_source="reference",
+        reference_probe="MPI66M137D",
+    )
+    assert "--gate-source reference" in s
+    assert "--reference-probe MPI66M137D" in s
+
+
+def test_build_sbatch_script_no_gate_source_without_gating():
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    s = build_sbatch_script(
+        outdir="/x",
+        shots=[1],
+        diag="mag",
+        probe="MPI66M067D",
+        tlim=None,
+        model="big_tf_unet",
+        threshold=0.5,
+        do_tokeye=True,
+        do_modespec=False,
+        do_gate=False,
+        n_range=(-5, 5),
+        f_min=5.0,
+        f_max=200.0,
+        partition="gpus",
+        gres="gpu:v100:1",
+        time_limit="0-02:00:00",
+    )
+    # No gating -> neither "--gate" nor the "--gate-source" that contains it.
+    assert "--gate" not in s
+
+
 def test_build_sbatch_script_cpu_omits_gres():
     from tokeye.cli.diiid_batch import build_sbatch_script
 

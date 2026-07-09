@@ -1,9 +1,11 @@
 # Deploying TokEye on the Omega cluster (DIII-D)
 
 Runbook for the `diiid` build: a self-contained mamba env + a locally loadable
-Lmod module, so `module load tokeye && tokeye app` gives you the "pyspecview +
-TokEye" web app (load a DIII-D shot → spectrogram + mode overlay) over an SSH
-tunnel instead of X11.
+Lmod module, so `module load tokeye && tokeye` opens the **native desktop GUI**
+(the "pyspecview + TokEye" viewer — load a DIII-D shot → spectrogram + mode
+overlay, plus the toroidal modespec map) directly over **NoMachine / X11**. A
+no-X11 **web app** (`tokeye app`, reached over an SSH tunnel) remains available
+as an alternative.
 
 Background/reference: `docs/omega-cluster.md` (cluster facts) and `docs/diiid.md`
 (the plan). This directory is the concrete recipe.
@@ -52,13 +54,22 @@ mamba env create -p /cscratch/share/tokeye/env-x86_64 -f deploy/omega/environmen
 a non-interactive shell, the mambaforge binary works directly:
 `/fusion/projects/codes/conda/mambaforge/bin/mamba env create ...`.)
 
-Verify the three things the app needs import cleanly:
+Verify the things TokEye needs import cleanly (`PySide6`/`pyqtgraph` power the
+native GUI and come from conda-forge above; `plotly` powers the web app's plots
+and rides in the `[app]` extra):
 
 ```bash
-/cscratch/share/tokeye/env-x86_64/bin/python -c "import tokeye, MDSplus, gradio; print('ok')"
+/cscratch/share/tokeye/env-x86_64/bin/python -c "import tokeye, MDSplus, PySide6, pyqtgraph, gradio, plotly; print('ok')"
 ```
 
 ## 2. Make the module loadable (local, no GitHub)
+
+> **Re-run this whole step after any env rebuild.** `mamba env create` recreates
+> `env-x86_64/bin` from scratch, so the manually-copied `tokeye-app` launcher is
+> lost (you'll get `tokeye-app: command not found`); re-copy it below. The
+> modulefile also prepends `LD_LIBRARY_PATH` to the env's `lib` so the conda
+> `libstdc++`/BLAS win over the node's system `/lib64` — required for numpy/torch to
+> import on a fresh somega login.
 
 Publish the modulefile next to the env so anyone can `module use` it:
 
@@ -80,9 +91,40 @@ tokeye --help          # subcommands incl. `fetch` and `app`
 (For a quick dev check straight from the checkout, `module use $PWD/deploy/omega/modulefiles`
 works too — the modulefile still points `PATH` at the shared env.)
 
-## 3. Run the web app
+## 3. Run TokEye
 
-### One step, from your laptop (recommended)
+### Native desktop GUI over NoMachine / X11 (recommended)
+
+Connect to **somega** with NoMachine (or `ssh -X somega.gat.com`), then:
+
+```bash
+module load tokeye
+tokeye                       # opens the DIII-D window — no tunnel, renders on the node
+# tokeye gui --view modespec # open straight on the toroidal modespec view
+```
+
+The **Spectrogram** view: pick a diagnostic + probe (the time window auto-fills),
+**Load shot** → **Analyze** to overlay the coherent (green) / transient (red) mode
+mask. Drag to pan, scroll to zoom (centred on the cursor), toggle **Zoom box** to
+rubber-band a region, double-click to reset; the crosshair read-out (`t / f / value`)
+tracks the cursor. The **Modespec** view is the toroidal mode-number map (discrete
+`n`, integer colour bar) with optional **Gate with TokEye** (array average or a
+reference probe); the coherence slider re-gates instantly.
+
+If the window doesn't appear, name the missing X library:
+
+```bash
+QT_DEBUG_PLUGINS=1 tokeye gui --self-test        # lists any .so the xcb plugin can't load
+QT_QPA_PLATFORM=offscreen tokeye gui --self-test  # headless sanity check -> exits 0
+```
+
+`xcb-util-cursor` (`libxcb-cursor`) is the usual Qt6-on-HPC culprit; it ships in
+the conda env above (pulled in by `pyside6`). The modulefile pins
+`QT_QPA_PLATFORM=xcb`; unset it or use `offscreen` for a display-less node.
+
+### Web app over an SSH tunnel (alternative, no X11)
+
+#### One step, from your laptop
 
 Copy the laptop-side launcher once, then run it — it opens the tunnel, starts the
 app on the cluster over that same connection, and opens your browser when ready:
@@ -98,7 +140,7 @@ browser-open must be driven from the laptop — which is all this script does. T
 `somega` round-robin is fine: the forward rides the same SSH session that runs
 the app, so it always points at the node the app actually landed on.)
 
-### Manual, two terminals
+#### Manual, two terminals
 
 ```bash
 # terminal 1 — on somega:
@@ -113,16 +155,24 @@ to make the tunnel automatic (then `ssh <node>` alone forwards the port).
 
 In the **DIII-D** tab: the shot defaults to the latest on MDS. Pick a diagnostic
 + probe — the time window auto-fills to the signal's data range — then **Load
-shot** (a clean spectrogram image; crop the band with **STFT settings →
-f-min/f-max**) → **Analyze**. Threshold / clip / band sliders re-render live (on
-release). Set **View Mode → Modespec** for the classic toroidal mode-number
-analysis (a rainbow image + an in-page mode legend); tick **Gate with TokEye** to
-keep only the modes the mask confirms. Modespec auto-decimates to your f-max for
-speed.
+shot** → **Analyze**. The spectrogram is an **interactive Plotly plot** with real
+kHz/ms axes (scroll to zoom, drag to pan); crop the band with **STFT settings →
+f-min/f-max**. Threshold / clip / band sliders re-render live (on release).
+
+The **DIII-D Modespec** tab is the classic toroidal mode-number analysis on its
+own: enter a shot → an interactive discrete-`n` heatmap (integer colorbar, **hover**
+to read the mode number, zoom/pan). **Gate with TokEye** keeps only the modes the
+model confirms, computed from the **same array** (band-matched) — **Array average**
+(default; cancels single-probe horizontal-line artifacts) or a **Reference probe**.
+The coherence-threshold slider re-renders instantly; modespec auto-decimates to
+your f-max for speed.
 
 The **DIII-D Offline** tab batches many shots (range `a-b` or a comma list): it
 prefetches here on somega, then submits one Slurm job (`gpus`) that runs TokEye +
-modespec over the cached data — **Refresh** shows status and the result gallery.
+modespec (gated by the band-matched array average, or a reference probe) over the
+cached data — **Refresh** shows status and the result gallery. Offline images are
+matplotlib PNGs (Plotly is online-only: its static export needs Kaleido/Chromium,
+absent on compute nodes).
 
 Do **not** use `tokeye app --share` on GA (relays through Gradio's cloud, off-network).
 
@@ -152,11 +202,14 @@ Verified live against DIII-D:
 - **`mhr`** — high-res magnetics `B1`–`B8` (~2 MHz).
 - **`co2`** — CO2/BCI density chords (`DENVn_UF`). Real source is the BCI.DPD tree
   node / segmented BCI tree (`src/tokeye/sources/co2.py`); the plain `DENVnUF`
-  PTDATA is all-zeros. **`bes`** — `BESFU` fast channels (availability varies by shot).
+  PTDATA is all-zeros.
+- **`ece`** — fast ECE `TECEF01`–`TECEF48` (~500 kHz). Real source is the D3D-tree
+  node `\D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn` (`src/tokeye/sources/ece.py`); not
+  reachable as plain PTDATA — the same fix pattern as CO2.
+- **`bes`** — `BESFU` fast channels (availability varies by shot).
 
-Not yet fetchable: **`ece`** (`TECEF` channels live in a separate `ece` MDSplus tree,
-not PTDATA — listed for selection; wiring the tree fetch is a follow-up). Presets live
-in `src/tokeye/sources/presets.py`; the probe dropdown also accepts custom names.
+Presets live in `src/tokeye/sources/presets.py`; the probe dropdown also accepts
+custom names.
 
 ---
 

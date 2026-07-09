@@ -61,6 +61,7 @@ def submit_batch(
     do_tokeye,
     do_modespec,
     do_gate,
+    gate_source,
     ms_nmin,
     ms_nmax,
     ms_fmin,
@@ -152,6 +153,8 @@ def submit_batch(
         f_min=float(ms_fmin),
         f_max=float(ms_fmax),
         decimation=int(decimation) if decimation else 1,
+        gate_source=gate_source,
+        reference_probe=str(probe),
         partition=partition,
         gres=gres,
         time_limit=time_limit,
@@ -258,6 +261,13 @@ def diiid_offline_tab():
                 do_tokeye = gr.Checkbox(value=True, label="TokEye mask")
                 do_modespec = gr.Checkbox(value=True, label="Modespec")
                 do_gate = gr.Checkbox(value=True, label="TokEye-gated modespec")
+            gate_source = gr.Radio(
+                choices=["average", "reference"],
+                value="average",
+                label="Gate source",
+                info="Band-matched gate: average over the array (cancels single-probe "
+                "artifacts) or one reference probe (the probe above).",
+            )
             with gr.Row():
                 ms_nmin = gr.Number(value=-5, precision=0, label="n min")
                 ms_nmax = gr.Number(value=5, precision=0, label="n max")
@@ -290,7 +300,7 @@ def diiid_offline_tab():
         fn=submit_batch,
         inputs=[
             shots_text, diagnostic, pointname, t_min, t_max, model_file,
-            do_tokeye, do_modespec, do_gate,
+            do_tokeye, do_modespec, do_gate, gate_source,
             ms_nmin, ms_nmax, ms_fmin, ms_fmax, ms_decim,
             outdir_base, partition, gres, time_limit,
         ],

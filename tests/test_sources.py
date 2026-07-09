@@ -44,7 +44,7 @@ def test_presets_cover_pyspecview_diagnostics():
     # b1-b8 + the other magnetics/diagnostics are wired in.
     assert set(DIAGNOSTICS) >= {"mag", "mag_pol", "mhr", "ece", "co2", "bes"}
     assert DIAGNOSTICS["mhr"].pointnames == tuple(f"B{i}" for i in range(1, 9))
-    assert len(DIAGNOSTICS["ece"].pointnames) == 40
+    assert len(DIAGNOSTICS["ece"].pointnames) == 48
     assert len(DIAGNOSTICS["bes"].pointnames) == 40
     assert len(DIAGNOSTICS["mag_pol"].pointnames) == 31
     # Toroidal angles are index-aligned to the probe names (needed for modespec).
@@ -201,6 +201,93 @@ def test_gate_dominant_requires_fs():
         gate_dominant(result, np.zeros((2, 8, 8)), {"fs": 0.0})
 
 
+# ── band-matched array gate (the fix for the gating band-mismatch) ────────────────
+def test_array_gate_mask_averages_over_probes_and_thresholds(tmp_path):
+    from tokeye.sources.mirnov import array_gate_mask
+    from tokeye.sources.presets import MIRNOV_TOROIDAL
+
+    shot, n = 190904, 8000
+    t_ms = np.arange(n) * 0.005 + 1000.0  # 200 kHz
+    rng = np.random.default_rng(0)
+    for i, name in enumerate(MIRNOV_TOROIDAL):
+        _seed_cache(tmp_path, shot, name, rng.standard_normal(n) + 0.1 * i, t_ms)
+
+    stft_kwargs = {"n_fft": 256, "hop": 64, "clip_dc": True, "clip_low": 1.0, "clip_high": 99.0}
+    calls = {"n": 0}
+
+    def infer_hi(spec):
+        calls["n"] += 1
+        a = np.asarray(spec, dtype=float)
+        return np.stack([np.full_like(a, 0.6), np.zeros_like(a)])  # coherent 0.6 > 0.5
+
+    mask, meta = array_gate_mask(
+        shot, "toroidal", None, stft_kwargs, infer_hi, threshold=0.5,
+        source="average", data_dir=str(tmp_path),
+    )
+    assert calls["n"] == 14  # one inference per toroidal probe (averaged)
+    assert mask.dtype == bool and mask.ndim == 2 and mask.all()
+    assert meta["fs"] > 0 and meta["n_fft"] == 256 and meta["hop"] == 64
+
+    # An averaged coherent probability below the threshold -> an empty gate.
+    def infer_lo(spec):
+        a = np.asarray(spec, dtype=float)
+        return np.stack([np.full_like(a, 0.3), np.zeros_like(a)])
+
+    mask_lo, _ = array_gate_mask(
+        shot, "toroidal", None, stft_kwargs, infer_lo, threshold=0.5,
+        source="average", data_dir=str(tmp_path),
+    )
+    assert not mask_lo.any()
+
+
+def test_array_gate_mask_reference_uses_single_probe(tmp_path):
+    from tokeye.sources.mirnov import array_gate_mask
+    from tokeye.sources.presets import MIRNOV_TOROIDAL
+
+    shot, n = 190904, 8000
+    t_ms = np.arange(n) * 0.005 + 1000.0
+    for name in MIRNOV_TOROIDAL:
+        _seed_cache(tmp_path, shot, name, np.sin(t_ms), t_ms)
+
+    stft_kwargs = {"n_fft": 256, "hop": 64, "clip_dc": True, "clip_low": 1.0, "clip_high": 99.0}
+    calls = {"n": 0}
+
+    def infer(spec):
+        calls["n"] += 1
+        a = np.asarray(spec, dtype=float)
+        return np.stack([np.full_like(a, 0.6), np.zeros_like(a)])
+
+    _mask, _meta = array_gate_mask(
+        shot, "toroidal", None, stft_kwargs, infer, source="reference",
+        reference=MIRNOV_TOROIDAL[3], data_dir=str(tmp_path),
+    )
+    assert calls["n"] == 1  # reference gate infers exactly one probe
+
+
+def test_gate_dominant_mask_matches_gate_dominant():
+    from tokeye.sources.mirnov import gate_dominant, gate_dominant_mask
+
+    rng = np.random.default_rng(2)
+    n_win, n_freq = 40, 30
+    result = {
+        "t_win_ms": np.linspace(1000, 1020, n_win),
+        "freq_khz": np.linspace(5, 150, n_freq),
+        "n_dominant": rng.integers(-3, 4, size=(n_win, n_freq)),
+        "coherence": rng.random((n_win, n_freq)),
+        "n_range": (-3, 3),
+        "c95": 0.3,
+    }
+    arr_extract = rng.random((2, 128, 400)).astype("float32")
+    meta = {"fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 256, "hop": 256, "clip_dc": True}
+    tok_mask = arr_extract[0] > 0.5
+
+    via_wrapper = gate_dominant(result, arr_extract, meta, mask_threshold=0.5, coh_thresh=0.3)
+    via_direct = gate_dominant_mask(result, tok_mask, meta, coh_thresh=0.3)
+    assert np.array_equal(
+        np.nan_to_num(via_wrapper, nan=-999.0), np.nan_to_num(via_direct, nan=-999.0)
+    )
+
+
 class _Wrap:
     """Minimal stand-in for an MDSplus data object (``.data()``)."""
 
@@ -349,6 +436,68 @@ def test_mds_fetch_routes_co2_pointnames(tmp_path, monkeypatch):
     assert seen["chord"] == "DENV2_UF"
     assert x_out.size == 500
     assert fs > 0  # derived from the returned time axis
+
+
+# ── ECE fetch (D3D-tree TECEF node, the CO2-style fix) ───────────────────────────
+def test_ece_preset_uses_real_channel_names():
+    from tokeye.sources import DIAGNOSTICS
+    from tokeye.sources.ece import ECE_CHANNELS, ece_node, is_ece_channel
+
+    assert DIAGNOSTICS["ece"].pointnames == ECE_CHANNELS
+    assert DIAGNOSTICS["ece"].default == "TECEF20"
+    assert len(ECE_CHANNELS) == 48
+    assert is_ece_channel("tecef20") and not is_ece_channel("MPI66M067D")
+    assert ece_node("TECEF20") == r"\D3D::TOP.ELECTRONS.ECE.TECEF:TECEF20"
+
+
+def test_fetch_ece_channel_reads_nonzero_node(monkeypatch):
+    from tokeye.sources.ece import fetch_ece_channel
+
+    t = np.linspace(1000.0, 2000.0, 500)
+    z = np.ones(500)
+
+    class _Conn:
+        def __init__(self, server):
+            pass
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            return _Wrap(t if expr.startswith("dim_of(") else z)
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    data, t_ms = fetch_ece_channel(190904, "TECEF20")
+    assert np.count_nonzero(data) == 500
+    assert t_ms[0] == 1000.0 and t_ms[-1] == 2000.0
+
+
+def test_fetch_ece_channel_raises_when_all_zero(monkeypatch):
+    import pytest
+
+    from tokeye.sources.ece import fetch_ece_channel
+
+    class _Conn:
+        def __init__(self, server):
+            pass
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            if expr.startswith("dim_of("):
+                return _Wrap(np.arange(10, dtype=float))
+            return _Wrap(np.zeros(10))  # channel present but all-zero
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    with pytest.raises(RuntimeError):
+        fetch_ece_channel(999999, "TECEF20")
 
 
 # ── time_bounds (cheap scalar-TDI window for shot/probe autofill) ─────────────────

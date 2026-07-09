@@ -2,15 +2,25 @@
 #
 # Self-contained mamba/conda env: brings its own Python 3.13 (cluster modules are
 # only 3.7/3.11) and MDSplus from conda-forge. TokEye itself and its wheels
-# (torch/torchvision/gradio) are pip-installed editable from this checkout in a
-# separate, explicit step (below) — so the checkout path is unambiguous. The CUDA
-# torch wheel runs CPU-only on somega and uses the GPU automatically elsewhere
-# (device="auto").
+# (torch/torchvision/gradio, plus plotly for the interactive DIII-D plots) are
+# pip-installed editable from this checkout in a separate, explicit step (below) —
+# so the checkout path is unambiguous. plotly ships in the `[app]` extra, so the
+# command below already pulls it (no separate install). The CUDA torch wheel runs
+# CPU-only on somega and uses the GPU automatically elsewhere (device="auto").
+#
+# The native desktop GUI (`tokeye`, over NoMachine/X11) needs PySide6 + pyqtgraph.
+# We take these from **conda-forge, not pip**: conda-forge Qt6 is built against the
+# glibc-2.17 sysroot so it runs on RHEL 8 (glibc 2.28) — the pip PySide6 >= 6.10
+# wheels require glibc >= 2.34 and won't load here — and `pyside6` pulls qt6-main +
+# all its X-client libs (incl. xcb-util-cursor, the #1 Qt6-on-HPC failure)
+# transitively, so no manual xcb list is needed. The modulefile sets
+# QT_QPA_PLATFORM=xcb and prepends the env's lib dir to LD_LIBRARY_PATH.
 #
 # Build (on somega, e.g. omega14):
 #     module purge && module load conda          # conda -> mamba on Omega
 #     mamba env create -p /cscratch/share/tokeye/env-x86_64 -f deploy/omega/environment-omega.yml
-#     # gradio pinned to uv.lock's version in the same command (app not gradio-6 ready):
+#     # gradio pinned to uv.lock's version in the same command (app not gradio-6 ready);
+#     # PySide6/pyqtgraph already come from conda above, so [app] (not [gui]) here:
 #     /cscratch/share/tokeye/env-x86_64/bin/pip install -e '/cscratch/chenn/tokeye[app]' 'gradio==5.49.1'
 #
 # Doubles as the spec to email omega-support-dl@fusion.gat.com for a public env.
@@ -21,3 +31,6 @@ dependencies:
   - python=3.13
   - mdsplus
   - pip
+  # Native GUI stack (pulls qt6-main + xcb-util-cursor + all X-client libs):
+  - pyside6
+  - pyqtgraph

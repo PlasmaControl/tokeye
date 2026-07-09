@@ -164,32 +164,102 @@ def _stft_axes_khz_ms(shape: tuple[int, int], stft_meta: dict) -> tuple[np.ndarr
     return f_khz, t_ms
 
 
-def gate_dominant(
-    result: dict,
-    arr_extract: np.ndarray,
-    stft_meta: dict,
-    mask_threshold: float = 0.5,
-    coh_thresh: float | None = None,
-    channel: str = "coherent",
-) -> np.ndarray:
-    """Gate the modespec dominant-``n`` array with the TokEye mask + coherence.
+def array_gate_mask(
+    shot: int,
+    array: str,
+    tlim: tuple[float, float] | None,
+    stft_kwargs: dict,
+    infer_fn,
+    *,
+    threshold: float = 0.5,
+    decimation: int | None = None,
+    source: str = "average",
+    reference: str | None = None,
+    f_max_khz: float = 200.0,
+    data_dir: str | None = None,
+    on_progress=None,
+) -> tuple[np.ndarray, dict]:
+    """Band-matched TokEye gate computed from the **Mirnov array itself**.
 
-    Resamples the thresholded TokEye mask (STFT grid) onto the modespec
-    ``(t_win_ms × freq_khz)`` grid by nearest neighbour, then keeps the dominant
-    mode number only where the TokEye mask is on AND ``coherence > coh_thresh``.
-    Returns a ``(n_win, n_freq)`` float array, NaN where suppressed — ready for
-    :func:`tokeye.sources.viz.render_modespec` via its ``nd`` argument.
+    This is the fix for the gating band-mismatch: instead of gating modespec with a
+    single, possibly-different-band probe, we run TokEye on the same toroidal array
+    modespec uses. For each probe we compute its STFT (``stft_kwargs``) and run the
+    injected model (``infer_fn(spec) -> (2, H, W)``), take the **coherent** channel,
+    and either **average across all probes** (``source="average"``, the default —
+    cancels single-probe pickup/harmonic horizontal-line artifacts) or use one
+    **reference** probe (``source="reference"``, ``reference=<pointname>``). The
+    averaged coherent probability is thresholded to a 2-D mask on the STFT grid.
+
+    Signals are decimated to just above ``2·f_max_khz`` (at least ``decimation``×)
+    exactly like :func:`run_mode_spectrogram`, so the gate's frequency band matches
+    modespec's and the 14 per-probe inferences stay cheap. ``infer_fn`` is injected
+    by the caller (the tab passes ``lambda s: model_infer(s, model)``) so this module
+    stays model/gradio-free. ``on_progress(frac, desc)`` is an optional UI callback.
+
+    Returns ``(mask2d, stft_meta)`` — feed to :func:`gate_dominant_mask`.
     """
-    if arr_extract is None or stft_meta is None or float(stft_meta.get("fs", 0.0)) <= 0:
+    # compute_stft is torch-free (numpy/scipy); torch enters only via infer_fn, which
+    # the caller owns. This is exactly what inference.signal_to_spectrogram does.
+    from tokeye.transforms import compute_stft  # deferred
+
+    signals, t_ms, _angles, names = fetch_mirnov_cached(shot, array, tlim, data_dir)
+
+    if source == "reference" and reference:
+        idx = [names.index(reference)] if reference in names else [0]
+    else:
+        idx = list(range(len(names)))
+    sig_sel = signals[idx]
+
+    sig_sel, t_d = _maybe_decimate(sig_sel, t_ms, decimation, f_max_khz)
+    fs = _fs_hz(t_d)
+
+    acc: np.ndarray | None = None
+    n_used = 0
+    total = sig_sel.shape[0]
+    for k in range(total):
+        spec = compute_stft(np.expand_dims(sig_sel[k], axis=0), **stft_kwargs)
+        out = infer_fn(spec)
+        if out is None:
+            continue
+        coh = np.asarray(out)[0]  # coherent channel on the STFT grid
+        acc = coh.astype(float) if acc is None else acc + coh
+        n_used += 1
+        if on_progress is not None:
+            on_progress((k + 1) / total, f"Running TokEye on probe {k + 1}/{total} …")
+
+    if acc is None or n_used == 0:
+        raise RuntimeError(f"array gate for shot {shot}: no probe produced a mask")
+
+    mask2d = (acc / n_used) > float(threshold)
+    stft_meta = {
+        "fs": float(fs),
+        "t0_ms": float(t_d[0]) if t_d.size else 0.0,
+        "n_fft": int(stft_kwargs.get("n_fft", 1024)),
+        "hop": int(stft_kwargs.get("hop", 256)),
+        "clip_dc": bool(stft_kwargs.get("clip_dc", True)),
+    }
+    return mask2d, stft_meta
+
+
+def gate_dominant_mask(
+    result: dict,
+    tok_mask: np.ndarray,
+    stft_meta: dict,
+    coh_thresh: float | None = None,
+) -> np.ndarray:
+    """Gate modespec dominant-``n`` with an already-computed 2-D TokEye mask.
+
+    Resamples ``tok_mask`` (a boolean ``(H, W)`` on the STFT grid) onto the modespec
+    ``(t_win_ms × freq_khz)`` grid by nearest neighbour, then keeps the dominant mode
+    number only where the mask is on AND ``coherence > coh_thresh`` (default
+    ``max(c95, 0.3)``). Returns a ``(n_win, n_freq)`` float array, NaN where
+    suppressed — ready for :func:`tokeye.sources.viz.plotly_modespec` /
+    :func:`~tokeye.sources.viz.render_modespec_png` via their ``nd`` argument.
+    """
+    if tok_mask is None or stft_meta is None or float(stft_meta.get("fs", 0.0)) <= 0:
         raise ValueError("gating needs a TokEye mask and an STFT with a known fs")
 
-    arr_extract = np.asarray(arr_extract)
-    coherent = arr_extract[0] > mask_threshold
-    if channel == "both" and arr_extract.shape[0] > 1:
-        tok_mask = coherent | (arr_extract[1] > mask_threshold)
-    else:
-        tok_mask = coherent  # (H, W) on the STFT grid
-
+    tok_mask = np.asarray(tok_mask, dtype=bool)
     f_stft, t_stft = _stft_axes_khz_ms(tok_mask.shape, stft_meta)
     f_ms = np.asarray(result["freq_khz"])
     t_ms = np.asarray(result["t_win_ms"])
@@ -209,3 +279,28 @@ def gate_dominant(
     nd = np.asarray(result["n_dominant"], dtype=float)
     keep = mask_on_grid & (coh > thresh)
     return np.where(keep, nd, np.nan)
+
+
+def gate_dominant(
+    result: dict,
+    arr_extract: np.ndarray,
+    stft_meta: dict,
+    mask_threshold: float = 0.5,
+    coh_thresh: float | None = None,
+    channel: str = "coherent",
+) -> np.ndarray:
+    """Gate modespec with a single TokEye inference ``arr_extract`` ``(2, H, W)``.
+
+    Thin wrapper: thresholds the coherent (and optionally transient) channel to a
+    2-D mask, then delegates to :func:`gate_dominant_mask`. Kept for the offline
+    single-probe path and back-compat; the app's band-matched gate uses
+    :func:`array_gate_mask` + :func:`gate_dominant_mask` directly.
+    """
+    if arr_extract is None or stft_meta is None or float(stft_meta.get("fs", 0.0)) <= 0:
+        raise ValueError("gating needs a TokEye mask and an STFT with a known fs")
+
+    arr_extract = np.asarray(arr_extract)
+    tok_mask = arr_extract[0] > mask_threshold
+    if channel == "both" and arr_extract.shape[0] > 1:
+        tok_mask = tok_mask | (arr_extract[1] > mask_threshold)
+    return gate_dominant_mask(result, tok_mask, stft_meta, coh_thresh=coh_thresh)

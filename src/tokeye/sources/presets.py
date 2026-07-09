@@ -9,16 +9,16 @@ The others mirror pyspecview's diagnostic menu:
 
 * ``mag_pol`` — the 31-probe 322° poloidal Mirnov array (poloidal ``m`` analysis).
 * ``mhr``     — the 8 high-resolution magnetics probes ``B1``..``B8`` (2 MHz).
-* ``ece``     — electron-cyclotron-emission channels ``TECEF01``..``TECEF40``.
+* ``ece``     — electron-cyclotron-emission channels ``TECEF01``..``TECEF48``.
 * ``bes``     — beam-emission-spectroscopy channels ``BESFU01``..``BESFU40``.
 * ``co2``     — CO2/BCI interferometer density chords.
 
 Most are verified against a live shot (PTDATA on the ``D3D`` tree). Two are not
-plain PTDATA: ``co2`` is fetched from the BCI.DPD tree node / segmented BCI tree
-(``tokeye.sources.co2`` — the plain ``DENVnUF`` PTDATA is all-zeros), and ``ece``
-lives in a separate ``ece`` MDSplus tree so the generic fetch can't reach it yet
-(listed for selection; wiring the tree fetch is a follow-up). The probe dropdown
-allows custom entries too.
+plain PTDATA but are fetched from real D3D-tree nodes: ``co2`` from the BCI.DPD
+node / segmented BCI tree (``tokeye.sources.co2`` — the plain ``DENVnUF`` PTDATA is
+all-zeros) and ``ece`` from ``\\D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn``
+(``tokeye.sources.ece`` — the generic PTDATA fetch can't reach TECEF). The probe
+dropdown allows custom entries too.
 """
 
 from __future__ import annotations
@@ -122,8 +122,11 @@ MIRNOV_POLOIDAL: tuple[str, ...] = (
 # training/big_tf_unet_ablation/preprocess/preserve_raw_fast.py "mhr" modality).
 MHR_PROBES: tuple[str, ...] = tuple(f"B{i}" for i in range(1, 9))
 
-# ── ECE (electron cyclotron emission), TECEF01..TECEF40 (~500 kHz) ───────────────
-ECE_CHANNELS: tuple[str, ...] = tuple(f"TECEF{i:02d}" for i in range(1, 41))
+# ── ECE (electron cyclotron emission), TECEF01..TECEF48 (~500 kHz) ───────────────
+# NOT plain PTDATA: fetched from the D3D-tree node
+# \D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn by tokeye.sources.ece (the CO2-style fix;
+# older shots have fewer than 48 channels — a missing one just fails the non-zero gate).
+ECE_CHANNELS: tuple[str, ...] = tuple(f"TECEF{i:02d}" for i in range(1, 49))
 
 # ── BES (beam emission spectroscopy), BESFU01..BESFU40 (~1 MHz) ──────────────────
 BES_CHANNELS: tuple[str, ...] = tuple(f"BESFU{i:02d}" for i in range(1, 41))
@@ -165,12 +168,10 @@ DIAGNOSTICS: dict[str, Diagnostic] = {
         label="Electron Cyclotron Emission (TECEF, ~500 kHz)",
         pointnames=ECE_CHANNELS,
         default="TECEF20",
-        verified=False,
-        note=(
-            "TECEF channels live in the 'ece' MDSplus tree (\\TECEFnn), NOT PTDATA — "
-            "the generic fetch can't reach them yet (see modespec.fetch_ece). Listed "
-            "for selection; fetch is a follow-up."
-        ),
+        verified=True,
+        note="Fast ECE Te channels TECEF01..48. Real source is the D3D-tree node "
+        "\\D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn (see sources/ece.py) — the CO2-style "
+        "fix; plain 'TECEFnn' PTDATA can't be reached.",
     ),
     "co2": Diagnostic(
         key="co2",

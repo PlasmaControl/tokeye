@@ -1,14 +1,16 @@
 # DIII-D Tabs - User Guide
 
-Two tabs turn TokEye into a "pyspecview + TokEye" viewer for DIII-D shots read
+Three tabs turn TokEye into a "pyspecview + TokEye" viewer for DIII-D shots read
 straight from MDSplus (`atlas.gat.com`), served in your browser over an SSH
 tunnel (no X11):
 
-- **DIII-D** — load one shot, see its spectrogram as a clean image, overlay the
-  ML mode mask, and run the classic toroidal mode-number analysis (optionally
-  gated by the mask).
-- **DIII-D Offline** — batch many shots on the cluster (Slurm) and view the
-  gallery of results when the job finishes.
+- **DIII-D** — load one shot, see its spectrogram as an **interactive Plotly plot**
+  (real kHz/ms axes, zoom/pan), and overlay the ML mode mask.
+- **DIII-D Modespec** — the classic toroidal mode-number analysis on its own: an
+  interactive discrete-`n` heatmap, optionally **gated by TokEye computed from the
+  same array** (band-matched).
+- **DIII-D Offline** — batch many shots on the cluster (Slurm) and view the gallery
+  of results when the job finishes.
 
 For how to launch the app on the cluster, see `deploy/omega/README.md`. For the
 background/plan and cluster facts, see `diiid.md` and `omega-cluster.md`.
@@ -29,7 +31,7 @@ background/plan and cluster facts, see `diiid.md` and `omega-cluster.md`.
    **f-min / f-max (kHz)** band, a **decimation** factor, and the usual
    `n_fft` / hop / clip knobs.
 5. **Load shot** — fetches the signal (cached under `$TOKEYE_CACHE`) and shows the
-   spectrogram as a clean image cropped to your f-min/f-max band.
+   spectrogram as an interactive Plotly plot cropped to your f-min/f-max band.
 6. **View Mode** — choose how to see the result (below), then **Analyze**. The
    built-in `big_tf_unet` model downloads on first use (~30 MB, cached).
 
@@ -42,8 +44,8 @@ Fetching needs a node that can reach `atlas.gat.com` (a login or `somega` node).
 
 ## Diagnostics
 
-Selectable in both tabs. Most are fetched as PTDATA on the `D3D` tree; the probe
-dropdown also accepts custom pointnames.
+Selectable in the DIII-D + Offline tabs. Most are fetched as PTDATA on the `D3D`
+tree; the probe dropdown also accepts custom pointnames.
 
 | Key | What | Status |
 |---|---|---|
@@ -52,7 +54,7 @@ dropdown also accepts custom pointnames.
 | `mhr` | High-res magnetics `B1`–`B8` (~2 MHz) — the "b1-b8" set (not Mirnov) | ✅ verified |
 | `co2` | CO2 / BCI density chords `DENV1_UF`…`DENR0_UF` (~2 MHz) | ✅ verified (real BCI.DPD source) |
 | `bes` | Beam-emission `BESFU01`–`BESFU40` (~1 MHz) | ✅ verified (availability varies by shot) |
-| `ece` | Electron-cyclotron `TECEF01`–`TECEF40` | ⚠️ not yet fetchable — see Troubleshooting |
+| `ece` | Electron-cyclotron `TECEF01`–`TECEF48` (~500 kHz) | ✅ verified (real D3D-tree TECEF node) |
 
 > **CO2 fix.** The obvious `DENV1UF`-style PTDATA pointnames resolve to an
 > **all-zeros** array (correct size/timebase, no data) — which is why CO2 used to
@@ -61,14 +63,21 @@ dropdown also accepts custom pointnames.
 > a non-zero gate. `tokeye.sources.co2` handles this; `MDSSource.fetch` routes the
 > `DENVn_UF` pointnames there automatically (online and offline).
 
+> **ECE fix (same pattern).** Fast ECE `TECEFnn` isn't reachable as plain PTDATA
+> (the vendored `modespec.fetch_ece` reads a separate `ece` tree). The simplest
+> working source — confirmed in `FusionAIHub`'s `co2_check` — is the D3D-tree node
+> `\D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn` (48 fast channels, ~500 kHz), chosen by a
+> non-zero gate. `tokeye.sources.ece` handles this; `MDSSource.fetch` routes the
+> `TECEFnn` pointnames there automatically. Older shots may have fewer than 48
+> channels (a missing one just fails the non-zero gate).
+
 ---
 
-## View Modes
+## View Modes (DIII-D tab)
 
-Every view renders as a **clean image** (no axis chrome) — you read the frequency
-and time range off the **f-min/f-max** (STFT settings) and **t-min/t-max** fields,
-pyspecview-style. Wide arrays are auto-binned to display width so full-shot plots
-stay fast.
+Every view is an **interactive Plotly plot** with real **frequency (kHz)** and
+**time (ms)** axes — scroll to zoom, drag to pan, double-click to reset. Wide
+arrays are auto-binned to display width so full-shot plots stay fast.
 
 - **Original** — the raw spectrogram (`gist_heat`), cropped to the f-min/f-max band.
 - **Enhanced** — the model mask as a smooth green (coherent) / red (transient)
@@ -76,61 +85,74 @@ stay fast.
 - **Mask** — the mask thresholded to a hard binary; **Threshold** sets the cut.
 - **Amplitude** — the spectrogram spectrally gated by the mask (shows only the
   power the model flagged).
-- **Modespec** — the classic toroidal mode-number analysis (see below).
 
-**Coherent / Transient** checkboxes toggle the two mask channels.
+**Coherent / Transient** checkboxes toggle the two mask channels. (The classic
+toroidal mode-number analysis is now its own **DIII-D Modespec** tab — see below.)
 
 ### Live controls
 
-**Threshold**, **% Min Clip**, **% Max Clip**, the **f-min / f-max** band, and the
-modespec **Coherence threshold** re-render the picture immediately (on release /
-change) — they only re-color or re-crop an already-computed array, so there's no
-recompute and no re-inference. (`Decimation`, `n_fft`, `hop`, and clip percentiles
-change the actual transform, so they take effect on the next **Load shot** —
-`n_fft`/hop/clip also need **Apply Transform Settings** first.)
+**Threshold**, **% Min Clip**, **% Max Clip**, and the **f-min / f-max** band
+re-render the picture immediately (on release / change) — they only re-color or
+re-crop an already-computed array, so there's no recompute and no re-inference.
+(`Decimation`, `n_fft`, `hop`, and clip percentiles change the actual transform, so
+they take effect on the next **Load shot** — `n_fft`/hop/clip also need **Apply
+Transform Settings** first.)
 
-> **f-min/f-max is display-only for TokEye views.** It crops what you *see* (and
-> sets the modespec band); the U-Net still runs on the full band, so mask results
-> are unchanged. **Decimation** *does* change the signal fed to the STFT/model
-> (fewer samples, lower Nyquist) — like `n_fft`/hop, it's a transform knob (default
-> 1 = off).
+> **f-min/f-max is display-only for TokEye views.** It crops what you *see*; the
+> U-Net still runs on the full band, so mask results are unchanged. **Decimation**
+> *does* change the signal fed to the STFT/model (fewer samples, lower Nyquist) —
+> like `n_fft`/hop, it's a transform knob (default 1 = off).
 
 ---
 
-## Modespec + TokEye gating
+## DIII-D Modespec tab (band-matched gating)
 
-Set **View Mode → Modespec** and **Analyze**. This runs the vendored
-`mode_spectrogram` on the **toroidal Mirnov array** (independent of the single
-probe you loaded) and plots the **dominant toroidal mode number `n`** vs frequency
-and time, as a **plain discrete-rainbow (`turbo`) image** — one distinct colour per
-mode number, dark where the mode coherence is below threshold. The `n` → colour
-**legend renders in the page beside the image** (same colours), not baked into the
-plot.
+Modespec is its own self-contained tab (matching how `modespec` lives in the src).
+Enter a **shot** and **Analyze**: it fetches the **toroidal Mirnov array**, runs the
+vendored `mode_spectrogram`, and plots the **dominant toroidal mode number `n`** vs
+frequency and time as an **interactive discrete-rainbow (`turbo`) heatmap** — one
+distinct colour per mode number, an **integer colorbar** on the side (this replaces
+the old external HTML legend), and **hover** to read `t / f / n`. Suppressed
+(low-coherence) bins are transparent over a dark panel.
 
-Controls (in the Modespec group):
+Controls:
 
+- **Reference probe** — used to auto-fill the time window, and as the gate reference
+  when gate source is *Reference probe*.
+- **f min / f max (kHz)** — the modespec analysis band. **Decimation** speeds it up.
 - **n min / n max** — range of toroidal mode numbers to fit (default −5…5).
-- **Coherence threshold** — keep bins above this coherence (live slider).
-- **Gate with TokEye** — the payoff. TokEye is a strong gate: it takes the loaded
-  probe's **coherent** mask (thresholded), resamples it onto the modespec
-  frequency×time grid, and keeps a mode number only where **the mask is on AND
-  coherence > threshold**. The result is a much cleaner mode plot — the scattered
-  low-coherence noise drops out and only mode activity the model confirms remains.
+- **Coherence threshold** — keep bins above this coherence (**live** slider:
+  re-renders instantly from the cached result, no recompute).
+- **Gate with TokEye** + **Gate source** — the payoff.
 
-The analysis **frequency band comes from STFT settings → f-min/f-max** (so the
-spectrogram and the modes share one band), and **Decimation** applies here too.
+### The gate is band-matched (the fix)
+
+The old DIII-D-tab gate used the single loaded probe's mask — which could be a
+**different frequency band** than modespec (or a single probe whose stationary
+pickup/harmonics show up as spurious **horizontal lines**), so the gated ratios were
+wrong. The Modespec tab computes the gate from the **same toroidal array** modespec
+runs on:
+
+- **Array average** (default) — run TokEye on every probe, average the coherent-mode
+  probability across probes, threshold. Averaging **cancels single-probe
+  horizontal-line artifacts** — only mode activity most probes agree on survives.
+- **Reference probe** — gate from one chosen probe (the reference dropdown).
+
+Either way, TokEye keeps a mode number only where **the (band-matched) mask is on
+AND coherence > threshold**, giving a much cleaner mode plot.
 
 > **Why modespec used to be slow, and the fix.** The Mirnov digitizer runs at
 > 200 kHz–2 MHz and `mode_spectrogram`'s cost scales with the sample count, so a
 > multi-second, full-rate shot means millions of samples/probe → thousands of STFT
 > windows. Since MHD modes live below your `f-max`, the extra samples are pure cost.
-> The tab now **decimates each probe to just above `2·f_max`** (anti-aliased, no
-> in-band loss) before the analysis — a near-linear speedup (≈2–8× depending on the
-> probe's rate) with identical modes. Narrowing **t-min/t-max** helps too.
+> The tab **decimates each probe to just above `2·f_max`** (anti-aliased, no in-band
+> loss) — a near-linear speedup (≈2–8×) with identical modes. The gate uses the same
+> decimation, so it stays cheap (14 inferences) and band-matched. Narrowing
+> **t-min/t-max** helps too.
 
-> First Modespec run for a shot fetches all 14 probes (slower); they're cached, so
-> re-runs and threshold tweaks are fast. To gate, load a probe first (the gate uses
-> that probe's mask), then Analyze in Modespec mode.
+> First Analyze for a shot fetches all 14 probes (slower); they're cached, so re-runs
+> and coherence-threshold tweaks are fast. Gating loads the model on first use
+> (~30 MB, cached).
 
 ---
 
@@ -144,8 +166,9 @@ cached data.
    `150000,150002,150005` (both can be combined).
 2. **Diagnostic / Probe / Model / time window** — as in the online tab.
 3. **Analyses** — tick any of **TokEye mask**, **Modespec**, **TokEye-gated
-   modespec** (gating implies both of the others). Set **n min/max**, **f min/max**,
-   and **Decimation** for the modespec runs.
+   modespec**. **Gate source** (`average` | `reference`) picks the band-matched gate
+   — *average* over the array (default) or the probe above as reference. Set **n
+   min/max**, **f min/max**, and **Decimation** for the modespec runs.
 4. **Cluster / output** (accordion) — **Output folder** (default
    `/cscratch/$USER/tokeye/data/runs`, editable), **Partition** (`gpus`), **GRES**
    (`gpu:v100:1`; blank = CPU partition), **Time limit**.
@@ -158,7 +181,10 @@ Per shot the job writes, into the output folder:
 
 - `<shot>_<probe>_mask.npy` + `<shot>_<probe>_preview.png` (TokEye)
 - `<shot>_modespec.png` + `<shot>_modes.csv` (modespec + detected mode events)
-- `<shot>_modespec_gated.png` (TokEye-gated modespec)
+- `<shot>_modespec_gated.png` (TokEye-gated modespec, band-matched array gate)
+
+Offline images are **matplotlib PNGs** with clean axes (Plotly is online-only: its
+static export needs Kaleido/Chromium, absent on compute nodes).
 
 > `/cscratch` is shared and visible on every node but **not backed up, and files
 > older than ~32 days are swept** — copy anything you want to keep.
@@ -177,12 +203,14 @@ tokeye fetch --shot 190904 --diag mag --pointname MPI66M067D --tlim 1000 3000
 # The offline job body (cache-only — what the Offline tab submits via Slurm):
 tokeye diiid-batch --shots 190900-190905,190910 --outdir results \
     --diag mag --probe MPI66M067D --tlim 1000 3000 \
-    --tokeye --modespec --gate --decimation 1 --device auto
+    --tokeye --modespec --gate --gate-source average --decimation 1 --device auto
 ```
 
 `tokeye diiid-batch` reads prefetched signals from the cache, so it runs on a
 no-internet compute node. Its exit code is the number of shots that failed.
-`--decimation` floors the automatic f-max-safe decimation for the modespec runs.
+`--decimation` floors the automatic f-max-safe decimation for the modespec runs;
+`--gate-source {average,reference}` (+ `--reference-probe`) picks the band-matched
+gate for `--gate`.
 
 ---
 
@@ -196,20 +224,24 @@ once on `somega` replays instantly anywhere — this is what lets the offline Sl
 job work with no atlas access. Time-window bounds are cached in-process too, so
 re-selecting a probe fills the window instantly.
 
-### Plain images + display band
+### Interactive plots (Plotly online, matplotlib offline)
 
-Views render server-side to clean PNGs (fast, no plot chrome). The **f-min/f-max**
-band crops the *displayed* spectrogram and sets the modespec analysis band; it does
-**not** change the U-Net input (cropping that would push it off the training
-distribution). Modespec colours come from a discrete `turbo` map with a matching
-in-page legend.
+Online figures are Plotly (`gr.Plot`): the browser renders them client-side with
+real kHz/ms axes, zoom/pan, and (for modespec) hover-to-read `n`. Spectrogram views
+are drawn as a compact stretched PNG image over the axes; modespec is a `go.Heatmap`
+with a discrete `turbo` colorscale + integer colorbar. The offline batch keeps
+**matplotlib** PNGs (Plotly's static export needs Kaleido/Chromium, which compute
+nodes lack). The **f-min/f-max** band crops the *displayed* spectrogram (DIII-D tab)
+and sets the modespec analysis band (Modespec tab); it does **not** change the U-Net
+input.
 
 ### Decimation & modespec speed
 
 `Decimation` downsamples the signal (anti-aliased) before the STFT — a transform
 knob for the spectrogram/model (default 1). Modespec additionally auto-decimates to
 just above `2·f_max` for speed; the frequency-bin spacing is unchanged, so the modes
-are identical to the full-rate result.
+are identical to the full-rate result. The band-matched gate uses the same
+decimation.
 
 ### Why prefetch on `somega`
 
@@ -233,19 +265,19 @@ base server-side); it's cached after.
 (the `DENVnUF` PTDATA was all-zeros). If a specific shot is still blank, its fast
 CO2 may simply not be digitized — try another shot.
 
-**Fetch failed / `TdiABORT` for ECE (`TECEF…`).** — Expected for now. ECE channels
-live in a separate `ece` MDSplus tree, not PTDATA, so the generic fetch can't reach
-them (the repo's `modespec.fetch_ece` shows the tree path). The channels are listed
-for selection; wiring the tree fetch is a follow-up.
+**ECE (`TECEF…`) shows nothing / fetch fails.** — `ece` now reads the D3D-tree node
+`\D3D::TOP.ELECTRONS.ECE.TECEF:TECEFnn` (not plain PTDATA, not the separate `ece`
+tree). If a specific channel/shot is blank, that channel may be absent or all-zero
+for the shot (older shots have fewer than 48 channels) — try another channel.
 
 **Modespec takes a long time.** — The first run fetches all 14 probes (cached
-after). For the compute itself, raise **Decimation** and/or narrow **t-min/t-max**;
-the analysis auto-decimates to your **f-max** already.
+after), and gating runs the model on each of them. Raise **Decimation** and/or narrow
+**t-min/t-max**; the analysis + gate auto-decimate to your **f-max** already. Turn off
+**Gate with TokEye** for a fast coherence-only baseline.
 
-**Modespec / gated view looks empty or too sparse.** — Modes are gated by
-coherence. Lower the **Coherence threshold** (watch the `c95` noise floor — bins
-below it are noise) and, for gating, the **Threshold** slider. Some shots/windows
-simply have little coherent mode activity.
+**Modespec / gated view looks empty or too sparse.** — Modes are gated by coherence.
+Lower the **Coherence threshold** (watch the `c95` noise floor). If gating drops too
+much, try **Array average** vs **Reference probe**, or turn gating off.
 
 **Offline: "sbatch not found".** — Run the app on a Slurm submit node (`somega`).
 The prefetch still ran; the script is written to `<output>/submit.sh`.
@@ -263,18 +295,23 @@ off-network.
 
 This is a purely additive overlay on the `diiid` branch. The shared pipeline
 (`app/analyze/*`, `transforms.py`, `inference.py`, `batch.py`, `hub.py`, vendored
-`modespec/classic/*`) is **untouched**; only `app/__main__.py` and `cli/__init__.py`
-gain a couple of registration lines. Feature code lives in diiid-only files:
+`modespec/classic/*`) is **untouched**; only `pyproject.toml` (the `app` extra gains
+`plotly`), `app/__main__.py` (registers the three tabs), and `cli/__init__.py` gain a
+couple of registration lines. Feature code lives in diiid-only files:
 
 - `sources/presets.py` — diagnostic → pointnames (+ toroidal angles); CO2 chord names.
-- `sources/mds.py` — single-probe fetch (routes CO2), `latest_shot()`, `time_bounds()`.
+- `sources/mds.py` — single-probe fetch (routes CO2 + ECE), `latest_shot()`, `time_bounds()`.
 - `sources/co2.py` — real CO2/BCI fetch (DPD node + segmented BCI, non-zero gate).
+- `sources/ece.py` — real fast-ECE fetch (D3D-tree TECEF node, non-zero gate; CO2-style).
 - `sources/mirnov.py` — cached Mirnov-array fetch, `run_mode_spectrogram` (with
-  auto-decimation), `gate_dominant` (the TokEye→modespec grid resample + intersect).
-- `sources/viz.py` — gradio-free **plain-image** renderers (`render_view`,
-  `render_modespec`) + the shared `turbo` legend (`mode_color_legend_html`); reused
-  by the CLI.
-- `app/tabs/diiid.py`, `app/tabs/diiid_offline.py` — the two tabs.
+  auto-decimation), `array_gate_mask` (the band-matched TokEye gate from the array),
+  and `gate_dominant_mask` / `gate_dominant` (the TokEye→modespec grid resample +
+  intersect).
+- `sources/viz.py` — Plotly renderers `plotly_view` / `plotly_modespec` (online) +
+  matplotlib `render_modespec_png` (offline PNGs); reused by the CLI.
+- `app/tabs/diiid.py` — the spectrogram/mask viewer (Plotly).
+- `app/tabs/diiid_modespec.py` — the self-contained Modespec tab (band-matched gate).
+- `app/tabs/diiid_offline.py` — the batch tab.
 - `cli/diiid_batch.py` — the `tokeye diiid-batch` runner + `parse_shots` /
   `build_sbatch_script`.
 

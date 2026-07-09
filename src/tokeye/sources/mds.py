@@ -78,9 +78,12 @@ def time_bounds(
         conn = mds.Connection(atlas)
         try:
             from tokeye.sources.co2 import is_co2_chord, time_bounds_co2
+            from tokeye.sources.ece import is_ece_channel, time_bounds_ece
 
             if is_co2_chord(pointname):
                 bounds = time_bounds_co2(conn, shot, pointname)
+            elif is_ece_channel(pointname):
+                bounds = time_bounds_ece(conn, shot, pointname)
             else:
                 conn.openTree("D3D", shot)
                 sig = f'PTDATA("{pointname}", {shot})'
@@ -141,14 +144,18 @@ class MDSSource:
         # Deferred so importing this module does not import MDSplus.
         from tokeye.modespec.classic.data_utils import fetch_or_load, fetch_ptdata
         from tokeye.sources.co2 import fetch_co2_chord, is_co2_chord
+        from tokeye.sources.ece import fetch_ece_channel, is_ece_channel
 
         shot = int(shot)
         pointname = str(pointname)
-        # CO2 chords are NOT plain PTDATA (that source is all-zeros); route them to
-        # the real BCI.DPD / segmented-BCI fetcher. Everything else is PTDATA. The
-        # pickle cache (keyed by shot+pointname) is shared by both paths.
+        # CO2 chords and fast ECE channels are NOT plain PTDATA (that source is
+        # all-zeros / unreachable); route them to their real D3D-tree fetchers.
+        # Everything else is PTDATA. The pickle cache (keyed by shot+pointname) is
+        # shared by all paths.
         if is_co2_chord(pointname):
             fetch_fn = lambda: fetch_co2_chord(shot, pointname)  # noqa: E731
+        elif is_ece_channel(pointname):
+            fetch_fn = lambda: fetch_ece_channel(shot, pointname)  # noqa: E731
         else:
             fetch_fn = lambda: fetch_ptdata(shot, pointname)  # noqa: E731
         data, t_ms = fetch_or_load(shot, pointname, fetch_fn, self.data_dir)

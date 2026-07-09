@@ -63,6 +63,10 @@ def test_cli_import_does_not_pull_in_gradio_or_torch():
             "import tokeye.cli, sys; "
             "assert 'gradio' not in sys.modules; "
             "assert 'torch' not in sys.modules; "
+            # The native GUI (PySide6/pyqtgraph) must also stay out of the CLI
+            # import path so plain `tokeye --help` stays instant.
+            "assert 'PySide6' not in sys.modules; "
+            "assert 'pyqtgraph' not in sys.modules; "
             "print('ok')",
         ],
         capture_output=True,

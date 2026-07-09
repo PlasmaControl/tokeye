@@ -80,6 +80,8 @@ def build_sbatch_script(
     gres: str,
     time_limit: str,
     decimation: int = 1,
+    gate_source: str = "average",
+    reference_probe: str | None = None,
     device: str = "auto",
     job_name: str = "tokeye_offline",
 ) -> str:
@@ -122,6 +124,9 @@ def build_sbatch_script(
         cmd.append("--modespec")
     if do_gate:
         cmd.append("--gate")
+        cmd.append(f"--gate-source {gate_source}")
+        if reference_probe:
+            cmd.append(f"--reference-probe {reference_probe}")
 
     body = [
         "",
@@ -155,17 +160,24 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "--decimation", type=int, default=1,
         help="Signal decimation before modespec (>= auto f-max-safe value).",
     )
+    parser.add_argument(
+        "--gate-source", default="average", choices=["average", "reference"],
+        dest="gate_source",
+        help="Band-matched gate: average over the array (default) or one reference probe.",
+    )
+    parser.add_argument(
+        "--reference-probe", default=None, dest="reference_probe",
+        help="Reference probe when --gate-source reference.",
+    )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--tokeye", action="store_true", help="Run TokEye masks.")
     parser.add_argument("--modespec", action="store_true", help="Run modespec.")
-    parser.add_argument("--gate", action="store_true", help="Gated modespec (+TokEye).")
+    parser.add_argument("--gate", action="store_true", help="TokEye-gated modespec.")
     parser.set_defaults(handler=_handle)
 
 
 def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot driver
     import csv as _csv
-
-    import numpy as np
 
     from tokeye import batch
     from tokeye.modespec.classic.generate_modes import (
@@ -173,9 +185,13 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
         PARAM_DEFAULTS,
         detect_modes,
     )
-    from tokeye.sources import DIAGNOSTICS, MDSSource
-    from tokeye.sources.mirnov import gate_dominant, run_mode_spectrogram
-    from tokeye.sources.viz import render_modespec
+    from tokeye.sources import DIAGNOSTICS
+    from tokeye.sources.mirnov import (
+        array_gate_mask,
+        gate_dominant_mask,
+        run_mode_spectrogram,
+    )
+    from tokeye.sources.viz import render_modespec_png
     from tokeye.transforms import (
         DEFAULT_CLIP_DC,
         DEFAULT_CLIP_HIGH,
@@ -196,11 +212,12 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
     diag = DIAGNOSTICS.get(args.diag)
     probe = args.probe or (diag.default if diag else None)
     do_gate = args.gate
-    do_tokeye = args.tokeye or do_gate  # gating needs the mask
+    do_tokeye = args.tokeye  # array gate computes its own masks; not tied to --tokeye
     do_modespec = args.modespec or do_gate
     model = args.model or "big_tf_unet"
     tlim = tuple(args.tlim) if args.tlim is not None else None
     n_range = (int(args.n_range[0]), int(args.n_range[1]))
+    reference_probe = args.reference_probe or probe
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +248,19 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
             device=args.device,
         )
 
+    # ── Band-matched gate model (run TokEye on the whole Mirnov array, from cache) ──
+    infer_fn = None
+    if do_gate:
+        from tokeye.app.analyze.load import model_load
+        from tokeye.inference import model_infer
+
+        try:
+            gate_model = model_load(model, device=args.device)
+            infer_fn = lambda s: model_infer(s, gate_model)  # noqa: E731
+        except Exception as exc:  # noqa: BLE001 - no gate model -> skip gated views
+            print(f"warning: gate model load failed ({exc}); skipping gated views",
+                  file=sys.stderr)
+
     # ── Modespec (+ optional gated) per shot ─────────────────────────────────────
     failures = 0
     for shot in shots:
@@ -241,7 +271,7 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
                     decimation=int(args.decimation) if args.decimation else None,
                     n_range=n_range, f_min_khz=args.f_min, f_max_khz=args.f_max,
                 )
-                img = render_modespec(result, coh_thresh=None, shot=shot)
+                img = render_modespec_png(result, coh_thresh=None, shot=shot)
                 if img is not None:
                     img.save(outdir / f"{shot}_modespec.png")
 
@@ -259,30 +289,23 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
                             **ev,
                         })
 
-                if do_gate:
-                    mask_path = outdir / f"{shot}_{probe}_mask.npy"
-                    if not mask_path.is_file():
-                        print(f"[{shot}] no mask for gating; skipping gated view",
-                              file=sys.stderr)
-                    else:
-                        mask = np.load(mask_path)
-                        t, _x, fs = MDSSource().fetch(shot, str(probe), tlim)
-                        meta = {
-                            "fs": float(fs),
-                            "t0_ms": float(t[0]) if t.size else 0.0,
-                            "n_fft": DEFAULT_N_FFT,
-                            "hop": DEFAULT_HOP,
-                            "clip_dc": DEFAULT_CLIP_DC,
-                        }
-                        nd = gate_dominant(
-                            result, mask, meta, mask_threshold=args.threshold
-                        )
-                        gimg = render_modespec(
-                            result, nd=nd, shot=shot,
-                            title=f"Shot {shot} — toroidal n (TokEye-gated)",
-                        )
-                        if gimg is not None:
-                            gimg.save(outdir / f"{shot}_modespec_gated.png")
+                if do_gate and infer_fn is not None:
+                    # Band-matched gate: run TokEye on the whole toroidal array (cached),
+                    # average across probes (or a reference probe) — same fix as online.
+                    tok_mask, gate_meta = array_gate_mask(
+                        shot, args.array, tlim, stft_kwargs, infer_fn,
+                        threshold=args.threshold,
+                        decimation=int(args.decimation) if args.decimation else None,
+                        source=args.gate_source, reference=reference_probe,
+                        f_max_khz=args.f_max,
+                    )
+                    nd = gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=None)
+                    gimg = render_modespec_png(
+                        result, nd=nd, shot=shot,
+                        title=f"Shot {shot} — toroidal n (TokEye-gated, {args.gate_source})",
+                    )
+                    if gimg is not None:
+                        gimg.save(outdir / f"{shot}_modespec_gated.png")
             print(f"[{shot}] done")
         except Exception as exc:  # noqa: BLE001 - one bad shot must not kill the run
             print(f"[{shot}] ERROR: {exc}", file=sys.stderr)

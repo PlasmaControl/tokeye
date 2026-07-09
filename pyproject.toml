@@ -25,6 +25,14 @@ dependencies = [
 [project.optional-dependencies]
 app = [
     "gradio",
+    "plotly",
+]
+gui = [
+    # PySide6 >=6.10 ships only glibc>=2.34 wheels; Omega (RHEL 8) and other
+    # manylinux_2_28 hosts need <6.10 for `pip install tokeye[gui]`. 6.9.x is
+    # fully sufficient here. (The conda deploy in deploy/omega/ may use newer.)
+    "PySide6<6.10",
+    "pyqtgraph",
 ]
 eigspec = [
     "scikit-learn",
