@@ -68,6 +68,9 @@ cp deploy/omega/modulefiles/tokeye.lua /cscratch/share/tokeye/modulefiles/
 # put the tunnel-printing launcher on PATH (env bin) as `tokeye-app`:
 cp deploy/omega/tokeye-app.sh /cscratch/share/tokeye/env-x86_64/bin/tokeye-app
 chmod +x /cscratch/share/tokeye/env-x86_64/bin/tokeye-app
+# publish the laptop-side launcher so teammates can scp it to their own machines:
+cp deploy/omega/tokeye-connect.sh /cscratch/share/tokeye/
+chmod 755 /cscratch/share/tokeye/tokeye-connect.sh
 
 module use /cscratch/share/tokeye/modulefiles
 module load tokeye
@@ -85,7 +88,7 @@ Copy the laptop-side launcher once, then run it — it opens the tunnel, starts 
 app on the cluster over that same connection, and opens your browser when ready:
 
 ```bash
-scp <you>@somega.gat.com:/cscratch/chenn/tokeye/deploy/omega/tokeye-connect.sh ~/
+scp <you>@somega.gat.com:/cscratch/share/tokeye/tokeye-connect.sh ~/
 ~/tokeye-connect.sh <you>@somega.gat.com        # Ctrl-C stops the app + tunnel
 ```
 
