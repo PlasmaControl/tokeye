@@ -14,6 +14,7 @@ import gradio as gr
 # Import tabs
 from .analyze.analyze import analyze_tab
 from .tabs.annotate import annotate_tab
+from .tabs.diiid import diiid_tab
 from .tabs.utilities import utilities_tab
 from .utils.theme import make_theme
 
@@ -51,6 +52,8 @@ def create_app() -> gr.Blocks:
             annotate_tab()
         with gr.Tab("Utilities"):
             utilities_tab()
+        with gr.Tab("DIII-D"):
+            diiid_tab()
     return app
 
 
