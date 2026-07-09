@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from tokeye.cli import (
     alfvenspec,
     app,
+    diiid_batch,
     download,
     eigspec,
     elmspec,
@@ -48,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_subcommand(subparsers)
     example.add_subcommand(subparsers)
     fetch.add_subcommand(subparsers)
+    diiid_batch.add_subcommand(subparsers)
     modespec.add_subcommand(subparsers)
     elmspec.add_subcommand(subparsers)
     alfvenspec.add_subcommand(subparsers)

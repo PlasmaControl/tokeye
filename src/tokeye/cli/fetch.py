@@ -25,7 +25,10 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--diag",
         default="mag",
-        help="Diagnostic preset: mag|ece|co2|bes (default: mag, toroidal Mirnov).",
+        help=(
+            "Diagnostic preset: mag|mag_pol|mhr|ece|co2|bes "
+            "(default: mag, toroidal Mirnov)."
+        ),
     )
     parser.add_argument(
         "--pointname",

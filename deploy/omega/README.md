@@ -111,8 +111,15 @@ ssh -N -L 7860:localhost:7860 <you>@omega14.gat.com
 Add `LocalForward 7860 localhost:7860` under the host in your laptop `~/.ssh/config`
 to make the tunnel automatic (then `ssh <node>` alone forwards the port).
 
-In the **DIII-D** tab: enter a shot, pick **Fast Magnetics / Mirnov** + a probe
-(e.g. `MPI66M067D`) and a time window → **Load shot** → **Analyze**.
+In the **DIII-D** tab: the shot defaults to the latest on MDS. Pick a diagnostic
++ probe and a time window → **Load shot** (spectrogram with real kHz/ms axes) →
+**Analyze**. Threshold / clip sliders re-render live (on release). Set **View
+Mode → Modespec** for the classic toroidal mode-number analysis, and tick **Gate
+with TokEye** to keep only the modes the mask confirms.
+
+The **DIII-D Offline** tab batches many shots (range `a-b` or a comma list): it
+prefetches here on somega, then submits one Slurm job (`gpus`) that runs TokEye +
+modespec over the cached data — **Refresh** shows status and the result gallery.
 
 Do **not** use `tokeye app --share` on GA (relays through Gradio's cloud, off-network).
 
@@ -136,9 +143,16 @@ module load tokeye && tokeye run ... --device auto     # picks the GPU automatic
 
 ## 5. Diagnostics
 
-- **`mag`** (toroidal Mirnov, ~200 kHz) — verified end-to-end; the default.
-- **`ece` / `co2` / `bes`** — scaffolded presets (`verified=False`). The pointname
-  sets in `src/tokeye/sources/presets.py` need confirming against a live shot.
+Verified live against DIII-D (PTDATA on the `D3D` tree):
+- **`mag`** — toroidal Mirnov array (the default; feeds the modespec analysis).
+- **`mag_pol`** — 31-probe 322° poloidal Mirnov (single-probe viewing).
+- **`mhr`** — high-res magnetics `B1`–`B8` (~2 MHz).
+- **`co2`** — CO2/BCI density chords.  **`bes`** — `BESFU` fast channels (availability
+  varies by shot).
+
+Not yet fetchable: **`ece`** (`TECEF` channels live in a separate `ece` MDSplus tree,
+not PTDATA — listed for selection; wiring the tree fetch is a follow-up). Presets live
+in `src/tokeye/sources/presets.py`; the probe dropdown also accepts custom names.
 
 ---
 

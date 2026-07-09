@@ -15,6 +15,7 @@ import gradio as gr
 from .analyze.analyze import analyze_tab
 from .tabs.annotate import annotate_tab
 from .tabs.diiid import diiid_tab
+from .tabs.diiid_offline import diiid_offline_tab
 from .tabs.utilities import utilities_tab
 from .utils.theme import make_theme
 
@@ -28,6 +29,14 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+
+def _latest_shot() -> int:
+    """Latest DIII-D shot for the DIII-D tab default (0 if MDS is unreachable)."""
+    from tokeye.sources import latest_shot
+
+    shot = latest_shot()
+    return shot if shot is not None else 0
 
 
 def create_app() -> gr.Blocks:
@@ -53,7 +62,11 @@ def create_app() -> gr.Blocks:
         with gr.Tab("Utilities"):
             utilities_tab()
         with gr.Tab("DIII-D"):
-            diiid_tab()
+            diiid_shot = diiid_tab()
+        with gr.Tab("DIII-D Offline"):
+            diiid_offline_tab()
+        # Fill the DIII-D shot with the latest on page load (no-op off-cluster).
+        app.load(fn=_latest_shot, inputs=None, outputs=[diiid_shot])
     return app
 
 

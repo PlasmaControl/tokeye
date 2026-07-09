@@ -37,6 +37,61 @@ def test_presets_defaults_are_valid():
         assert diag.default in diag.pointnames
 
 
+def test_presets_cover_pyspecview_diagnostics():
+    from tokeye.sources import DIAGNOSTICS
+    from tokeye.sources.presets import MIRNOV_TOROIDAL, MIRNOV_TOROIDAL_ANGLES
+
+    # b1-b8 + the other magnetics/diagnostics are wired in.
+    assert set(DIAGNOSTICS) >= {"mag", "mag_pol", "mhr", "ece", "co2", "bes"}
+    assert DIAGNOSTICS["mhr"].pointnames == tuple(f"B{i}" for i in range(1, 9))
+    assert len(DIAGNOSTICS["ece"].pointnames) == 40
+    assert len(DIAGNOSTICS["bes"].pointnames) == 40
+    assert len(DIAGNOSTICS["mag_pol"].pointnames) == 31
+    # Toroidal angles are index-aligned to the probe names (needed for modespec).
+    assert len(MIRNOV_TOROIDAL) == len(MIRNOV_TOROIDAL_ANGLES) == 14
+
+
+def test_latest_shot_uses_current_shot_tdi(monkeypatch):
+    import sys
+    import types
+
+    from tokeye.sources import latest_shot
+
+    calls = {}
+
+    class _FakeConn:
+        def __init__(self, server):
+            calls["server"] = server
+
+        def get(self, expr):
+            calls["expr"] = expr
+            return 190904
+
+    fake = types.ModuleType("MDSplus")
+    fake.Connection = _FakeConn
+    monkeypatch.setitem(sys.modules, "MDSplus", fake)
+
+    assert latest_shot("atlas.gat.com") == 190904
+    assert calls["server"] == "atlas.gat.com"
+    assert 'current_shot("d3d")' in calls["expr"]
+
+
+def test_latest_shot_none_when_mdsplus_missing(monkeypatch):
+    import builtins
+
+    from tokeye.sources import latest_shot
+
+    real_import = builtins.__import__
+
+    def _no_mds(name, *a, **k):
+        if name == "MDSplus":
+            raise ImportError("no MDSplus")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_mds)
+    assert latest_shot() is None
+
+
 def _seed_cache(data_dir, shot, key, x, t_ms):
     """Write the {data_dir}/{shot}/{shot}_{key}.pkl layout data_utils expects."""
     shot_dir = data_dir / str(shot)
@@ -80,6 +135,70 @@ def test_fetch_tlim_crops(tmp_path):
     assert t_out.min() >= 10.0
     assert t_out.max() <= 20.0
     assert x_out.size == t_out.size
+
+
+def test_fetch_mirnov_cached_assembles_from_cache(tmp_path, monkeypatch):
+    from tokeye.sources.mirnov import fetch_mirnov_cached
+    from tokeye.sources.presets import MIRNOV_TOROIDAL
+
+    shot = 190904
+    t_ms = np.arange(0.0, 5.0, 0.005)  # 200 kHz
+    for name in MIRNOV_TOROIDAL:
+        _seed_cache(tmp_path, shot, name, np.sin(t_ms), t_ms)
+
+    import tokeye.modespec.classic.data_utils as du
+
+    monkeypatch.setattr(
+        du, "fetch_ptdata", lambda *a, **k: (_ for _ in ()).throw(AssertionError("live"))
+    )
+
+    signals, t_out, angles, names = fetch_mirnov_cached(
+        shot, "toroidal", data_dir=str(tmp_path)
+    )
+    assert signals.shape == (14, t_ms.size)
+    assert angles.shape == (14,)
+    assert len(names) == 14
+    assert t_out.size == t_ms.size
+
+
+def test_gate_dominant_intersects_mask_and_coherence():
+    from tokeye.sources.mirnov import gate_dominant
+
+    rng = np.random.default_rng(1)
+    n_win, n_freq = 40, 30
+    result = {
+        "t_win_ms": np.linspace(1000, 1020, n_win),
+        "freq_khz": np.linspace(5, 150, n_freq),
+        "n_dominant": rng.integers(-3, 4, size=(n_win, n_freq)),
+        "coherence": rng.random((n_win, n_freq)),
+        "n_range": (-3, 3),
+        "c95": 0.3,
+    }
+    arr_extract = rng.random((2, 512, 400)).astype("float32")
+    meta = {"fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 1024, "hop": 256, "clip_dc": True}
+
+    nd = gate_dominant(result, arr_extract, meta, mask_threshold=0.5, coh_thresh=0.3)
+    assert nd.shape == (n_win, n_freq)
+    # A random mask + coherence gate keeps some bins and suppresses others.
+    assert np.isnan(nd).any()
+    assert np.isfinite(nd).any()
+
+
+def test_gate_dominant_requires_fs():
+    import pytest
+
+    from tokeye.sources.mirnov import gate_dominant
+
+    result = {
+        "t_win_ms": np.array([1.0]),
+        "freq_khz": np.array([10.0]),
+        "n_dominant": np.array([[1]]),
+        "coherence": np.array([[0.9]]),
+        "n_range": (-1, 1),
+        "c95": 0.3,
+    }
+    with pytest.raises(ValueError):
+        gate_dominant(result, np.zeros((2, 8, 8)), {"fs": 0.0})
 
 
 def test_cache_root_env_override(monkeypatch):

@@ -23,10 +23,29 @@ import numpy as np
 # older than ~32 days are swept. The Lmod modulefile sets $TOKEYE_CACHE.
 DEFAULT_CACHE_ROOT = "/cscratch/share/tokeye/cache"
 
+# MDSplus thin-client server for DIII-D (reachable from login / somega).
+DEFAULT_ATLAS = "atlas.gat.com"
+
 
 def cache_root() -> str:
     """Directory for the on-disk shot cache (``$TOKEYE_CACHE`` or the default)."""
     return os.environ.get("TOKEYE_CACHE", DEFAULT_CACHE_ROOT)
+
+
+def latest_shot(atlas: str = DEFAULT_ATLAS) -> int | None:
+    """Most recent DIII-D shot number from MDSplus, or ``None`` if unavailable.
+
+    Uses the atlas thin client (``current_shot("d3d")``). Returns ``None`` on any
+    failure (MDSplus missing, atlas unreachable, off-cluster) so callers can fall
+    back gracefully — MDSplus stays deferred, keeping ``import`` MDSplus-free.
+    """
+    try:
+        import MDSplus as mds
+
+        conn = mds.Connection(atlas)
+        return int(conn.get('current_shot("d3d")'))
+    except Exception:  # noqa: BLE001 - any failure -> no latest shot
+        return None
 
 
 def _fs_from_time_ms(t_ms: np.ndarray) -> float:
@@ -44,6 +63,11 @@ class MDSSource:
 
     def __init__(self, data_dir: str | os.PathLike[str] | None = None) -> None:
         self.data_dir = str(data_dir) if data_dir is not None else cache_root()
+
+    @staticmethod
+    def latest_shot(atlas: str = DEFAULT_ATLAS) -> int | None:
+        """Most recent DIII-D shot number, or ``None`` if unavailable."""
+        return latest_shot(atlas)
 
     def fetch(
         self,
