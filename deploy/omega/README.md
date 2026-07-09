@@ -64,6 +64,9 @@ Publish the modulefile next to the env so anyone can `module use` it:
 ```bash
 mkdir -p /cscratch/share/tokeye/modulefiles
 cp deploy/omega/modulefiles/tokeye.lua /cscratch/share/tokeye/modulefiles/
+# put the tunnel-printing launcher on PATH (env bin) as `tokeye-app`:
+cp deploy/omega/tokeye-app.sh /cscratch/share/tokeye/env-x86_64/bin/tokeye-app
+chmod +x /cscratch/share/tokeye/env-x86_64/bin/tokeye-app
 
 module use /cscratch/share/tokeye/modulefiles
 module load tokeye
@@ -79,8 +82,7 @@ On somega:
 
 ```bash
 module load tokeye
-bash deploy/omega/tokeye-app.sh      # prints the exact tunnel line, then launches
-# (or just: tokeye app)
+tokeye-app          # on PATH; prints the exact tunnel line, then launches (or just: tokeye app)
 ```
 
 It binds `127.0.0.1:7860`. From your laptop, open the tunnel it printed, e.g.:
