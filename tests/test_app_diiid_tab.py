@@ -45,7 +45,7 @@ def test_load_shot_without_shot_warns_and_returns_none():
         "percentile_high": 99.0,
     }
     with pytest.warns(UserWarning):
-        spec, meta = load_shot(None, "mag", None, None, None, transform_args)
+        spec, meta = load_shot(None, "mag", None, None, None, transform_args, 1)
 
     assert spec is None
     assert meta is None
@@ -55,17 +55,22 @@ def test_render_view_and_modespec_produce_images():
     """Renderers work on synthetic arrays with no network (offline / CI-safe)."""
     import numpy as np
 
-    from tokeye.sources.viz import render_modespec, render_view
+    from tokeye.sources.viz import mode_color_legend_html, render_modespec, render_view
 
     rng = np.random.default_rng(0)
     arr = rng.random((256, 300)).astype("float32")
     ext = rng.random((2, 256, 300)).astype("float32")
-    meta = {"fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 512, "hop": 256, "clip_dc": True}
+    # fmin/fmax present -> the plain image is frequency-cropped for display.
+    meta = {
+        "fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 512, "hop": 256, "clip_dc": True,
+        "fmin_khz": 20, "fmax_khz": 200,
+    }
 
     for view in ("Original", "Enhanced", "Mask", "Amplitude"):
         img = render_view(view, arr, ext, True, True, 0, 100, 0.5, meta)
         assert img is not None
-        assert img.size[0] > 100
+        assert img.size[0] > 100  # width preserved (time)
+        assert img.size[1] < 256  # height cropped to the [20,200] kHz band
 
     result = {
         "t_win_ms": np.linspace(1000, 1020, 30),
@@ -76,3 +81,11 @@ def test_render_view_and_modespec_produce_images():
         "c95": 0.3,
     }
     assert render_modespec(result, shot=190000) is not None
+
+    # The Gradio colour-key legend uses the SAME discrete colours as the image.
+    from tokeye.sources.viz import _mode_colors
+
+    html = mode_color_legend_html(-3, 3)
+    assert html.count("n=") == 7  # one swatch per mode number in [-3, 3]
+    r, g, b = (int(v) for v in _mode_colors(-3, 3)[0])
+    assert f"rgb({r},{g},{b})" in html

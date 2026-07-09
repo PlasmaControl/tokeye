@@ -201,6 +201,228 @@ def test_gate_dominant_requires_fs():
         gate_dominant(result, np.zeros((2, 8, 8)), {"fs": 0.0})
 
 
+class _Wrap:
+    """Minimal stand-in for an MDSplus data object (``.data()``)."""
+
+    def __init__(self, v):
+        self._v = v
+
+    def data(self):
+        return self._v
+
+
+def _install_fake_mdsplus(monkeypatch, conn_cls):
+    import types
+
+    fake = types.ModuleType("MDSplus")
+    fake.Connection = conn_cls
+    monkeypatch.setitem(sys.modules, "MDSplus", fake)
+
+
+# ── CO2 fetch (all-zeros PTDATA trap → real BCI.DPD / segmented BCI source) ──────
+def test_co2_preset_uses_real_chord_names():
+    from tokeye.sources import DIAGNOSTICS
+    from tokeye.sources.co2 import CO2_CHORDS, is_co2_chord
+
+    assert DIAGNOSTICS["co2"].pointnames == ("DENV1_UF", "DENV2_UF", "DENV3_UF", "DENR0_UF")
+    assert DIAGNOSTICS["co2"].default == "DENV2_UF"
+    assert set(DIAGNOSTICS["co2"].pointnames) == set(CO2_CHORDS)
+    assert is_co2_chord("denv2_uf") and not is_co2_chord("MPI66M067D")
+
+
+def test_fetch_co2_chord_prefers_nonzero_dpd(monkeypatch):
+    from tokeye.sources.co2 import fetch_co2_chord
+
+    t = np.linspace(1000.0, 2000.0, 500)
+    z = np.ones(500)
+
+    class _Conn:
+        def __init__(self, server):
+            pass
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            return _Wrap(t if expr.startswith("dim_of(") else z)
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    data, t_ms = fetch_co2_chord(190904, "DENV2_UF")
+    assert np.count_nonzero(data) == 500
+    assert t_ms[0] == 1000.0 and t_ms[-1] == 2000.0
+
+
+def test_fetch_co2_chord_falls_back_to_bci_segments(monkeypatch):
+    from tokeye.sources.co2 import fetch_co2_chord
+
+    dpd_z = np.zeros(10)  # DPD present but all-zero -> must fall back to BCI
+    segments = {
+        0: (np.linspace(1000.0, 1500.0, 300), np.ones(300)),
+        1: (np.linspace(1500.0, 2000.0, 200), 2 * np.ones(200)),
+    }
+
+    class _Conn:
+        def __init__(self, server):
+            self._cur = None
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            e = expr.strip()
+            if e.startswith("findsig("):
+                n = int(e.split('"')[1].rsplit("_", 1)[1])
+                if n not in segments:
+                    raise RuntimeError("%TREE-W-NNF")
+                return _Wrap(f"\\TAG::seg_{n}")
+            if e == "_fstree":
+                return _Wrap("bci")
+            if e.startswith("_s ="):
+                self._cur = int(e.split("=", 1)[1].strip().rsplit("_", 1)[1])
+                return _Wrap(segments[self._cur][1])
+            if e == "dim_of(_s)":
+                return _Wrap(segments[self._cur][0])
+            if e.startswith("dim_of("):
+                return _Wrap(np.arange(dpd_z.size, dtype=float))
+            return _Wrap(dpd_z)
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    data, t_ms = fetch_co2_chord(170008, "DENV2_UF")
+    # segments concatenated in time order (seg0 then seg1)
+    assert data.size == 500
+    assert t_ms[0] == 1000.0 and t_ms[-1] == 2000.0
+    assert data[0] == 1.0 and data[-1] == 2.0
+
+
+def test_fetch_co2_chord_raises_when_all_zero(monkeypatch):
+    import pytest
+
+    from tokeye.sources.co2 import fetch_co2_chord
+
+    class _Conn:
+        def __init__(self, server):
+            pass
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            if expr.strip().startswith("findsig("):
+                raise RuntimeError("%TREE-W-NNF")  # no BCI segments
+            if expr.startswith("dim_of("):
+                return _Wrap(np.arange(10, dtype=float))
+            return _Wrap(np.zeros(10))  # DPD all-zero
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    with pytest.raises(RuntimeError):
+        fetch_co2_chord(999999, "DENV2_UF")
+
+
+def test_mds_fetch_routes_co2_pointnames(tmp_path, monkeypatch):
+    import tokeye.modespec.classic.data_utils as du
+    import tokeye.sources.co2 as co2
+    from tokeye.sources import MDSSource
+
+    t = np.linspace(1000.0, 2000.0, 500)
+    z = np.ones(500)
+    seen = {}
+
+    def _fake_co2(shot, chord, atlas="atlas.gat.com"):
+        seen["chord"] = chord
+        return z, t
+
+    monkeypatch.setattr(co2, "fetch_co2_chord", _fake_co2)
+    monkeypatch.setattr(
+        du, "fetch_ptdata",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("PTDATA used for CO2")),
+    )
+    t_out, x_out, fs = MDSSource(data_dir=tmp_path).fetch(190904, "DENV2_UF")
+    assert seen["chord"] == "DENV2_UF"
+    assert x_out.size == 500
+    assert fs > 0  # derived from the returned time axis
+
+
+# ── time_bounds (cheap scalar-TDI window for shot/probe autofill) ─────────────────
+def test_time_bounds_single_round_trip(monkeypatch):
+    import tokeye.sources.mds as mds
+    from tokeye.sources import time_bounds
+
+    mds._BOUNDS_CACHE.clear()
+
+    class _Conn:
+        def __init__(self, server):
+            pass
+
+        def openTree(self, *a):
+            pass
+
+        def closeAllTrees(self):
+            pass
+
+        def get(self, expr):
+            # one call returns both endpoints of the (assigned-once) time base
+            assert "DIM_OF" in expr and expr.strip().startswith("[")
+            return _Wrap(np.array([1000.0, 2000.0]))
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    assert time_bounds(190904, "MPI66M067D") == (1000.0, 2000.0)
+    # second call is served from the in-process cache (no MDSplus needed)
+    monkeypatch.setitem(sys.modules, "MDSplus", None)
+    assert time_bounds(190904, "MPI66M067D") == (1000.0, 2000.0)
+
+
+def test_time_bounds_none_on_failure(monkeypatch):
+    import tokeye.sources.mds as mds
+    from tokeye.sources import time_bounds
+
+    mds._BOUNDS_CACHE.clear()
+
+    class _Conn:
+        def __init__(self, server):
+            raise RuntimeError("atlas unreachable")
+
+    _install_fake_mdsplus(monkeypatch, _Conn)
+    assert time_bounds(1, "P") is None
+
+
+# ── modespec decimation speedup ──────────────────────────────────────────────────
+def test_decimation_factor_respects_band_and_user():
+    from tokeye.sources.mirnov import decimation_factor
+
+    assert decimation_factor(2.0e6, 200, None) == 4  # 2 MHz, 200 kHz band -> /4
+    assert decimation_factor(5.0e5, 200, None) == 1  # already near Nyquist
+    assert decimation_factor(2.0e6, 200, 8) == 8  # honor a larger user request
+    assert decimation_factor(0.0, 200, None) == 1  # unknown fs -> no decimation
+
+
+def test_maybe_decimate_reduces_samples():
+    from tokeye.sources.mirnov import _fs_hz, _maybe_decimate
+
+    fs, n = 2.0e6, 200_000
+    t = np.arange(n) / fs * 1e3 + 1000.0
+    sig = np.random.default_rng(0).standard_normal((14, n))
+    sd, td = _maybe_decimate(sig, t, None, 200.0)
+    assert sd.shape[1] == td.size
+    assert sd.shape[1] < n
+    assert _fs_hz(td) < _fs_hz(t)
+
+    # Already at ~Nyquist for the band: no decimation.
+    fs2, n2 = 5.0e5, 50_000
+    t2 = np.arange(n2) / fs2 * 1e3
+    sig2 = np.random.default_rng(0).standard_normal((14, n2))
+    sd2, td2 = _maybe_decimate(sig2, t2, None, 200.0)
+    assert sd2.shape[1] == n2
+
+
 def test_cache_root_env_override(monkeypatch):
     from tokeye.sources import DEFAULT_CACHE_ROOT, MDSSource, cache_root
 

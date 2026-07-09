@@ -13,10 +13,12 @@ The others mirror pyspecview's diagnostic menu:
 * ``bes``     — beam-emission-spectroscopy channels ``BESFU01``..``BESFU40``.
 * ``co2``     — CO2/BCI interferometer density chords.
 
-All are verified against a live shot (PTDATA on the ``D3D`` tree) except ``ece``:
-``TECEF`` channels live in a separate ``ece`` MDSplus tree, not PTDATA, so the
-generic fetch can't reach them yet (they are listed for selection; wiring the
-tree fetch is a follow-up). The probe dropdown allows custom entries too.
+Most are verified against a live shot (PTDATA on the ``D3D`` tree). Two are not
+plain PTDATA: ``co2`` is fetched from the BCI.DPD tree node / segmented BCI tree
+(``tokeye.sources.co2`` — the plain ``DENVnUF`` PTDATA is all-zeros), and ``ece``
+lives in a separate ``ece`` MDSplus tree so the generic fetch can't reach it yet
+(listed for selection; wiring the tree fetch is a follow-up). The probe dropdown
+allows custom entries too.
 """
 
 from __future__ import annotations
@@ -127,7 +129,10 @@ ECE_CHANNELS: tuple[str, ...] = tuple(f"TECEF{i:02d}" for i in range(1, 41))
 BES_CHANNELS: tuple[str, ...] = tuple(f"BESFU{i:02d}" for i in range(1, 41))
 
 # ── CO2 / BCI interferometer density chords (~2 MHz) ─────────────────────────────
-CO2_CHORDS: tuple[str, ...] = ("DENV1UF", "DENV2UF", "DENV3UF", "DENR0UF")
+# NOTE: the obvious PTDATA "DENVnUF" pointnames resolve to an ALL-ZEROS array; the
+# real fast-CO2 source is the BCI.DPD tree node / segmented BCI tree, fetched by
+# tokeye.sources.co2.fetch_co2_chord (MDSSource.fetch routes these names there).
+CO2_CHORDS: tuple[str, ...] = ("DENV1_UF", "DENV2_UF", "DENV3_UF", "DENR0_UF")
 
 
 DIAGNOSTICS: dict[str, Diagnostic] = {
@@ -171,9 +176,11 @@ DIAGNOSTICS: dict[str, Diagnostic] = {
         key="co2",
         label="CO2 Interferometer (BCI density chords)",
         pointnames=CO2_CHORDS,
-        default="DENV2UF",
+        default="DENV2_UF",
         verified=True,
-        note="CO2/BCI density chords (PTDATA); verified live.",
+        note="Fast CO2/BCI density chords. Real source is the BCI.DPD tree node "
+        "(recent shots) or segmented BCI tree (older shots) — see sources/co2.py; "
+        "plain 'DENVnUF' PTDATA is all-zeros.",
     ),
     "bes": Diagnostic(
         key="bes",

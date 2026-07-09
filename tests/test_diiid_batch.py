@@ -52,6 +52,32 @@ def test_build_sbatch_script_gpu():
     assert "--outdir /cscratch/u/tokeye/data/runs/r1" in s
     assert "--tlim 1000.0 2000.0" in s
     assert "--tokeye" in s and "--modespec" in s and "--gate" in s
+    assert "--decimation 1" in s  # default off; emitted so the job is explicit
+
+
+def test_build_sbatch_script_threads_decimation():
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    s = build_sbatch_script(
+        outdir="/x",
+        shots=[1],
+        diag="mag",
+        probe="MPI66M067D",
+        tlim=None,
+        model="big_tf_unet",
+        threshold=0.5,
+        do_tokeye=False,
+        do_modespec=True,
+        do_gate=False,
+        n_range=(-5, 5),
+        f_min=5.0,
+        f_max=200.0,
+        partition="gpus",
+        gres="gpu:v100:1",
+        time_limit="0-02:00:00",
+        decimation=6,
+    )
+    assert "--decimation 6" in s
 
 
 def test_build_sbatch_script_cpu_omits_gres():

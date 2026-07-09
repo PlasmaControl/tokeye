@@ -15,6 +15,7 @@ so a shot fetched on a reachable node can be reused anywhere.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 import numpy as np
@@ -48,6 +49,61 @@ def latest_shot(atlas: str = DEFAULT_ATLAS) -> int | None:
         return None
 
 
+# Bounds are immutable per (shot, pointname), so cache successes in-process — the
+# DIM_OF time-base build is seconds server-side, so re-selecting a probe is instant.
+_BOUNDS_CACHE: dict[tuple[int, str], tuple[float, float]] = {}
+
+
+def time_bounds(
+    shot: int, pointname: str, atlas: str = DEFAULT_ATLAS
+) -> tuple[float, float] | None:
+    """``(t0_ms, t1_ms)`` data window for a shot+pointname, or ``None``.
+
+    Evaluates the time base **once** server-side (assigned to ``_t``) and returns
+    both endpoints in a single round-trip — used to auto-fill the time-window
+    fields on a shot/probe selection. Results are cached in-process. Best-effort:
+    returns ``None`` on any failure (MDSplus missing, atlas unreachable, empty
+    signal) so the UI just leaves the fields blank. MDSplus stays deferred.
+    """
+    shot = int(shot)
+    pointname = str(pointname)
+    ck = (shot, pointname)
+    if ck in _BOUNDS_CACHE:
+        return _BOUNDS_CACHE[ck]
+
+    bounds: tuple[float, float] | None = None
+    try:
+        import MDSplus as mds
+
+        conn = mds.Connection(atlas)
+        try:
+            from tokeye.sources.co2 import is_co2_chord, time_bounds_co2
+
+            if is_co2_chord(pointname):
+                bounds = time_bounds_co2(conn, shot, pointname)
+            else:
+                conn.openTree("D3D", shot)
+                sig = f'PTDATA("{pointname}", {shot})'
+                r = np.asarray(
+                    conn.get(f"[ (_t = DIM_OF({sig}))[0], _t[SIZE(_t) - 1] ]").data(),
+                    dtype=float,
+                )
+                if r.size >= 2:
+                    t0, t1 = float(r[0]), float(r[-1])
+                    if abs(t1) < 100:  # seconds -> ms (repo convention)
+                        t0, t1 = t0 * 1e3, t1 * 1e3
+                    bounds = (t0, t1) if t1 > t0 else None
+        finally:
+            with contextlib.suppress(Exception):
+                conn.closeAllTrees()
+    except Exception:  # noqa: BLE001 - any failure -> no bounds
+        return None
+
+    if bounds is not None:
+        _BOUNDS_CACHE[ck] = bounds
+    return bounds
+
+
 def _fs_from_time_ms(t_ms: np.ndarray) -> float:
     """Sampling rate [Hz] from a millisecond time axis (0.0 if undeterminable)."""
     if t_ms.size < 2:
@@ -69,6 +125,13 @@ class MDSSource:
         """Most recent DIII-D shot number, or ``None`` if unavailable."""
         return latest_shot(atlas)
 
+    @staticmethod
+    def time_bounds(
+        shot: int, pointname: str, atlas: str = DEFAULT_ATLAS
+    ) -> tuple[float, float] | None:
+        """Cheap ``(t0_ms, t1_ms)`` data window, or ``None`` if unavailable."""
+        return time_bounds(shot, pointname, atlas)
+
     def fetch(
         self,
         shot: int,
@@ -77,15 +140,18 @@ class MDSSource:
     ) -> tuple[np.ndarray, np.ndarray, float]:
         # Deferred so importing this module does not import MDSplus.
         from tokeye.modespec.classic.data_utils import fetch_or_load, fetch_ptdata
+        from tokeye.sources.co2 import fetch_co2_chord, is_co2_chord
 
         shot = int(shot)
         pointname = str(pointname)
-        data, t_ms = fetch_or_load(
-            shot,
-            pointname,
-            lambda: fetch_ptdata(shot, pointname),
-            self.data_dir,
-        )
+        # CO2 chords are NOT plain PTDATA (that source is all-zeros); route them to
+        # the real BCI.DPD / segmented-BCI fetcher. Everything else is PTDATA. The
+        # pickle cache (keyed by shot+pointname) is shared by both paths.
+        if is_co2_chord(pointname):
+            fetch_fn = lambda: fetch_co2_chord(shot, pointname)  # noqa: E731
+        else:
+            fetch_fn = lambda: fetch_ptdata(shot, pointname)  # noqa: E731
+        data, t_ms = fetch_or_load(shot, pointname, fetch_fn, self.data_dir)
         x = np.asarray(data, dtype=float).ravel()
         t = np.asarray(t_ms, dtype=float).ravel()
 

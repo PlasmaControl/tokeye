@@ -65,6 +65,7 @@ def submit_batch(
     ms_nmax,
     ms_fmin,
     ms_fmax,
+    decimation,
     outdir_base,
     partition,
     gres,
@@ -150,6 +151,7 @@ def submit_batch(
         n_range=(int(ms_nmin), int(ms_nmax)),
         f_min=float(ms_fmin),
         f_max=float(ms_fmax),
+        decimation=int(decimation) if decimation else 1,
         partition=partition,
         gres=gres,
         time_limit=time_limit,
@@ -261,6 +263,10 @@ def diiid_offline_tab():
                 ms_nmax = gr.Number(value=5, precision=0, label="n max")
                 ms_fmin = gr.Number(value=5, label="f min (kHz)")
                 ms_fmax = gr.Number(value=200, label="f max (kHz)")
+                ms_decim = gr.Number(
+                    value=1, precision=0, minimum=1, label="Decimation",
+                    info="≥ auto f-max-safe value; speeds up modespec.",
+                )
 
         with gr.Accordion("Cluster / output", open=False), gr.Group():
             outdir_base = gr.Textbox(label="Output folder", value=_default_outdir())
@@ -285,7 +291,7 @@ def diiid_offline_tab():
         inputs=[
             shots_text, diagnostic, pointname, t_min, t_max, model_file,
             do_tokeye, do_modespec, do_gate,
-            ms_nmin, ms_nmax, ms_fmin, ms_fmax,
+            ms_nmin, ms_nmax, ms_fmin, ms_fmax, ms_decim,
             outdir_base, partition, gres, time_limit,
         ],
         outputs=[status_md, job_id, outdir_state],

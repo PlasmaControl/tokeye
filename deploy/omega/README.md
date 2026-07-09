@@ -112,10 +112,13 @@ Add `LocalForward 7860 localhost:7860` under the host in your laptop `~/.ssh/con
 to make the tunnel automatic (then `ssh <node>` alone forwards the port).
 
 In the **DIII-D** tab: the shot defaults to the latest on MDS. Pick a diagnostic
-+ probe and a time window → **Load shot** (spectrogram with real kHz/ms axes) →
-**Analyze**. Threshold / clip sliders re-render live (on release). Set **View
-Mode → Modespec** for the classic toroidal mode-number analysis, and tick **Gate
-with TokEye** to keep only the modes the mask confirms.
++ probe — the time window auto-fills to the signal's data range — then **Load
+shot** (a clean spectrogram image; crop the band with **STFT settings →
+f-min/f-max**) → **Analyze**. Threshold / clip / band sliders re-render live (on
+release). Set **View Mode → Modespec** for the classic toroidal mode-number
+analysis (a rainbow image + an in-page mode legend); tick **Gate with TokEye** to
+keep only the modes the mask confirms. Modespec auto-decimates to your f-max for
+speed.
 
 The **DIII-D Offline** tab batches many shots (range `a-b` or a comma list): it
 prefetches here on somega, then submits one Slurm job (`gpus`) that runs TokEye +
@@ -143,12 +146,13 @@ module load tokeye && tokeye run ... --device auto     # picks the GPU automatic
 
 ## 5. Diagnostics
 
-Verified live against DIII-D (PTDATA on the `D3D` tree):
+Verified live against DIII-D:
 - **`mag`** — toroidal Mirnov array (the default; feeds the modespec analysis).
 - **`mag_pol`** — 31-probe 322° poloidal Mirnov (single-probe viewing).
 - **`mhr`** — high-res magnetics `B1`–`B8` (~2 MHz).
-- **`co2`** — CO2/BCI density chords.  **`bes`** — `BESFU` fast channels (availability
-  varies by shot).
+- **`co2`** — CO2/BCI density chords (`DENVn_UF`). Real source is the BCI.DPD tree
+  node / segmented BCI tree (`src/tokeye/sources/co2.py`); the plain `DENVnUF`
+  PTDATA is all-zeros. **`bes`** — `BESFU` fast channels (availability varies by shot).
 
 Not yet fetchable: **`ece`** (`TECEF` channels live in a separate `ece` MDSplus tree,
 not PTDATA — listed for selection; wiring the tree fetch is a follow-up). Presets live

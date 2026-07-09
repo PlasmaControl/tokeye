@@ -76,19 +76,77 @@ def fetch_mirnov_cached(
     return signals, np.asarray(t_ref[:n], dtype=float), np.asarray(good_angles), good_names
 
 
+def _fs_hz(t_ms: np.ndarray) -> float:
+    """Sampling rate [Hz] from a millisecond time axis (0.0 if undeterminable)."""
+    t = np.asarray(t_ms, dtype=float)
+    if t.size < 2:
+        return 0.0
+    dt_ms = float(np.median(np.diff(t)))
+    return 1.0e3 / dt_ms if dt_ms > 0 else 0.0
+
+
+def decimation_factor(fs_hz: float, f_max_khz: float, user: int | None = None) -> int:
+    """Largest integer decimation that still resolves ``f_max`` (>= a user request).
+
+    The Mirnov digitizer (200 kHz–2 MHz) massively oversamples the MHD band, and
+    ``mode_spectrogram`` cost scales with the sample count — so decimating to just
+    above the ``2·f_max`` Nyquist requirement is a near-linear, information-lossless
+    speedup for the band actually analyzed.
+    """
+    d_user = max(1, int(user)) if user else 1
+    d_auto = 1
+    if fs_hz > 0 and f_max_khz and f_max_khz > 0:
+        # 2.2× (not 2×) leaves a little headroom above f_max before the anti-alias roll-off.
+        d_auto = max(1, int(fs_hz / (2.2 * float(f_max_khz) * 1e3)))
+    return max(d_user, d_auto)
+
+
+def _maybe_decimate(
+    signals: np.ndarray, t_ms: np.ndarray, user_decimation: int | None, f_max_khz: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Anti-aliased decimation of ``(n_probes, n_t)`` signals + time axis, if worthwhile."""
+    n = signals.shape[1]
+    fs = _fs_hz(t_ms)
+    d = decimation_factor(fs, f_max_khz, user_decimation)
+    d = min(d, max(1, n // 64))  # keep enough windows for a meaningful spectrogram
+    if d <= 1:
+        return signals, t_ms
+    try:
+        from scipy.signal import decimate  # deferred
+
+        sig_d = decimate(signals, d, axis=1, ftype="fir")
+    except Exception:  # noqa: BLE001 - decimation must never break the analysis
+        return signals, t_ms
+    t_d = np.asarray(t_ms, dtype=float)[::d]
+    m = min(sig_d.shape[1], t_d.size)
+    print(f"  modespec: decimated {n:,}->{m:,} samples/probe (D={d}, fs {fs/1e3:.0f}"
+          f"->{fs / d / 1e3:.0f} kHz) for f_max={f_max_khz} kHz")
+    return sig_d[:, :m], t_d[:m]
+
+
 def run_mode_spectrogram(
     shot: int,
     array: str = "toroidal",
     tlim: tuple[float, float] | None = None,
     data_dir: str | None = None,
+    decimation: int | None = None,
     **params,
 ) -> dict:
-    """Cached fetch + vendored ``mode_spectrogram``. Returns its result dict."""
+    """Cached fetch + vendored ``mode_spectrogram``. Returns its result dict.
+
+    Decimates the signals to just above the ``2·f_max`` Nyquist (at least
+    ``decimation``×) before the analysis — the dominant modespec speedup — leaving
+    the vendored ``mode_spectrogram`` untouched. Frequency-bin spacing is unchanged
+    by decimation, so the modes are identical to the full-rate result.
+    """
     from tokeye.modespec.classic.modespec import mode_spectrogram  # deferred (heavy)
 
     signals, t_ms, angles, _names = fetch_mirnov_cached(shot, array, tlim, data_dir)
     if "n_range" in params and params["n_range"] is not None:
         params["n_range"] = tuple(params["n_range"])
+    signals, t_ms = _maybe_decimate(
+        signals, t_ms, decimation, params.get("f_max_khz", 200.0)
+    )
     return mode_spectrogram(signals, t_ms, angles, **params)
 
 

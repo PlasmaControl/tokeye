@@ -79,6 +79,7 @@ def build_sbatch_script(
     partition: str,
     gres: str,
     time_limit: str,
+    decimation: int = 1,
     device: str = "auto",
     job_name: str = "tokeye_offline",
 ) -> str:
@@ -110,6 +111,7 @@ def build_sbatch_script(
         f"--n-range {n_range[0]} {n_range[1]}",
         f"--f-min {f_min}",
         f"--f-max {f_max}",
+        f"--decimation {decimation}",
         f"--device {device}",
     ]
     if tlim is not None:
@@ -149,6 +151,10 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
                         default=[-5, 5], dest="n_range")
     parser.add_argument("--f-min", type=float, default=5.0, dest="f_min")
     parser.add_argument("--f-max", type=float, default=200.0, dest="f_max")
+    parser.add_argument(
+        "--decimation", type=int, default=1,
+        help="Signal decimation before modespec (>= auto f-max-safe value).",
+    )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--tokeye", action="store_true", help="Run TokEye masks.")
     parser.add_argument("--modespec", action="store_true", help="Run modespec.")
@@ -232,6 +238,7 @@ def _handle(args: argparse.Namespace) -> int:  # noqa: C901 - linear per-shot dr
             if do_modespec:
                 result = run_mode_spectrogram(
                     shot, args.array, tlim,
+                    decimation=int(args.decimation) if args.decimation else None,
                     n_range=n_range, f_min_khz=args.f_min, f_max_khz=args.f_max,
                 )
                 img = render_modespec(result, coh_thresh=None, shot=shot)
