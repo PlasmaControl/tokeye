@@ -2814,7 +2814,7 @@ train = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gradio", marker = "extra == 'app'" },
+    { name = "gradio", marker = "extra == 'app'", specifier = ">=5.49,<6" },
     { name = "h5py", marker = "extra == 'train'" },
     { name = "huggingface-hub", specifier = ">=0.30" },
     { name = "ipykernel", marker = "extra == 'train'" },
