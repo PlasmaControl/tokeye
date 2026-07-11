@@ -61,19 +61,20 @@ def main(
 ) -> None:
     logger.info(f"Initializing TokEye in: {Path.cwd()}")
     app = create_app()
-    for _ in range(MAX_PORT_ATTEMPTS):
+    for attempt in range(MAX_PORT_ATTEMPTS):
         try:
             app.launch(
                 share=share,
                 inbrowser=open_browser,
-                server_port=port,
+                server_port=port + attempt,
             )
+            return
         except OSError:
-            print(f"Failed on port {port}")
-            port -= 1
-        except Exception as error:
-            print(f"{error}")
-            break
+            logger.warning("Port %d in use, trying %d",
+                           port + attempt, port + attempt + 1)
+    raise SystemExit(
+        f"No free port in {port}-{port + MAX_PORT_ATTEMPTS - 1}"
+    )
 
 
 if __name__ == "__main__":
