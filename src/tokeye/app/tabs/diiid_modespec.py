@@ -91,6 +91,23 @@ def _ensure_model(model, loaded_name, model_file):
     return wrapper_model_load(model_file), model_file
 
 
+def _gated_nd(result, tok_mask, gate_meta, coh_thresh, gate):
+    """Dominant-mode array gated by the cached TokEye mask, or None.
+
+    Warns (and returns None) instead of raising when gating fails, so callers
+    always fall back to the ungated render/export.
+    """
+    if not (gate and tok_mask is not None and gate_meta is not None):
+        return None
+    from tokeye.sources.mirnov import gate_dominant_mask
+
+    try:
+        return gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=float(coh_thresh))
+    except Exception as exc:  # noqa: BLE001
+        gr.Warning(f"Gate failed (showing ungated): {exc}")
+        return None
+
+
 def fill_window(shot, ref_probe):
     """Auto-fill (t_min, t_max) from the reference probe's data window on change.
 
@@ -208,16 +225,9 @@ def rerender_coh(result, tok_mask, gate_meta, coh_thresh, gate):
     """Cheap re-render on coherence-slider release — cached result/mask, no recompute."""
     if result is None:
         return None
-    from tokeye.sources.mirnov import gate_dominant_mask
     from tokeye.sources.viz import plotly_modespec
 
-    nd = None
-    if gate and tok_mask is not None and gate_meta is not None:
-        try:
-            nd = gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=float(coh_thresh))
-        except Exception as exc:  # noqa: BLE001
-            gr.Warning(f"Gate failed (showing ungated): {exc}")
-            nd = None
+    nd = _gated_nd(result, tok_mask, gate_meta, coh_thresh, gate)
     return plotly_modespec(result, nd=nd, coh_thresh=float(coh_thresh))
 
 
@@ -257,15 +267,7 @@ def export_modespec(
         gr.Warning("Run Analyze first.")
         return None
 
-    from tokeye.sources.mirnov import gate_dominant_mask
-
-    nd = None
-    if gate and tok_mask is not None and gate_meta is not None:
-        try:
-            nd = gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=float(coh_thresh))
-        except Exception as exc:  # noqa: BLE001
-            gr.Warning(f"Gate failed (showing ungated): {exc}")
-            nd = None
+    nd = _gated_nd(result, tok_mask, gate_meta, coh_thresh, gate)
 
     params = {
         "shot": int(shot) if shot else None,
