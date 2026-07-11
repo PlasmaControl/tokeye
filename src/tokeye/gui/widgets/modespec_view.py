@@ -10,10 +10,13 @@ result — no recompute.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
+from tokeye import export
 from tokeye.gui.model_service import ModelService
 from tokeye.gui.render import (
     axis_rect,
@@ -256,6 +259,14 @@ class ModespecView(QtWidgets.QWidget):
         lay.addSpacing(8)
         lay.addWidget(reset)
         lay.addStretch(1)
+
+        self._save_btn = QtWidgets.QPushButton("Save…")
+        self._save_btn.setIcon(self.style().standardIcon(
+            QtWidgets.QStyle.StandardPixmap.SP_DialogSaveButton))
+        self._save_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_dialog)
+        lay.addWidget(self._save_btn)
         return bar
 
     def _wire(self) -> None:
@@ -322,6 +333,7 @@ class ModespecView(QtWidgets.QWidget):
             self._tok_mask = payload["tok_mask"]
             self._gate_meta = payload["gate_meta"]
             self._render_modes(reset_view=True)
+            self._save_btn.setEnabled(self._result is not None)
             self._set_shot_status(f"{self.shot_field.shot()}  toroidal modespec")
         elif rid == self._bounds_id and payload:
             self.shot_field.set_time_bounds(payload[0], payload[1])
@@ -366,6 +378,91 @@ class ModespecView(QtWidgets.QWidget):
         rgba = discrete_mode_image(nd_masked, n_lo, n_hi)
         rect = axis_rect(self._result["t_win_ms"], self._result["freq_khz"])
         self.canvas.show_modes(rgba, rect, n_lo, n_hi, nd_masked.T, reset_view=reset_view)
+
+    # -------------------------------------------------------------- exporting
+    def export_png(self, path: str | Path) -> Path:
+        """Save a PNG of the exact current canvas (colour bar, current zoom)."""
+        if not self.canvas.grab().save(str(path)):
+            raise RuntimeError(f"Could not write PNG to {path}")
+        return Path(path)
+
+    def export_npz(self, path: str | Path) -> Path:
+        """Save the cached mode-spectrogram result as a tokeye-modespec npz."""
+        if self._result is None:
+            raise ValueError("Nothing to save — run Analyze first.")
+        coh = self.gate_controls.coh()
+        nd = None
+        if (
+            self.gate_controls.gate()
+            and self._tok_mask is not None
+            and self._gate_meta is not None
+        ):
+            from tokeye.sources.mirnov import gate_dominant_mask
+
+            try:
+                nd = gate_dominant_mask(
+                    self._result, self._tok_mask, self._gate_meta, coh_thresh=coh
+                )
+            except Exception:  # noqa: BLE001 - fall back to ungated on any failure
+                nd = None
+
+        params = {
+            "shot": self.shot_field.shot(),
+            "ref_probe": self.ref_probe.pointname(),
+            "model": self.model_sel.name(),
+            "f_min": self.settings.f_min(),
+            "f_max": self.settings.f_max(),
+            "n_min": self.settings.n_min(),
+            "n_max": self.settings.n_max(),
+            "decimation": self.settings.decimation(),
+            "gate": self.gate_controls.gate(),
+            "gate_source": self.gate_controls.source(),
+            "coh": coh,
+        }
+        bundle = export.modespec_bundle(
+            result=self._result,
+            nd=nd,
+            tok_mask=self._tok_mask,
+            coh_thresh=float(coh),
+            params=params,
+            source="gui-modespec",
+        )
+        return export.save_npz(path, bundle)
+
+    def export_csv(self, path: str | Path) -> Path:
+        """Save the detected modes as a vendored-compatible ``_modes.csv``."""
+        if self._result is None:
+            raise ValueError("Nothing to save — run Analyze first.")
+        text = export.modes_csv_text(
+            self._result,
+            array="toroidal",
+            f_min=float(self.settings.f_min()),
+            f_max=float(self.settings.f_max()),
+        )
+        Path(path).write_text(text)
+        return Path(path)
+
+    def _save_dialog(self) -> None:
+        default = f"{self.shot_field.shot() or 'tokeye'}_modespec"
+        fname, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save modespec", default, "PNG + NPZ + CSV (*.png *.npz *.csv)"
+        )
+        if not fname:
+            return
+        base = Path(fname).with_suffix("")
+        try:
+            png = self.export_png(base.with_suffix(".png"))
+            npz = self.export_npz(base.with_suffix(".npz"))
+        except Exception as exc:  # noqa: BLE001 - never lose work to a silent crash
+            self._notify(f"Save failed: {exc}")
+            return
+        msg = f"Saved {png.name} + {npz.name}"
+        try:
+            csv_path = self.export_csv(base.with_name(f"{base.name}_modes.csv"))
+            msg += f" + {csv_path.name}"
+        except Exception as exc:  # noqa: BLE001 - CSV failure must not kill png/npz
+            msg += f" (CSV failed: {exc})"
+        self._notify(msg)
 
     # --------------------------------------------------------------- helpers
     def _on_cursor(self, info: object) -> None:

@@ -13,11 +13,14 @@ from tokeye.gui.render import axis_rect, mode_ticks
 
 def _result():
     rng = np.random.default_rng(0)
+    n_win, n_freq = 30, 25
     return {
-        "t_win_ms": np.linspace(1000.0, 1020.0, 30),
-        "freq_khz": np.linspace(5.0, 150.0, 25),
-        "n_dominant": rng.integers(-3, 4, size=(30, 25)),
-        "coherence": rng.random((30, 25)),
+        "t_win_ms": np.linspace(1000.0, 1020.0, n_win),
+        "freq_khz": np.linspace(5.0, 150.0, n_freq),
+        "n_dominant": rng.integers(-3, 4, size=(n_win, n_freq)),
+        "coherence": rng.random((n_win, n_freq)),
+        # mode_amp: per-n amplitude grids the CSV detector needs (dict keyed by n)
+        "mode_amp": {n: rng.random((n_win, n_freq)) for n in range(-3, 4)},
         "n_range": (-3, 3),
         "c95": 0.3,
     }
@@ -78,6 +81,52 @@ def test_modespec_stale_result_dropped(qapp):
     view._on_result(4, {"result": _result(), "tok_mask": None, "gate_meta": None,
                         "nd": None})
     assert view._result is None  # stale id ignored
+
+
+def test_modespec_save_button_state(qapp):
+    from tokeye.gui.widgets.modespec_view import ModespecView
+
+    view = ModespecView(window=None)
+    assert not view._save_btn.isEnabled()  # no result yet
+    view._analyze_id = 3
+    view._on_result(3, {"result": _result(), "tok_mask": None, "gate_meta": None})
+    assert view._save_btn.isEnabled()  # result present
+
+
+def test_modespec_export_png_npz_csv(qapp, tmp_path):
+    from PIL import Image
+
+    from tokeye.gui.widgets.modespec_view import ModespecView
+
+    view = ModespecView(window=None)
+    view._result = _result()
+    view.gate_controls._gate.setChecked(False)  # ungated (no worker needed)
+    view._render_modes(reset_view=True)
+
+    png = view.export_png(tmp_path / "m.png")
+    assert png.exists() and png.stat().st_size > 0
+    with Image.open(png) as im:
+        assert im.width > 0 and im.height > 0
+
+    npz = view.export_npz(tmp_path / "m")
+    data = np.load(npz, allow_pickle=False)
+    assert str(data["schema"]) == "tokeye-modespec/v1"
+    assert str(data["source"]) == "gui-modespec"
+    for key in ("n_dominant", "coherence", "t_win_ms", "freq_khz",
+                "n_range", "c95", "coh_thresh"):
+        assert key in data
+
+    csv_path = view.export_csv(tmp_path / "m_modes.csv")
+    text = csv_path.read_text()
+    assert "array" in text and "mode_label" in text  # vendored header
+
+
+def test_modespec_export_without_result_raises(qapp, tmp_path):
+    from tokeye.gui.widgets.modespec_view import ModespecView
+
+    view = ModespecView(window=None)
+    with pytest.raises(ValueError):
+        view.export_npz(tmp_path / "empty")
 
 
 def test_modespec_view_import_is_torch_free():

@@ -10,9 +10,12 @@ in-flight result. View/threshold/band tweaks re-render locally from cached state
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 
+from tokeye import export
 from tokeye.gui.model_service import ModelService
 from tokeye.gui.render import (
     freq_crop_rows,
@@ -51,6 +54,8 @@ class SpectrogramView(QtWidgets.QWidget):
         self._spec: np.ndarray | None = None
         self._stft_meta: dict | None = None
         self._infer: np.ndarray | None = None
+        self._raw_t: np.ndarray | None = None
+        self._raw_x: np.ndarray | None = None
 
         # request bookkeeping (stale-drop)
         self._counter = 0
@@ -159,6 +164,14 @@ class SpectrogramView(QtWidgets.QWidget):
         self._raw_btn.setEnabled(False)
         self._raw_btn.toggled.connect(self.canvas.set_raw_visible)
         lay.addWidget(self._raw_btn)
+
+        self._save_btn = QtWidgets.QPushButton("Save…")
+        self._save_btn.setIcon(self.style().standardIcon(
+            QtWidgets.QStyle.StandardPixmap.SP_DialogSaveButton))
+        self._save_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_dialog)
+        lay.addWidget(self._save_btn)
         return bar
 
     def _wire_controls(self) -> None:
@@ -251,6 +264,7 @@ class SpectrogramView(QtWidgets.QWidget):
             self.set_raw_signal(t, x)
         self._render_current(reset_view=True)
         self._update_analyze_enabled()
+        self._save_btn.setEnabled(self._spec is not None)
         shot = self.shot_field.shot()
         self._set_shot_status(f"{shot} / {self.diag_probe.pointname()}")
 
@@ -321,11 +335,67 @@ class SpectrogramView(QtWidgets.QWidget):
         self._infer = None
         self._render_current(reset_view=True)
         self._update_analyze_enabled()
+        self._save_btn.setEnabled(self._spec is not None)
 
     def set_raw_signal(self, t_ms: np.ndarray, x: np.ndarray) -> None:
+        self._raw_t = np.asarray(t_ms)
+        self._raw_x = np.asarray(x)
         self.canvas.set_raw(t_ms, x)
         self._raw_btn.setEnabled(True)
         self.canvas.set_raw_visible(self._raw_btn.isChecked())
+
+    # -------------------------------------------------------------- exporting
+    def export_png(self, path: str | Path) -> Path:
+        """Save a PNG of the exact current canvas (colorbar, raw strip, zoom)."""
+        if not self.canvas.grab().save(str(path)):
+            raise RuntimeError(f"Could not write PNG to {path}")
+        return Path(path)
+
+    def export_npz(self, path: str | Path) -> Path:
+        """Save the cached spectrogram + mask + raw trace as a tokeye-analysis npz."""
+        if self._spec is None:
+            raise ValueError("Nothing to save — load a shot first.")
+        fmin, fmax = self.stft.band()
+        params = {
+            "shot": self.shot_field.shot(),
+            "pointname": self.diag_probe.pointname(),
+            "model": self.model_sel.name(),
+            **self.stft.params(),
+            "decimation": self.stft.decimation(),
+            "fmin_khz": fmin,
+            "fmax_khz": fmax,
+            "mode": self.view_controls.mode(),
+            "vmin": self.view_controls.vmin(),
+            "vmax": self.view_controls.vmax(),
+            "threshold": self.view_controls.threshold(),
+        }
+        raw = (self._raw_t, self._raw_x) if self._raw_t is not None else None
+        bundle = export.analysis_bundle(
+            spectrogram=self._spec,
+            mask=self._infer,
+            stft_meta=self._stft_meta,
+            raw=raw,
+            params=params,
+            source="gui-spectrogram",
+        )
+        return export.save_npz(path, bundle)
+
+    def _save_dialog(self) -> None:
+        shot = self.shot_field.shot() or "tokeye"
+        probe = self.diag_probe.pointname() or "spectrogram"
+        fname, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save analysis", f"{shot}_{probe}", "PNG + NPZ (*.png *.npz)"
+        )
+        if not fname:
+            return
+        base = Path(fname).with_suffix("")
+        try:
+            png = self.export_png(base.with_suffix(".png"))
+            npz = self.export_npz(base.with_suffix(".npz"))
+        except Exception as exc:  # noqa: BLE001 - never lose work to a silent crash
+            self._notify(f"Save failed: {exc}")
+            return
+        self._notify(f"Saved {png.name} + {npz.name}")
 
     # ---------------------------------------------------------- misc/helpers
     def _update_analyze_enabled(self) -> None:

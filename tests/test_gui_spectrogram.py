@@ -136,6 +136,52 @@ def test_stale_result_is_dropped(qapp):
     assert view._spec is None  # stale id 3 ignored
 
 
+def test_save_button_state_tracks_data(qapp):
+    from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+
+    view = SpectrogramView(window=None)
+    assert not view._save_btn.isEnabled()  # nothing loaded yet
+    view.set_spectrogram(np.random.default_rng(0).random((16, 8)), _META)
+    assert view._save_btn.isEnabled()  # spectrogram present
+
+
+def test_export_png_and_npz(qapp, tmp_path):
+    from PIL import Image
+
+    from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+
+    view = SpectrogramView(window=None)
+    h, w = 48, 32
+    spec = np.random.default_rng(3).random((h, w))
+    view.set_spectrogram(spec, _META)
+    t = np.linspace(2000.0, 2010.0, 400)
+    x = np.sin(t)
+    view.set_raw_signal(t, x)
+
+    png = view.export_png(tmp_path / "v.png")
+    assert png.exists() and png.stat().st_size > 0
+    with Image.open(png) as im:
+        assert im.width > 0 and im.height > 0
+
+    npz = view.export_npz(tmp_path / "v")
+    assert npz.exists()
+    data = np.load(npz, allow_pickle=False)
+    assert str(data["schema"]) == "tokeye-analysis/v1"
+    assert str(data["source"]) == "gui-spectrogram"
+    assert np.allclose(data["spectrogram"], spec)
+    assert np.allclose(data["raw_t_ms"], t)
+    assert np.allclose(data["raw_x"], x)
+    assert "time_ms" in data and "freq_khz" in data
+
+
+def test_export_npz_without_data_raises(qapp, tmp_path):
+    from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+
+    view = SpectrogramView(window=None)
+    with pytest.raises(ValueError):
+        view.export_npz(tmp_path / "empty")
+
+
 def test_gui_view_import_is_torch_free():
     """Opening the window must not import torch (deferred to Analyze)."""
     import os
