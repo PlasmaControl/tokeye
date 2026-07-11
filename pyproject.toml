@@ -12,8 +12,11 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-    "torch",
-    "torchvision",
+    # PyTorch 2.11 dropped Volta/V100 (sm_70) from its CUDA wheels; DIII-D's
+    # omega GPU partition is V100 (gres=gpu:v100). 2.10 is the last release
+    # that runs there on GPU. Lift when the deploy targets newer hardware.
+    "torch<2.11",
+    "torchvision",  # follows torch via torchvision's own exact torch pin
     "torchinfo",
     "omegaconf",
     "pydantic",
