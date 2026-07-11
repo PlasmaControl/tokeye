@@ -132,6 +132,41 @@ class TestAnalysisBundleRoundTrip:
         assert path.exists()
 
 
+class TestParamsJsonNumpyTolerance:
+    _PARAMS = {
+        "n_fft": np.int64(512),
+        "thresh": np.float32(0.25),
+        "clip_dc": np.bool_(True),
+        "n_range": np.array([-3, 3]),
+        "plain": "str",
+    }
+    _EXPECTED = {
+        "n_fft": 512,
+        "thresh": 0.25,
+        "clip_dc": True,
+        "n_range": [-3, 3],
+        "plain": "str",
+    }
+
+    def test_analysis_bundle_accepts_numpy_typed_params(self):
+        bundle = analysis_bundle(
+            spectrogram=np.zeros((2, 2), dtype=np.float32),
+            params=self._PARAMS,
+        )
+        assert json.loads(str(bundle["params_json"])) == self._EXPECTED
+
+    def test_modespec_bundle_accepts_numpy_typed_params(self):
+        bundle = modespec_bundle(result=_fake_modespec_result(), params=self._PARAMS)
+        assert json.loads(str(bundle["params_json"])) == self._EXPECTED
+
+    def test_unserializable_param_still_raises(self):
+        with pytest.raises(TypeError):
+            analysis_bundle(
+                spectrogram=np.zeros((2, 2), dtype=np.float32),
+                params={"bad": object()},
+            )
+
+
 class TestStftAxes:
     def test_hand_computed_axes(self):
         meta = {
@@ -285,9 +320,21 @@ class TestModesCsvText:
         assert len(rows) > 0
         for row in rows:
             assert row["array"] == "toroidal"
-            assert row["mode_label"]
+            assert row["mode_label"] == "n"
             assert row["f_min_khz"] == "5.0"
             assert row["f_max_khz"] == "50.0"
+
+    def test_poloidal_array_uses_m_label(self):
+        # Matches the vendored generate_modes driver:
+        # mode_label = "n" if array == "toroidal" else "m"
+        result = self._fake_result_with_mode_amp()
+        text = modes_csv_text(result, array="poloidal", f_min=5.0, f_max=50.0)
+
+        rows = list(csv.DictReader(io.StringIO(text)))
+        assert len(rows) > 0
+        for row in rows:
+            assert row["array"] == "poloidal"
+            assert row["mode_label"] == "m"
 
     def test_runs_without_error_on_fake_result(self):
         result = self._fake_result_with_mode_amp()

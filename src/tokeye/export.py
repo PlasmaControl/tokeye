@@ -45,6 +45,20 @@ def _now_utc_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _json_default(obj: object) -> object:
+    """``json.dumps`` fallback: unwrap numpy scalars/arrays to plain Python."""
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _params_json(params: dict | None) -> str:
+    """Serialize a params dict to JSON, tolerating numpy-typed values."""
+    return json.dumps(params or {}, default=_json_default)
+
+
 def stft_axes(
     n_rows: int, n_cols: int, stft_meta: dict | None
 ) -> tuple[np.ndarray | None, np.ndarray | None]:
@@ -106,7 +120,7 @@ def analysis_bundle(
         "schema": SCHEMA_ANALYSIS,
         "created_utc": _now_utc_iso(),
         "source": source,
-        "params_json": json.dumps(params or {}),
+        "params_json": _params_json(params),
         "spectrogram": spectrogram,
     }
 
@@ -147,7 +161,7 @@ def modespec_bundle(
         "schema": SCHEMA_MODESPEC,
         "created_utc": _now_utc_iso(),
         "source": source,
-        "params_json": json.dumps(params or {}),
+        "params_json": _params_json(params),
         "n_dominant": np.asarray(result["n_dominant"], dtype=np.float32),
         "coherence": np.asarray(result["coherence"], dtype=np.float32),
         "t_win_ms": np.asarray(result["t_win_ms"], dtype=np.float64),
@@ -180,10 +194,12 @@ def save_npz(path: str | Path, bundle: NpzBundle) -> Path:
 def modes_csv_text(
     result: dict, *, array: str = "toroidal", f_min: float, f_max: float
 ) -> str:
-    """Render detected mode events as CSV text, byte-compatible with the
-    ``<shot>_modes.csv`` written by the vendored ``generate_modes`` batch
-    driver. ``result`` is the live mode-spectrogram analysis result (must
-    include ``mode_amp``, as required by ``detect_modes``)."""
+    """Render detected mode events as CSV text: byte-compatible with the
+    diiid-batch ``<shot>_modes.csv`` for toroidal arrays (identical output),
+    and matching the vendored ``generate_modes`` driver's n/m ``mode_label``
+    convention for other arrays. ``result`` is the live mode-spectrogram
+    analysis result (must include ``mode_amp``, as ``detect_modes``
+    requires)."""
     from tokeye.modespec.classic.generate_modes import (
         CSV_COLUMNS,
         PARAM_DEFAULTS,
@@ -192,6 +208,7 @@ def modes_csv_text(
 
     cfg = {**PARAM_DEFAULTS, "n_range": list(result["n_range"])}
     rows = detect_modes(result, cfg)
+    mode_label = "n" if array == "toroidal" else "m"
 
     buf = io.StringIO(newline="")
     writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
@@ -200,7 +217,7 @@ def modes_csv_text(
         writer.writerow(
             {
                 "array": array,
-                "mode_label": "n",
+                "mode_label": mode_label,
                 "f_min_khz": f_min,
                 "f_max_khz": f_max,
                 **ev,
