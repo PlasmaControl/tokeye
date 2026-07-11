@@ -6,7 +6,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from tokeye.app.__main__ import DEFAULT_PORT, MAX_PORT_ATTEMPTS, main
+from tokeye.app.__main__ import DEFAULT_PORT, MAX_PORT_ATTEMPTS, create_app, main
+from tokeye.app.utils.theme import PALETTE, make_theme
 
 
 class TestMainPortRetry:
@@ -81,3 +82,78 @@ class TestMainPortRetry:
         with patch("tokeye.app.__main__.create_app", return_value=fake_app), \
                 pytest.raises(RuntimeError):
             main(port=DEFAULT_PORT)
+
+
+class TestDarkControlRoomTheme:
+    """Tests for the dark control-room theme (mirrors the native Qt GUI palette)."""
+
+    def test_body_background_is_dark_in_both_variants(self):
+        """The page background must be forced dark regardless of browser preference."""
+        t = make_theme()
+        assert t.body_background_fill == PALETTE["bg_window"]
+        assert t.body_background_fill_dark == PALETTE["bg_window"]
+        assert t.body_background_fill == t.body_background_fill_dark
+
+    def test_block_background_is_dark_in_both_variants(self):
+        t = make_theme()
+        assert t.block_background_fill == PALETTE["bg_surface"]
+        assert t.block_background_fill_dark == PALETTE["bg_surface"]
+
+    def test_body_text_color_is_dark_in_both_variants(self):
+        t = make_theme()
+        assert t.body_text_color == PALETTE["text"]
+        assert t.body_text_color_dark == PALETTE["text"]
+
+    def test_primary_button_uses_accent_in_both_variants(self):
+        """The accent-filled primary button must match the shared palette exactly."""
+        t = make_theme()
+        assert t.button_primary_background_fill == PALETTE["accent"]
+        assert t.button_primary_background_fill_dark == PALETTE["accent"]
+        assert t.button_primary_background_fill == t.button_primary_background_fill_dark
+
+    def test_primary_button_text_uses_accent_text_in_both_variants(self):
+        t = make_theme()
+        assert t.button_primary_text_color == PALETTE["accent_text"]
+        assert t.button_primary_text_color_dark == PALETTE["accent_text"]
+
+    def test_input_background_uses_bg_input_in_both_variants(self):
+        t = make_theme()
+        assert t.input_background_fill == PALETTE["bg_input"]
+        assert t.input_background_fill_dark == PALETTE["bg_input"]
+
+    def test_input_focus_border_uses_accent_in_both_variants(self):
+        t = make_theme()
+        assert t.input_border_color_focus == PALETTE["accent"]
+        assert t.input_border_color_focus_dark == PALETTE["accent"]
+
+    def test_slider_uses_accent_in_both_variants(self):
+        t = make_theme()
+        assert t.slider_color == PALETTE["accent"]
+        assert t.slider_color_dark == PALETTE["accent"]
+
+    def test_block_label_text_uses_muted_color_in_both_variants(self):
+        t = make_theme()
+        assert t.block_label_text_color == PALETTE["text_muted"]
+        assert t.block_label_text_color_dark == PALETTE["text_muted"]
+
+    def test_palette_hex_values_are_the_cross_branch_contract(self):
+        """These hex values mirror gui/theme.py::COLORS on the diiid branch —
+        change only in lockstep with that file."""
+        assert PALETTE == {
+            "bg_window": "#13151a",
+            "bg_surface": "#1b1e26",
+            "bg_raised": "#22262f",
+            "bg_input": "#0f1115",
+            "border": "#2a2f3a",
+            "text": "#e9ecf1",
+            "text_muted": "#8b93a1",
+            "accent": "#45b8cb",
+            "accent_hover": "#63d0e2",
+            "accent_pressed": "#3aa2b3",
+            "accent_text": "#08222a",
+        }
+
+    def test_create_app_builds_with_dark_theme(self):
+        """create_app() must still build cleanly with the new theme + CSS wired in."""
+        app = create_app()
+        assert app is not None

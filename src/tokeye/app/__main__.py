@@ -15,7 +15,7 @@ import gradio as gr
 from .analyze.analyze import analyze_tab
 from .tabs.annotate import annotate_tab
 from .tabs.utilities import utilities_tab
-from .utils.theme import make_theme
+from .utils.theme import CUSTOM_CSS, make_theme
 
 # Constants
 APP_TITLE = "TokEye"
@@ -33,7 +33,7 @@ def create_app() -> gr.Blocks:
     with gr.Blocks(
         title=APP_TITLE,
         theme=make_theme(),
-        css="footer{display:none !important}",
+        css=CUSTOM_CSS,
     ) as app:
         logo_path = importlib.resources.files("tokeye.app").joinpath("assets/logo.png")
         if logo_path.is_file():
@@ -44,6 +44,7 @@ def create_app() -> gr.Blocks:
                 container=False,
                 show_download_button=False,
                 show_fullscreen_button=False,
+                elem_classes=["logo-image"],
             )
         with gr.Tab("Analyze"):
             analyze_tab()
