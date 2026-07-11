@@ -32,12 +32,17 @@ def to_display_uint8(arr: np.ndarray) -> np.ndarray:
         return arr
 
     arr = np.asarray(arr, dtype=np.float64)
-    lo, hi = np.percentile(arr, [1, 99])
-    if hi <= lo:
+    if not np.isfinite(arr).any():
+        # All-NaN/inf input - nothing meaningful to display.
+        return np.zeros(arr.shape, dtype=np.uint8)
+
+    lo, hi = np.nanpercentile(arr, [1, 99])
+    if not hi > lo:
         # Flat (or degenerate) image - nothing to stretch.
         return np.zeros(arr.shape, dtype=np.uint8)
 
     scaled = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+    scaled = np.nan_to_num(scaled, nan=0.0)  # stray NaNs render as black
     return (scaled * 255).astype(np.uint8)
 
 
@@ -407,24 +412,25 @@ def handle_save_mask(
     the `gr.File` download slot.
 
     Returns:
-        (status_text, filepath) on success, or (status_text, gr.update())
-        on failure/empty save so the download component clears gracefully
-        instead of erroring on a stale or missing path.
+        (status_text, filepath) on success, or (status_text, None) on
+        failure/empty save so the download component CLEARS. (A bare
+        `gr.update()` would be gradio's skip sentinel, leaving a previous
+        successful save's file visible as a stale download link.)
     """
     if canvas_output is None or filename is None:
-        return "Error: No annotation to save", gr.update()
+        return "Error: No annotation to save", None
 
     try:
         mask_arr = extract_mask_from_canvas(canvas_output, backdrop_arr)
         if mask_arr is None:
-            return "Error: Could not extract mask from canvas", gr.update()
+            return "Error: Could not extract mask from canvas", None
 
         filepath = save_mask_annotation(mask_arr, filename, save_fmt)
         if filepath:
             return f"Mask saved successfully to: {filepath}", filepath
-        return "Save failed", gr.update()
+        return "Save failed", None
     except Exception as e:
-        return f"Error: {str(e)}", gr.update()
+        return f"Error: {str(e)}", None
 
 
 # ============================================================================
