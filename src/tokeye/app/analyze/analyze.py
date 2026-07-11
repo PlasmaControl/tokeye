@@ -132,7 +132,6 @@ def ensure_model(
     loaded_name,
     model_file,
     signal_transform,
-    *,
     progress=gr.Progress(),
 ):
     """Load the model if it's missing or stale; pass a fresh one through.
@@ -147,8 +146,13 @@ def ensure_model(
     been loaded yet: gr.Warning does not halt a .then() chain, so this gate
     is what prevents a pointless download/warmup on a no-signal click.
 
-    ``progress`` is keyword-only with a default so direct/unit calls (as in
-    tests, or other callers of this function) don't need to pass it.
+    ``progress`` must stay a trailing PLAIN (positional-or-keyword) default
+    parameter, NOT keyword-only: gradio's ``special_args()`` scan stops at
+    the first non-positional parameter, so a ``*, progress=...`` form is
+    invisible to it and the live tracker is never injected. The default
+    keeps direct/unit calls working without passing it; gradio injects the
+    tracker itself, so ``progress`` must not appear in event ``inputs``
+    lists.
     """
     if signal_transform is None:
         gr.Warning("Load a signal first (or click Load Example Signal)")
@@ -160,11 +164,13 @@ def ensure_model(
     return model, loaded_name
 
 
-def wrapper_run_inference(signal_transform, model, *, progress=gr.Progress()):
+def wrapper_run_inference(signal_transform, model, progress=gr.Progress()):
     """Run inference for the Analyze chain, with a progress step.
 
     Thin wrapper around the core ``model_infer`` so the ``progress`` kwarg
-    stays out of that function's own (positional) API.
+    stays out of that function's own (positional) API. Like ``ensure_model``,
+    ``progress`` must stay a trailing plain default parameter (not
+    keyword-only) so gradio's ``special_args()`` detects and injects it.
     """
     progress(0.6, desc="Running inference…")
     return model_infer(signal_transform, model)
@@ -234,10 +240,15 @@ def export_analysis(
     No ``stft_meta`` is passed to :func:`tokeye.export.analysis_bundle`: this
     tab loads arbitrary signal files with unknown sample rate, so pixel-centre
     time/frequency axes can't be derived here.
+
+    The no-data path returns ``None`` (not ``gr.update()``, gradio's skip
+    sentinel) so the ``gr.File`` download slot CLEARS instead of leaving a
+    previous successful export visible as a stale link — same convention as
+    ``handle_save_mask`` in ``tokeye.app.tabs.annotate``.
     """
     if signal_transform is None:
         gr.Warning("Load a signal first")
-        return gr.update()
+        return None
 
     params = {
         "model": model_file,

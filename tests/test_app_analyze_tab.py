@@ -117,10 +117,39 @@ def test_ensure_model_reloads_after_a_previous_load_failure(monkeypatch):
     assert loaded_name == "big_tf_unet"
 
 
-def test_ensure_model_progress_kwarg_is_keyword_only_with_default():
+def test_ensure_model_progress_defaults_for_direct_calls():
     """Direct/unit calls (as above) never pass progress - it must default."""
     with pytest.warns(UserWarning):
         analyze.ensure_model(None, None, "big_tf_unet", None)  # no TypeError
+
+
+@pytest.mark.parametrize(
+    "fn",
+    [analyze.ensure_model, analyze.wrapper_run_inference],
+    ids=["ensure_model", "wrapper_run_inference"],
+)
+def test_progress_param_is_trailing_plain_default(fn):
+    """`progress` must be a trailing PLAIN (positional-or-keyword) parameter
+    with a gr.Progress default - NOT keyword-only.
+
+    gradio's special_args() collects parameters in order and STOPS at the
+    first one whose kind is not POSITIONAL_ONLY/POSITIONAL_OR_KEYWORD, so a
+    `*, progress=gr.Progress()` form is invisible to the scan: the handler's
+    tracks_progress stays False and the live progress bar never shows. And
+    it must be LAST, since gradio injects the tracker at this positional
+    index, after all the event's `inputs` values (which therefore must not
+    list a progress component).
+    """
+    import inspect
+
+    import gradio as gr
+
+    params = inspect.signature(fn).parameters
+    assert "progress" in params
+    param = params["progress"]
+    assert param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert isinstance(param.default, gr.Progress)
+    assert next(reversed(params)) == "progress"
 
 
 # ============================================================================
@@ -201,15 +230,36 @@ def test_export_analysis_without_mask_omits_mask_key():
     assert "mask" not in loaded.files
 
 
-def test_export_analysis_no_signal_warns_and_returns_update():
-    import gradio as gr
+def test_export_analysis_no_signal_warns_and_returns_none():
+    """No data -> the gr.File slot must CLEAR, so return None.
 
+    A bare gr.update() is gradio's skip sentinel - the wire payload carries
+    no value key, so a previous successful export's file would stay visible
+    as a stale download link (same convention as annotate.handle_save_mask).
+    """
     with pytest.warns(UserWarning, match="Load a signal first"):
         result = analyze.export_analysis(
             None, None, "big_tf_unet", 1024, 128, True, 1.0, 99.0, 0.5, "Enhanced"
         )
 
-    assert result == gr.update()
+    assert result is None
+
+
+def test_export_after_success_then_no_signal_clears_stale_download():
+    spectrogram = np.zeros((4, 4), dtype=np.float32)
+
+    # Successful export populates the download slot with a real path.
+    path = analyze.export_analysis(
+        spectrogram, None, "big_tf_unet", 1024, 128, True, 1.0, 99.0, 0.5, "Original"
+    )
+    assert np.load(path, allow_pickle=False) is not None
+
+    # A subsequent no-data export must CLEAR the slot, not skip the update.
+    with pytest.warns(UserWarning, match="Load a signal first"):
+        result = analyze.export_analysis(
+            None, None, "big_tf_unet", 1024, 128, True, 1.0, 99.0, 0.5, "Original"
+        )
+    assert result is None
 
 
 # ============================================================================
