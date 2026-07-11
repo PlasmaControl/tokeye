@@ -68,6 +68,26 @@ case "$(uname -m)" in
 esac
 ENV="$TOKEYE_DIR/$arch_env"
 
+# --- Sanitize our own environment (mirror tokeye.lua) ------------------------
+# When this runs from a bare Omega login shell (the documented first-install
+# flow via install-home.sh, and the shim's self-heal), the inherited env carries
+# two poisons the modulefile deliberately strips — but the modulefile isn't
+# loaded here yet. Reproduce exactly what tokeye.lua does, or a HEALTHY env
+# false-negatives the health check below and we rebuild in a loop:
+#   1. PYTHONPATH points at the cluster's py3.7 MDSplus
+#      (/fusion/usc/.../opt/mdsplus/...), which SHADOWS this env's own
+#      conda-forge MDSplus and crashes under numpy 2.x — cf. tokeye.lua's
+#      `unsetenv("PYTHONPATH")`. Observed live on omega14 importing the py3.7
+#      MDSplus instead of the env's copy.
+#   2. The login LD_LIBRARY_PATH puts the system /lib64 (old libstdc++, no
+#      GLIBCXX_3.4.29) AHEAD of the env's lib, which can break torch/numpy —
+#      cf. tokeye.lua's `prepend_path("LD_LIBRARY_PATH", <env>/lib)`.
+# Doing it here (not just in the shim) covers the health check, pip, AND the
+# post-rebuild re-check in one place. `$ENV/lib` may not exist yet before the
+# first build — harmless as a leading LD_LIBRARY_PATH entry.
+unset PYTHONPATH
+export LD_LIBRARY_PATH="$ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 # --- Health check ------------------------------------------------------------
 # The model + both UIs must import cleanly (native GUI: PySide6/pyqtgraph; web
 # app: gradio/plotly; data: MDSplus). This is the standardization step's canary.

@@ -127,6 +127,52 @@ def test_ensure_env_healthy_no_rebuild(tmp_path: Path):
     assert "rebuilding" not in combined
 
 
+def test_ensure_env_sanitizes_inherited_env(tmp_path: Path):
+    """A HEALTHY env whose caller's login shell carries the two known poisons the
+    modulefile normally strips — a py3.7 MDSplus on ``PYTHONPATH`` and a system
+    libstdc++ ahead on ``LD_LIBRARY_PATH`` — must still pass the health check.
+    ensure-env.sh has to sanitize its own environment (mirror tokeye.lua: unset
+    ``PYTHONPATH``, prepend the env's own ``lib``) before running the check, or a
+    healthy env false-negatives into a rebuild loop. The stub python enforces
+    both invariants: it exits 1 if ``PYTHONPATH`` is set at all, or if
+    ``LD_LIBRARY_PATH`` does not lead with the env's own ``lib``.
+    """
+    env_lib = tmp_path / _env_name() / "lib"
+    envbin = tmp_path / _env_name() / "bin"
+    _write_exec(
+        envbin / "python",
+        "#!/usr/bin/env bash\n"
+        # A leftover py3.7-MDSplus PYTHONPATH must be gone entirely.
+        'if [[ -n "${PYTHONPATH:-}" ]]; then\n'
+        '  echo "poison: PYTHONPATH=$PYTHONPATH" >&2; exit 1\n'
+        "fi\n"
+        # The env's own lib must LEAD LD_LIBRARY_PATH (system /lib64 must not win).
+        'case "${LD_LIBRARY_PATH:-}" in\n'
+        f'  "{env_lib}"*) ;;\n'
+        '  *) echo "poison: LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" >&2; exit 1 ;;\n'
+        "esac\n"
+        "exit 0\n",
+    )
+    _write_exec(envbin / "tokeye-app", "#!/usr/bin/env bash\nexit 0\n")
+
+    decoy = tmp_path / "decoy-lib64"  # stands in for the login /lib64 poison
+    result = subprocess.run(
+        [str(ENSURE)],
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        env=_env_without(
+            TOKEYE_DIR=str(tmp_path),
+            TOKEYE_REPO=str(REPO),
+            PYTHONPATH=str(tmp_path / "py37-mdsplus"),
+            LD_LIBRARY_PATH=str(decoy),
+        ),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_ensure_env_noninteractive_refusal(tmp_path: Path):
     """Unhealthy env, no tty, no --yes → exit 1, print the rebuild command,
     and DO NOT invoke mamba."""
