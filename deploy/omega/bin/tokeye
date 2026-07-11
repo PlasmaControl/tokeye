@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# tokeye — launcher shim that catches the wiped-env case at launch time.
+#
+# WHY this exists: the deployment env lives on /cscratch/share/tokeye, which is
+# swept (files >32 days old are deleted), so the conda env can vanish between
+# uses. The modulefile prepends the env's own bin dir to PATH *and then* this
+# dir, so this shim lands EARLIER on PATH and every `tokeye` call hits it first.
+#
+# HOT-PATH INVARIANT: when the env is healthy this shim must add zero measurable
+# latency — CLAUDE.md / tests/test_import_hygiene.py require `tokeye --help` to
+# stay instant, so we do NOT run the multi-second import health-check here. A
+# single `test -x` decides: healthy → exec the real tokeye by ABSOLUTE path (no
+# PATH re-lookup, so no shim→shim recursion even though this dir sits ahead of
+# the env bin); missing → hand off to ensure-env.sh to self-heal, then exec.
+# The full import health-check still runs on every explicit ensure-env.sh /
+# install-home.sh invocation — just not on the launch hot path.
+set -euo pipefail
+
+# This shim's own directory (follow symlinks), so we find the sibling
+# ensure-env.sh whether we run from the repo checkout or a published copy.
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+TOKEYE_DIR="${TOKEYE_DIR:-/cscratch/share/tokeye}"
+
+# Arch mapping identical to tokeye.lua: one x86_64 env serves login/somega CPU +
+# V100 + (x86_64) H100; only a Grace-Hopper (aarch64) target needs its own env.
+case "$(uname -m)" in
+  aarch64) env="env-aarch64" ;;
+  *)       env="env-x86_64" ;;
+esac
+ENVTOK="$TOKEYE_DIR/$env/bin/tokeye"
+
+# Fast path: healthy env → exec the real tokeye. Absolute target, zero checks.
+[[ -x "$ENVTOK" ]] && exec "$ENVTOK" "$@"
+
+# Slow path: the env binary is gone (most likely swept). Self-heal, then run.
+echo "tokeye: no runnable env at $ENVTOK; running self-heal" >&2
+"$here/ensure-env.sh" || exit 1
+exec "$ENVTOK" "$@"

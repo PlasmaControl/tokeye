@@ -1,0 +1,5 @@
+TokEye — ML detection of fluctuating modes in DIII-D spectrograms (diiid build).
+Maintainer: chenn <nc1514@princeton.edu>
+Updated:    2026-07-11
+Repo:       https://github.com/PlasmaControl/tokeye  (branch: diiid)
+Runbook:    deploy/omega/README.md

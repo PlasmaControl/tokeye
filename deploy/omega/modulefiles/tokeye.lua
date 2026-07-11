@@ -35,6 +35,12 @@ local env  = (arch == "aarch64") and "env-aarch64" or "env-x86_64"
 
 prepend_path("PATH", pathJoin(root, env, "bin"))   -- MDSplus is bundled in the env
 
+-- Prepend the shim dir AFTER the env bin so it lands EARLIER on PATH (Lmod's
+-- prepend stack: the later prepend wins). The shim (`bin/tokeye`) execs the
+-- env's own tokeye by ABSOLUTE path — inert when the env is healthy, and it
+-- self-heals (runs ensure-env.sh) when /cscratch has swept the env away.
+prepend_path("PATH", pathJoin(root, "bin"))
+
 -- Make the conda env's own compiled libs win over the node's system /lib64. A
 -- fresh somega login exports a system LD_LIBRARY_PATH (old gcc/libstdc++ without
 -- GLIBCXX_3.4.29); without this prepend, importing torch first can load the system
@@ -56,3 +62,20 @@ setenv("QT_QPA_PLATFORM", "xcb")
 
 setenv("TOKEYE_DIR", root)
 setenv("TOKEYE_CACHE", pathJoin(root, "cache"))     -- shared shot cache on /cscratch
+
+-- Where THIS modulefile lives, so batch sbatch bodies can `module use` the SAME
+-- tree the user actually loaded (repo checkout or published copy alike) — see
+-- diiid_batch.py `_module_use`, wired in d060ce0. Derive it from myFileName() by
+-- stripping the trailing "/<file>.lua" (covers tokeye.lua here and default.lua
+-- when this ships via css-omega-modules); fall back to <root>/modulefiles.
+local module_dir = myFileName():match("^(.*)/[^/]+%.lua$") or pathJoin(root, "modulefiles")
+setenv("TOKEYE_MODULE_DIR", module_dir)
+
+-- If the env is gone (e.g. /cscratch swept it), say so — with the remedy — but
+-- do NO work: a modulefile runs on every load and must never build anything.
+-- The shim + ensure-env.sh are what actually (re)build; this is just a signpost.
+if not isDir(pathJoin(root, env)) then
+  LmodMessage("tokeye: env missing at " .. pathJoin(root, env) ..
+    " — run " .. pathJoin(root, "bin", "ensure-env.sh") ..
+    " (or deploy/omega/install-home.sh from a checkout) to (re)build it.")
+end

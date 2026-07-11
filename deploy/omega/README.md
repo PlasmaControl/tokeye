@@ -13,11 +13,18 @@ Background/reference: `docs/omega-cluster.md` (cluster facts) and `docs/diiid.md
 **Everything here works without GitHub access.** Contributing the module to
 `GAmfe/css-omega-modules` is a later, drop-in step (see the end).
 
+> **Contributor note:** CI runs only on `main`, so before pushing `diiid` run the
+> gates locally: `uv run ruff check .` and `uv run pytest`.
+
 Files:
+- `install-home.sh` — one-command durable install + publish + env self-heal (see **Durable home** below).
+- `ensure-env.sh` — self-healing env guard: (re)builds the mamba env when it's missing/broken.
+- `bin/tokeye` — launcher shim (on PATH ahead of the env) that self-heals a swept env at launch.
 - `environment-omega.yml` — the mamba env spec (Python 3.13 + MDSplus + `tokeye[app]`).
-- `modulefiles/tokeye.lua` — the Lmod modulefile (PATH-prepend; sets `TOKEYE_DIR`/`TOKEYE_CACHE`).
+- `modulefiles/tokeye.lua` — the Lmod modulefile (PATH-prepend; sets `TOKEYE_DIR`/`TOKEYE_CACHE`/`TOKEYE_MODULE_DIR`).
 - `tokeye-app.sh` — cluster-side launcher: prints the exact tunnel command, then runs `tokeye app`.
 - `tokeye-connect.sh` — laptop-side one-step launcher: tunnel + remote app + open browser.
+- `about.txt` — facility-convention pointer file (maintainer, repo, runbook).
 
 ---
 
@@ -36,7 +43,77 @@ Paths used below (change `TOKEYE_DIR` to relocate):
 > >32 days old are swept.** Fine for the env + shot cache now; the durable home
 > is `/fusion/projects/codes/tokeye` once CSS creates it (see the end).
 
+## Durable home (one command)
+
+Because `/cscratch/share/tokeye` is swept, a plain install rots: env, modulefile,
+and launchers all disappear after 32 idle days. `install-home.sh` fixes that by
+splitting the deployment into **two roots**:
+
+- **Durable root** (`dest`, default `$HOME/tokeye`): a full git checkout of the
+  `diiid` branch — repo, scripts, and modulefile all survive the sweep.
+- **Deployment root** (`$TOKEYE_DIR`, default `/cscratch/share/tokeye`): the
+  multi-GB conda env (`env-x86_64`) + shot cache, plus **published copies** of the
+  modulefile / launchers / shim so teammates can `module use` a shared path.
+  Everything here is rebuildable, so the sweep is survivable.
+
+```bash
+# from any checkout (login node, so GitHub/pip are reachable):
+deploy/omega/install-home.sh              # → $HOME/tokeye + publish + build env
+deploy/omega/install-home.sh --yes        # non-interactive (rebuild without prompting)
+```
+
+It clones/refreshes the checkout at `dest`, publishes the modulefile + launchers +
+shim + `ensure-env.sh` into `$TOKEYE_DIR`, then runs `ensure-env.sh` to build the
+env. It prints two `module use` lines — the **durable** one (survives the sweep):
+
+```bash
+module use $HOME/tokeye/deploy/omega/modulefiles   # durable
+module use /cscratch/share/tokeye/modulefiles      # shared/published (re-run install to re-publish)
+module load tokeye
+```
+
+**Self-heal.** The `bin/tokeye` shim sits on PATH *ahead* of the env's own bin.
+When the env is healthy it's inert (it execs the real `tokeye` by absolute path,
+zero added latency — the `tokeye --help` speed invariant holds). When the env has
+been swept, the shim runs `ensure-env.sh` to rebuild it, then runs your command.
+For scripted rebuilds call `deploy/omega/ensure-env.sh --yes` directly.
+
+**Relocation later needs no edits.** Point both roots at `/fusion` in one go:
+
+```bash
+TOKEYE_DIR=/fusion/projects/codes/tokeye \
+  deploy/omega/install-home.sh /fusion/projects/codes/tokeye
+```
+
+## Environment variables
+
+One place for the canonical vars (defaults in parentheses). The module sets the
+first three; the rest are optional overrides read by the app / batch jobs.
+
+| Variable | Who sets / who reads | Default |
+| --- | --- | --- |
+| `TOKEYE_DIR` | you (install/module) → module, scripts | `/cscratch/share/tokeye` |
+| `TOKEYE_CACHE` | set by module → sources / fetch | `$TOKEYE_DIR/cache` |
+| `TOKEYE_MODULE_DIR` | set by module → batch sbatch (`diiid_batch._module_use`) + `tokeye-connect.sh` | dir of the loaded `tokeye.lua` |
+| `TOKEYE_RUNS_DIR` | you → DIII-D Offline tab / `diiid-batch` (job outputs) | `/cscratch/$USER/tokeye/data/runs` |
+| `TOKEYE_SLURM_PARTITION` | you → Offline tab / `diiid-batch` | `gpus` |
+| `TOKEYE_SLURM_GRES` | you → Offline tab / `diiid-batch` | `gpu:v100:1` |
+| `TOKEYE_SLURM_TIME` | you → Offline tab / `diiid-batch` | `0-02:00:00` |
+| `TOKEYE_PORT` | you → `tokeye-app.sh` / `tokeye-connect.sh` | `7860` |
+| `TOKEYE_HF_REPO` | you → model hub download | packaged default |
+
 ## 1. Build the env (once)
+
+The supported path is **`ensure-env.sh`** — it health-checks the env and, if it's
+missing or broken, rebuilds it (project rule: broken/missing env → rebuild, don't
+diagnose). `install-home.sh` runs it for you; run it standalone to (re)build:
+
+```bash
+cd <repo root>                    # e.g. /cscratch/chenn/tokeye
+deploy/omega/ensure-env.sh        # prompts before rebuilding; --yes to skip the prompt
+```
+
+What it does, spelled out (the manual equivalent — useful reference):
 
 ```bash
 cd <repo root>            # e.g. /cscratch/chenn/tokeye
@@ -44,10 +121,10 @@ module purge && module load conda          # `conda` is an alias for mamba on Om
 # Python 3.13 + MDSplus from conda-forge:
 mamba env create -p /cscratch/share/tokeye/env-x86_64 -f deploy/omega/environment-omega.yml
 # TokEye (editable) + its wheels (torch/torchvision/gradio), from this checkout.
-# gradio is pinned to the repo's tested version (uv.lock) in the same command, so
-# gradio 6 is never installed — the app isn't gradio-6 ready (6.x drops
-# show_download_button and moves theme/css to launch()).
-/cscratch/share/tokeye/env-x86_64/bin/pip install -e "$PWD[app]" "gradio==5.49.1"
+# No manual gradio pin: the `[app]` extra pins gradio>=5.49,<6 itself, so gradio 6
+# is never installed — the app isn't gradio-6 ready (6.x drops show_download_button
+# and moves theme/css to launch()). The pin moved into the extra (commit ab3245f).
+/cscratch/share/tokeye/env-x86_64/bin/pip install -e "$PWD[app]"
 ```
 
 (`module load conda` sets up mamba via a shell hook. If that isn't available in
@@ -71,7 +148,10 @@ and rides in the `[app]` extra):
 > `libstdc++`/BLAS win over the node's system `/lib64` — required for numpy/torch to
 > import on a fresh somega login.
 
-Publish the modulefile next to the env so anyone can `module use` it:
+`install-home.sh` performs this publish step for you (it copies the modulefile,
+launchers, shim, and `ensure-env.sh` into `$TOKEYE_DIR`, and writes the
+`.tokeye-repo` sidecar). The manual copies below are the equivalent, documented
+for reference and for a publish-only run:
 
 ```bash
 mkdir -p /cscratch/share/tokeye/modulefiles

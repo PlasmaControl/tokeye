@@ -19,9 +19,11 @@
 # Build (on somega, e.g. omega14):
 #     module purge && module load conda          # conda -> mamba on Omega
 #     mamba env create -p /cscratch/share/tokeye/env-x86_64 -f deploy/omega/environment-omega.yml
-#     # gradio pinned to uv.lock's version in the same command (app not gradio-6 ready);
-#     # PySide6/pyqtgraph already come from conda above, so [app] (not [gui]) here:
-#     /cscratch/share/tokeye/env-x86_64/bin/pip install -e '/cscratch/chenn/tokeye[app]' 'gradio==5.49.1'
+#     # gradio is pinned by the [app] extra itself (>=5.49,<6; the app isn't
+#     # gradio-6 ready), so there's no manual pin here; PySide6/pyqtgraph already
+#     # come from conda above, so [app] (not [gui]):
+#     /cscratch/share/tokeye/env-x86_64/bin/pip install -e '/cscratch/chenn/tokeye[app]'
+# The supported one-command path is `deploy/omega/ensure-env.sh` (self-healing).
 #
 # Doubles as the spec to email omega-support-dl@fusion.gat.com for a public env.
 name: tokeye-omega
