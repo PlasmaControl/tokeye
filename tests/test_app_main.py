@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import Mock, patch
 
 import pytest
 
+from tokeye.app import __main__ as appmain
 from tokeye.app.__main__ import DEFAULT_PORT, MAX_PORT_ATTEMPTS, create_app, main
 from tokeye.app.utils.theme import PALETTE, make_theme
 
@@ -157,3 +160,123 @@ class TestDarkControlRoomTheme:
         """create_app() must still build cleanly with the new theme + CSS wired in."""
         app = create_app()
         assert app is not None
+
+
+def _wait_for(predicate, timeout=5.0):
+    """Poll ``predicate`` until true or ``timeout`` elapses; assert it became true."""
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert predicate(), "condition was not met within the timeout"
+
+
+@pytest.fixture
+def shot_state():
+    """Reset the module-level latest-shot cache/executor/pending around a test.
+
+    The prefill state (cache dict, lazy executor, in-flight future) lives in
+    module globals; without a reset the background fetch and TTL cache leak
+    between tests. Yields the __main__ module so tests can poke those globals.
+    """
+
+    def _reset():
+        if appmain._SHOT_EXECUTOR is not None:
+            appmain._SHOT_EXECUTOR.shutdown(wait=False)
+        appmain._SHOT_EXECUTOR = None
+        appmain._SHOT_PENDING = None
+        appmain._SHOT_CACHE["value"] = 0
+        appmain._SHOT_CACHE["ts"] = None
+
+    _reset()
+    yield appmain
+    _reset()
+
+
+class TestLatestShotPrefill:
+    """The non-blocking latest-shot prefill: TTL cache, timeout, fold-back."""
+
+    def test_cache_hit_fetches_only_once(self, monkeypatch, shot_state):
+        """Two calls inside the TTL both return the shot; MDS is hit once."""
+        m = shot_state
+        monkeypatch.setattr(m, "_SHOT_TIMEOUT_S", 2.0)
+        monkeypatch.setattr(m, "_SHOT_TTL_S", 60.0)
+        calls = {"n": 0}
+
+        def fetcher():
+            calls["n"] += 1
+            return 199999
+
+        monkeypatch.setattr("tokeye.sources.latest_shot", fetcher)
+
+        assert m._latest_shot() == 199999
+        assert m._latest_shot() == 199999
+        assert calls["n"] == 1
+
+    def test_timeout_falls_back_without_stacking(self, monkeypatch, shot_state):
+        """A hung fetch times out to the fallback, is never stacked, and its late
+        result is folded into the cache for the next call."""
+        m = shot_state
+        monkeypatch.setattr(m, "_SHOT_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(m, "_SHOT_TTL_S", 60.0)
+
+        gate = threading.Event()
+        entered = threading.Event()
+        calls = {"n": 0}
+
+        def blocking_fetcher():
+            calls["n"] += 1
+            entered.set()
+            gate.wait(5.0)  # safety cap so a failed assert can't hang the suite
+            return 199999
+
+        monkeypatch.setattr("tokeye.sources.latest_shot", blocking_fetcher)
+
+        # First call: the fetch blocks -> times out fast -> fallback 0.
+        t0 = time.monotonic()
+        assert m._latest_shot() == 0
+        elapsed = time.monotonic() - t0
+        assert elapsed < 1.0, f"timeout path took too long: {elapsed:.3f}s"
+        assert entered.wait(1.0), "worker never entered the fetch"
+
+        # Second call while still blocked: reuse the pending future, no new submit.
+        assert m._latest_shot() == 0
+        assert calls["n"] == 1, "a second fetch was stacked behind the hung one"
+
+        # Release the fetch: the done-callback must fold the result into the cache.
+        gate.set()
+        _wait_for(lambda: m._SHOT_CACHE["ts"] is not None)
+        assert calls["n"] == 1
+        # Next call gets the real shot instantly from the folded cache.
+        assert m._latest_shot() == 199999
+
+    def test_stale_cache_falls_back_to_last_known(self, monkeypatch, shot_state):
+        """A failing refresh of a stale cache returns the last good shot, not 0."""
+        m = shot_state
+        monkeypatch.setattr(m, "_SHOT_TIMEOUT_S", 2.0)
+        monkeypatch.setattr(m, "_SHOT_TTL_S", 60.0)
+
+        state = {"fail": False}
+
+        def fetcher():
+            if state["fail"]:
+                raise RuntimeError("atlas unreachable")
+            return 199999
+
+        monkeypatch.setattr("tokeye.sources.latest_shot", fetcher)
+
+        # Prime the cache with a good shot.
+        assert m._latest_shot() == 199999
+        # Let the done-callback clear the pending slot so a stale call re-fetches
+        # rather than reusing the still-good future.
+        _wait_for(lambda: m._SHOT_PENDING is None)
+
+        # Force the cache stale and make the refresh fail.
+        m._SHOT_CACHE["ts"] = time.monotonic() - 999.0
+        state["fail"] = True
+        assert m._latest_shot() == 199999  # last known, not 0
+
+    def test_pair_returns_the_value_twice(self, monkeypatch, shot_state):
+        """_latest_shot_pair feeds both DIII-D shot fields from one fetch."""
+        m = shot_state
+        monkeypatch.setattr(m, "_latest_shot", lambda: 190904)
+        assert m._latest_shot_pair() == (190904, 190904)
