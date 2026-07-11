@@ -15,6 +15,7 @@ Process exit code = number of shots that failed.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,9 +25,14 @@ if TYPE_CHECKING:
 
 MAX_SHOTS = 1000  # guardrail against an accidentally huge range
 
-# Cluster module incantation the Slurm job body uses.
+# Cluster module incantation the Slurm job body uses. The modulefiles dir is the
+# fallback; ``TOKEYE_MODULE_DIR`` (set by the deploy modulefile) overrides it.
 MODULE_USE = "/cscratch/share/tokeye/modulefiles"
 MODULE_NAME = "tokeye"
+
+
+def _module_use() -> str:
+    return os.environ.get("TOKEYE_MODULE_DIR", MODULE_USE)
 
 
 def parse_shots(text: str) -> list[int]:
@@ -130,7 +136,7 @@ def build_sbatch_script(
 
     body = [
         "",
-        f"module use {MODULE_USE} && module load {MODULE_NAME}",
+        f"module use {_module_use()} && module load {MODULE_NAME}",
         " ".join(cmd),
         "",
     ]

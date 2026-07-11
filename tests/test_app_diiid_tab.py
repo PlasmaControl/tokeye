@@ -44,6 +44,32 @@ def test_create_app_registers_diiid_tabs():
     assert "DIII-D Offline" in labels
 
 
+def test_offline_default_outdir_honors_runs_dir_env(monkeypatch):
+    """TOKEYE_RUNS_DIR overrides the default output folder; unset -> per-user path."""
+    from tokeye.app.tabs import diiid_offline
+
+    monkeypatch.setenv("TOKEYE_RUNS_DIR", "/custom/runs")
+    assert diiid_offline._default_outdir() == "/custom/runs"
+
+    monkeypatch.delenv("TOKEYE_RUNS_DIR", raising=False)
+    assert diiid_offline._default_outdir().endswith("/tokeye/data/runs")
+
+
+def test_offline_slurm_defaults_honor_env(monkeypatch):
+    """The Slurm field defaults read TOKEYE_SLURM_* at call time; unset -> today's values."""
+    from tokeye.app.tabs import diiid_offline
+
+    monkeypatch.setenv("TOKEYE_SLURM_PARTITION", "preemptable")
+    assert diiid_offline._default_partition() == "preemptable"
+
+    monkeypatch.delenv("TOKEYE_SLURM_PARTITION", raising=False)
+    monkeypatch.delenv("TOKEYE_SLURM_GRES", raising=False)
+    monkeypatch.delenv("TOKEYE_SLURM_TIME", raising=False)
+    assert diiid_offline._default_partition() == "gpus"
+    assert diiid_offline._default_gres() == "gpu:v100:1"
+    assert diiid_offline._default_time() == "0-02:00:00"
+
+
 def test_diiid_tab_has_no_modespec_view():
     """Modespec moved to its own tab — the DIII-D tab is a pure spectrogram viewer."""
     from tokeye.app.tabs import diiid

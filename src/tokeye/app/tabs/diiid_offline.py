@@ -27,15 +27,31 @@ _DEFAULT_DIAG = "mag"
 
 OFFLINE_INTRO_MD = """\
 Analyze **many shots** at once. The app prefetches each shot on somega (which can \
-reach `atlas.gat.com`), then submits a single Slurm job on the `gpus` partition to \
-run TokEye + modespec over the cached data. Results land in your output folder; \
-**Refresh** shows job status and the image gallery when it finishes.
+reach `atlas.gat.com`), then submits a single Slurm job (the `gpus` partition by \
+default — editable in *Cluster / output*, or set via the `TOKEYE_SLURM_*` env \
+vars) to run TokEye + modespec over the cached data. Results land in your output \
+folder; **Refresh** shows job status and the image gallery when it finishes.
 """
 
 
 def _default_outdir() -> str:
+    runs_dir = os.environ.get("TOKEYE_RUNS_DIR")
+    if runs_dir:
+        return runs_dir
     user = os.environ.get("USER", "user")
     return f"/cscratch/{user}/tokeye/data/runs"
+
+
+def _default_partition() -> str:
+    return os.environ.get("TOKEYE_SLURM_PARTITION", "gpus")
+
+
+def _default_gres() -> str:
+    return os.environ.get("TOKEYE_SLURM_GRES", "gpu:v100:1")
+
+
+def _default_time() -> str:
+    return os.environ.get("TOKEYE_SLURM_TIME", "0-02:00:00")
 
 
 def _tlim(t_min, t_max):
@@ -281,9 +297,9 @@ def diiid_offline_tab():
         with gr.Accordion("Cluster / output", open=False), gr.Group():
             outdir_base = gr.Textbox(label="Output folder", value=_default_outdir())
             with gr.Row():
-                partition = gr.Textbox(label="Partition", value="gpus")
-                gres = gr.Textbox(label="GRES (blank = CPU)", value="gpu:v100:1")
-                time_limit = gr.Textbox(label="Time limit", value="0-02:00:00")
+                partition = gr.Textbox(label="Partition", value=_default_partition())
+                gres = gr.Textbox(label="GRES (blank = CPU)", value=_default_gres())
+                time_limit = gr.Textbox(label="Time limit", value=_default_time())
 
         submit_btn = gr.Button("Prefetch + Submit job", variant="primary")
         status_md = gr.Markdown()

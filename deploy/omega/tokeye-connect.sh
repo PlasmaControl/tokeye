@@ -17,6 +17,7 @@ set -euo pipefail
 HOST="${1:-chenn@somega.gat.com}"
 PORT="${TOKEYE_PORT:-7860}"
 URL="http://localhost:${PORT}"
+MODULE_DIR="${TOKEYE_MODULE_DIR:-/cscratch/share/tokeye/modulefiles}"
 
 # Open the browser once the forwarded port answers (runs in the background).
 (
@@ -35,4 +36,4 @@ URL="http://localhost:${PORT}"
 echo "tokeye-connect: tunneling ${PORT} and launching the app on ${HOST} …"
 echo "tokeye-connect: (Ctrl-C here stops the app and closes the tunnel)"
 exec ssh -t -L "${PORT}:localhost:${PORT}" "${HOST}" \
-  "bash -lc 'module use /cscratch/share/tokeye/modulefiles && module load tokeye && tokeye app --port ${PORT}'"
+  "bash -lc 'module use ${MODULE_DIR} && module load tokeye && tokeye app --port ${PORT}'"

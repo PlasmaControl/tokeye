@@ -159,6 +159,44 @@ def test_build_sbatch_script_cpu_omits_gres():
     assert "--modespec" not in s and "--gate" not in s
 
 
+def _sbatch_kwargs():
+    """Minimal valid kwargs for build_sbatch_script (module-dir tests)."""
+    return {
+        "outdir": "/x",
+        "shots": [1],
+        "diag": "mag",
+        "probe": "MPI66M067D",
+        "tlim": None,
+        "model": "big_tf_unet",
+        "threshold": 0.5,
+        "do_tokeye": True,
+        "do_modespec": False,
+        "do_gate": False,
+        "n_range": (-5, 5),
+        "f_min": 5.0,
+        "f_max": 200.0,
+        "partition": "gpus",
+        "gres": "gpu:v100:1",
+        "time_limit": "0-02:00:00",
+    }
+
+
+def test_build_sbatch_script_module_dir_env_override(monkeypatch):
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    monkeypatch.setenv("TOKEYE_MODULE_DIR", "/opt/mods")
+    s = build_sbatch_script(**_sbatch_kwargs())
+    assert "module use /opt/mods && module load tokeye" in s
+
+
+def test_build_sbatch_script_module_dir_default(monkeypatch):
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    monkeypatch.delenv("TOKEYE_MODULE_DIR", raising=False)
+    s = build_sbatch_script(**_sbatch_kwargs())
+    assert "module use /cscratch/share/tokeye/modulefiles && module load tokeye" in s
+
+
 def test_diiid_batch_is_registered():
     from tokeye.cli import build_parser
 
