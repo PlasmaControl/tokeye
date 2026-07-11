@@ -50,12 +50,19 @@ fi
 # --- 1. Obtain / refresh the durable checkout at dest ------------------------
 if [[ -d "$dest/.git" ]]; then
   echo "install-home.sh: refreshing existing checkout at $dest"
-  git -C "$dest" pull --ff-only
+  # Don't hard-fail the whole publish if origin is unreachable (e.g. it lived on
+  # swept storage and vanished): keep the existing checkout and press on.
+  if ! git -C "$dest" pull --ff-only; then
+    echo "install-home.sh: WARNING: origin unreachable — keeping existing checkout at $dest" >&2
+  fi
   cur="$(git -C "$dest" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
   if [[ "$cur" != "$BRANCH" ]]; then
     echo "install-home.sh: WARNING: $dest is on '$cur', not '$BRANCH'." >&2
   fi
-elif git ls-remote --heads "$url" "$BRANCH" >/dev/null 2>&1; then
+# BatchMode + accept-new so a first-ever ssh-to-github can't hang on a host-key
+# prompt (output is redirected) — fail fast into the offline fallback instead.
+elif GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
+     git ls-remote --heads "$url" "$BRANCH" >/dev/null 2>&1; then
   echo "install-home.sh: cloning $url ($BRANCH) → $dest"
   git clone -b "$BRANCH" "$url" "$dest"
 elif [[ -n "$src_repo" ]]; then

@@ -45,6 +45,17 @@ def _env_without(*drop: str, **overrides: str) -> dict[str, str]:
     return env
 
 
+def _git(cwd: Path, *args: str) -> None:
+    """Run a git command in ``cwd`` (identity forced so commits work anywhere)."""
+    subprocess.run(
+        ["git", "-c", "user.email=t@t.invalid", "-c", "user.name=test", *args],
+        cwd=str(cwd),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 # --- 1. syntax --------------------------------------------------------------
 
 
@@ -298,6 +309,55 @@ def test_repo_resolution_failure_names_env_var(tmp_path: Path):
 
     assert result.returncode == 1
     assert "TOKEYE_REPO" in (result.stdout + result.stderr)
+
+
+# --- 8. install-home.sh publish resilience ----------------------------------
+
+
+def test_install_home_survives_unreachable_origin(tmp_path: Path):
+    """A durable checkout whose origin is gone (swept storage) must not abort the
+    publish: the pull fails, install-home.sh warns and keeps the existing
+    checkout, then still publishes the launchers/modulefile and (healthy) env.
+
+    The dest ``.git`` branch is taken first, so the clone-URL logic never touches
+    the network — no ls-remote, no GitHub.
+    """
+    dest = tmp_path / "durable"
+    dest.mkdir()
+    # A real checkout: pyproject.toml (ensure-env.sh walks up to it) + the deploy/
+    # tree the publish + ensure-env steps read.
+    shutil.copytree(OMEGA.parent, dest / "deploy")
+    shutil.copy(REPO / "pyproject.toml", dest / "pyproject.toml")
+    _git(dest, "init", "-q")
+    _git(dest, "checkout", "-q", "-b", "diiid")
+    _git(dest, "add", "-A")
+    _git(dest, "commit", "-q", "-m", "seed")
+    # origin points at a path that does not exist → `git pull --ff-only` fails.
+    _git(dest, "remote", "add", "origin", str(tmp_path / "gone-origin.git"))
+
+    # A HEALTHY fake env under the publish/env root so ensure-env.sh reports OK.
+    tokeye_dir = tmp_path / "envroot"
+    envbin = tokeye_dir / _env_name() / "bin"
+    _write_exec(envbin / "python", "#!/usr/bin/env bash\nexit 0\n")
+    _write_exec(envbin / "tokeye-app", "#!/usr/bin/env bash\nexit 0\n")
+
+    result = subprocess.run(
+        [str(INSTALL), str(dest)],
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        env=_env_without("TOKEYE_REPO", TOKEYE_DIR=str(tokeye_dir)),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "WARNING: origin unreachable" in result.stderr
+    # Publish artifacts landed under the tmp TOKEYE_DIR.
+    assert (tokeye_dir / "bin" / "tokeye").exists()
+    assert (tokeye_dir / "modulefiles" / "tokeye.lua").exists()
+    sidecar = tokeye_dir / "bin" / ".tokeye-repo"
+    assert sidecar.exists()
+    assert sidecar.read_text().strip() == str(dest)
 
 
 # --- 7. lua sanity (text-level, no Lmod) ------------------------------------
