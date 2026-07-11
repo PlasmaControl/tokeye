@@ -15,12 +15,14 @@ deferred to callbacks, so building this tab (and the app) does no I/O.
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 
 import gradio as gr
 
+from tokeye import export
 from tokeye.app.analyze.analyze import (
     ensure_model,
-    setup_stft_transform,
     wrapper_model_load_pair,
 )
 from tokeye.app.analyze.load import find_models, model_infer
@@ -117,18 +119,25 @@ def load_shot(
     pointname,
     t_min,
     t_max,
-    transform_args,
+    n_fft,
+    hop_length,
+    clip_dc,
+    clip_low,
+    clip_high,
     decimation,
     progress=gr.Progress(),
 ):
     """Fetch one DIII-D signal → ``(spectrogram, stft_meta)`` for the states.
 
-    Optionally decimates the signal first (STFT-settings **Decimation** knob, like
-    ``n_fft``/``hop``) and records the (post-decimation) sampling rate + window
-    start in ``stft_meta`` so views can crop/label in real kHz/ms. Degrades to
+    The STFT knobs (``n_fft``/``hop``/clip) come straight from the live
+    controls, so a Load always reflects them — there's no separate "Apply
+    Transform Settings" step to forget to click. Optionally decimates the
+    signal first (STFT-settings **Decimation** knob, like ``n_fft``/``hop``)
+    and records the (post-decimation) sampling rate + window start in
+    ``stft_meta`` so views can crop/label in real kHz/ms. Degrades to
     ``(None, None)`` + a ``gr.Warning`` on any bad shot / missing MDSplus.
     """
-    if not shot or not pointname or transform_args is None:
+    if not shot or not pointname:
         gr.Warning("Enter a shot number and pick a diagnostic/probe first.")
         return None, None
 
@@ -160,23 +169,20 @@ def load_shot(
         except Exception as exc:  # noqa: BLE001 - fall back to full rate
             gr.Warning(f"Decimation ×{d} failed, using full rate: {exc}")
 
-    n_fft = transform_args.get("n_fft", DEFAULT_N_FFT)
-    hop = transform_args.get("hop_length", DEFAULT_HOP)
-    clip_dc = transform_args.get("clip_dc", DEFAULT_CLIP_DC)
     progress(0.7, desc="Computing spectrogram …")
     spec = signal_to_spectrogram(
         x,
         n_fft=n_fft,
-        hop=hop,
+        hop=hop_length,
         clip_dc=clip_dc,
-        clip_low=transform_args.get("percentile_low", DEFAULT_CLIP_LOW),
-        clip_high=transform_args.get("percentile_high", DEFAULT_CLIP_HIGH),
+        clip_low=clip_low,
+        clip_high=clip_high,
     )
     stft_meta = {
         "fs": float(fs),
         "t0_ms": float(t[0]) if t.size else 0.0,
         "n_fft": int(n_fft),
-        "hop": int(hop),
+        "hop": int(hop_length),
         "clip_dc": bool(clip_dc),
     }
     progress(1.0, desc="Done")
@@ -275,6 +281,101 @@ def rerender(
     )
 
 
+def rerender_band(
+    view_mode,
+    signal_transform,
+    stft_meta,
+    inference_output,
+    out_1,
+    out_2,
+    vmin,
+    vmax,
+    threshold,
+    stft_fmin,
+    stft_fmax,
+):
+    """Re-crop both plots when the display band changes (no recompute).
+
+    Takes the same ``rerender_inputs`` bundle and returns
+    ``(spectrogram_fig, visualization_fig)`` so one handler re-crops the
+    pre-analysis spectrogram and the visualization together — replacing the
+    four per-keystroke ``.change`` handlers that used to render "150" at
+    1/15/150 as it was typed.
+    """
+    return (
+        render_spectrogram(signal_transform, stft_meta, stft_fmin, stft_fmax),
+        rerender(
+            view_mode, signal_transform, stft_meta, inference_output,
+            out_1, out_2, vmin, vmax, threshold, stft_fmin, stft_fmax,
+        ),
+    )
+
+
+def export_diiid_analysis(
+    shot,
+    pointname,
+    model_file,
+    signal_transform,
+    stft_meta,
+    inference_output,
+    n_fft,
+    hop_length,
+    clip_dc,
+    clip_low,
+    clip_high,
+    decimation,
+    stft_fmin,
+    stft_fmax,
+    threshold,
+    view_mode,
+):
+    """Save the loaded spectrogram (+ mask, if inferred) as a ``.npz`` bundle.
+
+    Unlike the Analyze tab, this tab knows the signal's real sample rate, so
+    ``stft_meta`` is passed to :func:`tokeye.export.analysis_bundle` and the
+    bundle carries real ``time_ms``/``freq_khz`` axes. ``inference_output`` may
+    be ``None`` (no Analyze yet); ``analysis_bundle`` simply omits the mask.
+
+    The no-data path returns ``None`` (not ``gr.update()``, gradio's skip
+    sentinel) so the ``gr.File`` download slot CLEARS instead of leaving a
+    previous successful export visible as a stale link — same convention as the
+    Analyze tab's ``export_analysis``.
+    """
+    if signal_transform is None:
+        gr.Warning("Load a shot first.")
+        return None
+
+    params = {
+        "shot": int(shot) if shot else None,
+        "pointname": pointname,
+        "model": model_file,
+        "n_fft": n_fft,
+        "hop": hop_length,
+        "clip_dc": clip_dc,
+        "clip_low": clip_low,
+        "clip_high": clip_high,
+        "decimation": decimation,
+        "fmin_khz": stft_fmin,
+        "fmax_khz": stft_fmax,
+        "threshold": threshold,
+        "view_mode": view_mode,
+    }
+    bundle = export.analysis_bundle(
+        spectrogram=signal_transform,
+        mask=inference_output,
+        stft_meta=stft_meta,
+        params=params,
+        source="diiid",
+    )
+    if shot and pointname:
+        stem = f"{int(shot)}_{pointname}_analysis"
+    else:
+        stem = export.default_stem("analysis")
+    out_dir = Path(tempfile.mkdtemp(prefix="tokeye-export-"))
+    path = export.save_npz(out_dir / f"{stem}.npz", bundle)
+    return str(path)
+
+
 def diiid_tab():
     # User Interface
     with gr.Column():
@@ -340,7 +441,6 @@ def diiid_tab():
             )
             hop_length = gr.Slider(64, 512, value=DEFAULT_HOP, step=64, label="Hop Size")
             clip_dc = gr.Checkbox(value=DEFAULT_CLIP_DC, label="Remove DC (Bottom) Bin")
-            setup_transform_btn = gr.Button("Apply Transform Settings")
 
         ## Load shot
         load_shot_btn = gr.Button("Load shot", variant="primary")
@@ -368,21 +468,17 @@ def diiid_tab():
             analyze_btn = gr.Button("Analyze", variant="primary")
             visualize_out = gr.Plot(label="Visualization")
 
+            save_export_btn = gr.Button("Save results (.npz)")
+            export_out = gr.File(
+                label="Download analysis (.npz)", interactive=False
+            )
+
     # State variables (same shape as the Analyze tab + stft_meta)
     model = gr.State()
     model_name = gr.State(None)
     signal_transform = gr.State()
     stft_meta = gr.State()
     inference_output = gr.State()
-    transform_args = gr.State(
-        setup_stft_transform(
-            DEFAULT_N_FFT,
-            DEFAULT_HOP,
-            DEFAULT_CLIP_DC,
-            DEFAULT_CLIP_LOW,
-            DEFAULT_CLIP_HIGH,
-        )
-    )
 
     # Shared input bundles
     rerender_inputs = [
@@ -413,16 +509,24 @@ def diiid_tab():
         outputs=[model, model_name],
     )
 
-    setup_transform_btn.click(
-        fn=setup_stft_transform,
-        inputs=[n_fft, hop_length, clip_dc, clip_low_sld, clip_high_sld],
-        outputs=[transform_args],
-    )
-
-    ## Load shot -> spectrogram (Plotly image, cropped to the display band)
+    ## Load shot -> spectrogram (Plotly image, cropped to the display band).
+    ## STFT knobs feed the loader directly, so n_fft/hop/clip changes take
+    ## effect on the next Load — no separate "Apply Transform Settings" step.
     load_shot_btn.click(
         fn=load_shot,
-        inputs=[shot, diagnostic, pointname, t_min, t_max, transform_args, decimation],
+        inputs=[
+            shot,
+            diagnostic,
+            pointname,
+            t_min,
+            t_max,
+            n_fft,
+            hop_length,
+            clip_dc,
+            clip_low_sld,
+            clip_high_sld,
+            decimation,
+        ],
         outputs=[signal_transform, stft_meta],
     ).then(
         fn=render_spectrogram, inputs=spectrogram_inputs, outputs=[extract_out]
@@ -461,9 +565,45 @@ def diiid_tab():
     for sld in (vmin_sld, vmax_sld, threshold_sld):
         sld.release(fn=rerender, inputs=rerender_inputs, outputs=[visualize_out])
 
-    ## Frequency band changes re-crop both plots live (display-only, no recompute)
+    ## Frequency band changes re-crop both plots on Enter / focus-leave (display
+    ## only, no recompute). gr.Number exposes .submit + .blur on the installed
+    ## gradio (5.49), so one combined handler fires per commit instead of two
+    ## renders per keystroke — typing "150" no longer re-crops at 1/15/150. The
+    ## Enter-then-blur double fire is idempotent and cheap.
     for band in (stft_fmin, stft_fmax):
-        band.change(fn=render_spectrogram, inputs=spectrogram_inputs, outputs=[extract_out])
-        band.change(fn=rerender, inputs=rerender_inputs, outputs=[visualize_out])
+        band.submit(
+            fn=rerender_band,
+            inputs=rerender_inputs,
+            outputs=[extract_out, visualize_out],
+        )
+        band.blur(
+            fn=rerender_band,
+            inputs=rerender_inputs,
+            outputs=[extract_out, visualize_out],
+        )
+
+    ## Export the loaded spectrogram (+ mask, if inferred) as an .npz bundle.
+    save_export_btn.click(
+        fn=export_diiid_analysis,
+        inputs=[
+            shot,
+            pointname,
+            model_file,
+            signal_transform,
+            stft_meta,
+            inference_output,
+            n_fft,
+            hop_length,
+            clip_dc,
+            clip_low_sld,
+            clip_high_sld,
+            decimation,
+            stft_fmin,
+            stft_fmax,
+            threshold_sld,
+            view_mode,
+        ],
+        outputs=[export_out],
+    )
 
     return shot

@@ -58,18 +58,74 @@ def test_load_shot_without_shot_warns_and_returns_none():
 
     from tokeye.app.tabs.diiid import load_shot
 
-    transform_args = {
-        "n_fft": 256,
-        "hop_length": 64,
-        "clip_dc": True,
-        "percentile_low": 1.0,
-        "percentile_high": 99.0,
-    }
+    # New raw-components signature: the STFT knobs are passed straight through
+    # (no transform_args dict), so a Load always reflects the live controls.
     with pytest.warns(UserWarning):
-        spec, meta = load_shot(None, "mag", None, None, None, transform_args, 1)
+        spec, meta = load_shot(
+            None, "mag", None, None, None, 256, 64, True, 1.0, 99.0, 1
+        )
 
     assert spec is None
     assert meta is None
+
+
+def test_export_diiid_analysis_writes_npz_with_real_axes():
+    """Happy path: an analysis bundle with a mask and real kHz/ms axes lands on disk."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from tokeye.app.tabs.diiid import export_diiid_analysis
+
+    rng = np.random.default_rng(0)
+    spectrogram = rng.random((128, 60)).astype("float32")
+    mask = rng.random((2, 128, 60)).astype("float32")
+    stft_meta = {
+        "fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 256, "hop": 64, "clip_dc": True,
+    }
+
+    path = export_diiid_analysis(
+        190000,          # shot
+        "mpi66m307d",    # pointname
+        "big_tf_unet",   # model_file
+        spectrogram,     # signal_transform
+        stft_meta,       # stft_meta
+        mask,            # inference_output
+        256,             # n_fft
+        64,              # hop_length
+        True,            # clip_dc
+        1.0,             # clip_low
+        99.0,            # clip_high
+        1,               # decimation
+        5.0,             # stft_fmin
+        250.0,           # stft_fmax
+        0.5,             # threshold
+        "Enhanced",      # view_mode
+    )
+
+    assert path is not None
+    assert Path(path).name.startswith("190000_mpi66m307d")
+
+    data = np.load(path, allow_pickle=False)
+    assert str(data["schema"]) == "tokeye-analysis/v1"
+    assert str(data["source"]) == "diiid"
+    for key in ("spectrogram", "mask", "time_ms", "freq_khz", "params_json"):
+        assert key in data
+
+
+def test_export_diiid_analysis_no_data_warns_and_returns_none():
+    """No-data path: a warning + None (not gr.update()) so the download slot clears."""
+    import pytest
+
+    from tokeye.app.tabs.diiid import export_diiid_analysis
+
+    with pytest.warns(UserWarning):
+        result = export_diiid_analysis(
+            None, None, "big_tf_unet", None, None, None,
+            256, 64, True, 1.0, 99.0, 1, 5.0, 250.0, 0.5, "Enhanced",
+        )
+
+    assert result is None
 
 
 def test_plotly_view_builds_interactive_figures():
