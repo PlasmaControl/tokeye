@@ -374,7 +374,8 @@ class ModespecView(QtWidgets.QWidget):
             return gate_dominant_mask(
                 self._result, self._tok_mask, self._gate_meta, coh_thresh=coh
             )
-        except Exception:  # noqa: BLE001 - fall back to ungated on any failure
+        except Exception as exc:  # noqa: BLE001 - fall back to ungated on any failure
+            self._notify(f"TokEye gate failed (showing ungated): {exc}")
             return None
 
     def _render_modes(self, reset_view: bool = False) -> None:

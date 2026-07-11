@@ -26,6 +26,60 @@ def _result():
     }
 
 
+class _FakeWindow:
+    """Bare stand-in for MainWindow — just the methods ModespecView touches."""
+
+    def __init__(self) -> None:
+        self.readouts: list[str] = []
+
+    def set_readout(self, text: str) -> None:
+        self.readouts.append(text)
+
+    def set_shot_status(self, text: str) -> None:
+        pass
+
+    def begin_busy(self, message: str, *, determinate: bool = False) -> None:
+        pass
+
+    def set_progress(self, fraction: float) -> None:
+        pass
+
+    def end_busy(self, message: str = "") -> None:
+        pass
+
+
+def test_gate_failure_surfaces_in_status_bar(qapp, monkeypatch):
+    """A ``gate_dominant_mask`` failure must fall back to ungated *and* tell the
+    user via the window status bar — not render silently as if nothing broke."""
+    import tokeye.sources.mirnov as mirnov
+    from tokeye.gui.widgets.modespec_view import ModespecView
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    # _gated_nd does `from tokeye.sources.mirnov import gate_dominant_mask` inside
+    # the method, so patch the attribute on the module it re-imports from.
+    monkeypatch.setattr(mirnov, "gate_dominant_mask", _boom)
+
+    window = _FakeWindow()
+    view = ModespecView(window=window)
+    view._result = _result()
+    view._tok_mask = np.ones((128, 60), dtype=bool)
+    view._gate_meta = {
+        "fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 256, "hop": 64, "clip_dc": True,
+    }
+    view.gate_controls._gate.setChecked(True)  # gate on -> _gated_nd actually gates
+
+    view._render_modes(reset_view=True)  # must not raise
+
+    img = view.canvas.image_item()
+    assert img.image.ndim == 3 and img.image.shape[2] == 4  # still rendered, ungated
+
+    assert any(
+        "TokEye gate failed" in msg and "boom" in msg for msg in window.readouts
+    )
+
+
 def test_modespec_view_renders_rgba_with_real_axes(qapp):
     from tokeye.gui.widgets.modespec_view import ModespecView
 
