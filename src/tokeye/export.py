@@ -136,7 +136,10 @@ def analysis_bundle(
 
     if raw is not None:
         raw_t_ms, raw_x = raw
-        bundle["raw_t_ms"] = np.asarray(raw_t_ms, dtype=np.float32)
+        # float64: DIII-D time bases are absolute ms; at t≈4100 ms the float32
+        # ULP (~0.49 µs) matches the 2 MS/s Mirnov sample period, collapsing
+        # adjacent timestamps into duplicates late in a shot. raw_x keeps float32.
+        bundle["raw_t_ms"] = np.asarray(raw_t_ms, dtype=np.float64)
         bundle["raw_x"] = np.asarray(raw_x, dtype=np.float32)
 
     return bundle

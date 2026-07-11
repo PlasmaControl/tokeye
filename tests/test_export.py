@@ -46,7 +46,10 @@ class TestAnalysisBundleRoundTrip:
             "hop": 256,
             "clip_dc": True,
         }
-        raw_t_ms = np.arange(100, dtype=np.float64)
+        # A late-window absolute time base (t≈4000 ms, 2 kHz cadence): these
+        # exact values do NOT survive float32 (ULP > step there), so a float32
+        # raw_t_ms would corrupt/duplicate them — guard the float64 contract.
+        raw_t_ms = 4000.0 + np.arange(100, dtype=np.float64) * 0.0005
         raw_x = rng.random(100)
         params = {"n_fft": 512, "hop": 256, "model": "big_tf_unet"}
 
@@ -90,8 +93,13 @@ class TestAnalysisBundleRoundTrip:
         assert loaded["time_ms"].shape == (20,)
         assert loaded["freq_khz"].dtype == np.float64
         assert loaded["freq_khz"].shape == (10,)
-        assert loaded["raw_t_ms"].dtype == np.float32
+        assert loaded["raw_t_ms"].dtype == np.float64
         assert loaded["raw_x"].dtype == np.float32
+        # Exact round-trip of the late-window time base (float32 would not).
+        np.testing.assert_array_equal(loaded["raw_t_ms"], raw_t_ms)
+        assert not np.array_equal(
+            raw_t_ms.astype(np.float32).astype(np.float64), raw_t_ms
+        ), "test timebase must be one float32 cannot represent exactly"
 
         # ISO-8601 UTC timestamp round-trips.
         from datetime import datetime

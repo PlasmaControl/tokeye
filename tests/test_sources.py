@@ -432,6 +432,9 @@ def test_mds_fetch_routes_co2_pointnames(tmp_path, monkeypatch):
         du, "fetch_ptdata",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("PTDATA used for CO2")),
     )
+    # fetch_or_load short-circuits with a RuntimeError when MDSplus can't import;
+    # force the gate open so the routing (not availability) is what's tested.
+    monkeypatch.setattr(du, "MDS_AVAILABLE", True)
     t_out, x_out, fs = MDSSource(data_dir=tmp_path).fetch(190904, "DENV2_UF")
     assert seen["chord"] == "DENV2_UF"
     assert x_out.size == 500

@@ -46,7 +46,13 @@ _SHOT_TTL_S = 60.0
 # Cache guarded by _SHOT_LOCK: ``value`` = last good shot (0 = never), ``ts`` =
 # time.monotonic() of that fetch (None = never fetched). ``_SHOT_PENDING`` is
 # the in-flight fetch (at most one, never stacked); ``_SHOT_EXECUTOR`` is the
-# lazily created single-worker daemon pool that runs it.
+# lazily created single-worker background pool that runs it.
+#
+# NOTE: ThreadPoolExecutor workers are NOT daemon threads (Python >=3.9 joins
+# them at interpreter exit). So a forever-hung fetch permanently occupies the
+# single worker — it poisons ``_SHOT_PENDING`` (no later fetch is ever submitted)
+# and can delay interpreter shutdown. Accepted: the app process is killed with
+# the SSH tunnel, so a wedged worker dies with it.
 _SHOT_LOCK = threading.Lock()
 _SHOT_CACHE: dict[str, float | None] = {"value": 0, "ts": None}
 _SHOT_EXECUTOR: ThreadPoolExecutor | None = None
@@ -164,7 +170,7 @@ def create_app() -> gr.Blocks:
         if logo_path.is_file():
             gr.Image(
                 str(logo_path),
-                height=300,
+                height=120,  # match the .logo-image CSS cap (CUSTOM_CSS) — no dead space
                 interactive=False,
                 container=False,
                 show_download_button=False,

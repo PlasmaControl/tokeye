@@ -264,6 +264,8 @@ class SpectrogramView(QtWidgets.QWidget):
         t, x = payload.get("t"), payload.get("x")
         if t is not None and x is not None and np.size(t):
             self.set_raw_signal(t, x)
+        else:
+            self._clear_raw_signal()  # no raw here -> don't keep the last shot's
         self._render_current(reset_view=True)
         self._update_analyze_enabled()
         self._save_btn.setEnabled(self._spec is not None)
@@ -345,6 +347,20 @@ class SpectrogramView(QtWidgets.QWidget):
         self.canvas.set_raw(t_ms, x)
         self._raw_btn.setEnabled(True)
         self.canvas.set_raw_visible(self._raw_btn.isChecked())
+
+    def _clear_raw_signal(self) -> None:
+        """Drop any cached raw trace so it can't leak into the next shot's export.
+
+        A load without raw data must NOT keep the previous shot's raw_t/raw_x —
+        they would otherwise be embedded in the new shot's npz (a previous shot's
+        trace in a new shot's file). Clear the cache, hide the strip, disable the
+        toggle.
+        """
+        self._raw_t = None
+        self._raw_x = None
+        self._raw_btn.setChecked(False)
+        self._raw_btn.setEnabled(False)
+        self.canvas.set_raw_visible(False)
 
     # -------------------------------------------------------------- exporting
     def export_png(self, path: str | Path) -> Path:

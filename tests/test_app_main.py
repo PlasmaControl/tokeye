@@ -208,6 +208,11 @@ class TestPaletteParity:
         assert COLORS["bg"] == viz._PAPER_HEX
         assert COLORS["plot"] == viz._PLOT_HEX
         assert COLORS["accent"] == viz._ACCENT_HEX
+        assert COLORS["line"] == viz._LINE_HEX  # grid / axis lines
+        assert COLORS["muted"] == viz._MUTED_HEX  # axis + label text
+        # Same two constants mirror the web PALETTE keys they were derived from.
+        assert PALETTE["border"] == viz._LINE_HEX
+        assert PALETTE["text_muted"] == viz._MUTED_HEX
 
 
 def _wait_for(predicate, timeout=5.0):

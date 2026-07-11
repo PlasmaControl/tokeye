@@ -154,7 +154,9 @@ def test_export_png_and_npz(qapp, tmp_path):
     h, w = 48, 32
     spec = np.random.default_rng(3).random((h, w))
     view.set_spectrogram(spec, _META)
-    t = np.linspace(2000.0, 2010.0, 400)
+    # Late-window absolute time base (t≈4000 ms, 2 kHz cadence): these exact
+    # values do NOT survive float32, so the npz must keep raw_t_ms as float64.
+    t = 4000.0 + np.arange(400, dtype=np.float64) * 0.0005
     x = np.sin(t)
     view.set_raw_signal(t, x)
 
@@ -169,9 +171,41 @@ def test_export_png_and_npz(qapp, tmp_path):
     assert str(data["schema"]) == "tokeye-analysis/v1"
     assert str(data["source"]) == "gui-spectrogram"
     assert np.allclose(data["spectrogram"], spec)
-    assert np.allclose(data["raw_t_ms"], t)
+    assert data["raw_t_ms"].dtype == np.float64
+    np.testing.assert_array_equal(data["raw_t_ms"], t)  # exact, not float32
+    assert not np.array_equal(t.astype(np.float32).astype(np.float64), t)
     assert np.allclose(data["raw_x"], x)
     assert "time_ms" in data and "freq_khz" in data
+
+
+def test_reload_without_raw_clears_stale_raw(qapp, tmp_path):
+    """A load WITHOUT raw data must drop the previous shot's cached raw trace so
+    it can't be embedded in the new shot's npz (cross-shot contamination)."""
+    from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+
+    view = SpectrogramView(window=None)
+    h, w = 48, 32
+
+    # First load: carries a raw trace -> cached + button enabled.
+    spec1 = np.random.default_rng(0).random((h, w))
+    t = 4000.0 + np.arange(300, dtype=np.float64) * 0.0005
+    view._fetch_id = 1
+    view._on_result(1, {"spec": spec1, "meta": _META, "t": t, "x": np.sin(t)})
+    assert view._raw_t is not None
+    assert view._raw_btn.isEnabled()
+
+    # Second load: NO raw data -> the stale trace must be cleared.
+    spec2 = np.random.default_rng(1).random((h, w))
+    view._fetch_id = 2
+    view._on_result(2, {"spec": spec2, "meta": _META, "t": None, "x": None})
+    assert view._raw_t is None
+    assert view._raw_x is None
+    assert not view._raw_btn.isEnabled()
+
+    npz = view.export_npz(tmp_path / "second")
+    data = np.load(npz, allow_pickle=False)
+    assert "raw_t_ms" not in data.files
+    assert "raw_x" not in data.files
 
 
 def test_export_npz_without_data_raises(qapp, tmp_path):

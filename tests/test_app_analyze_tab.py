@@ -296,9 +296,10 @@ def test_analyze_tab_wiring_labels():
     """Stale-flow controls are gone; the new one-click flow and export are
     present.
 
-    Scoped to just the Analyze tab: the DIII-D tab keeps its own separate
-    "Apply Transform Settings" button (a distinct transform path), so scanning
-    the whole app would pick that up. This test is about the Analyze tab.
+    Built in isolation (just the Analyze tab, not the whole app) so the collected
+    labels come solely from it: the DIII-D tabs carry their own "Analyze" /
+    "Save results (.npz)" buttons, so scanning the whole app would let those
+    satisfy the positive assertions and stop this from verifying the Analyze tab.
     """
     import gradio as gr
 
