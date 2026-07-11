@@ -11,6 +11,35 @@ It is designed to be used in the context of plasma physics, but can be used for 
 
 Check out [this preprint](https://arxiv.org/abs/2602.20317) for more information.
 
+## Running at DIII-D (omega) — quickstart
+
+This branch ships a native desktop GUI, a web app, and a Slurm batch runner,
+already deployed on the omega cluster. General pip-install instructions are
+in the sections below this one.
+
+1. **Native desktop GUI (recommended)** — over NoMachine (or `ssh -X`) on
+   `somega.gat.com`:
+   ```bash
+   module use /cscratch/share/tokeye/modulefiles
+   module load tokeye
+   tokeye          # opens the DIII-D window (spectrogram + toroidal modespec)
+   ```
+2. **Web app from your laptop** — one command; copy the launcher once, then
+   run it (tunnel + remote app + browser open, Ctrl-C tears it all down):
+   ```bash
+   scp <you>@somega.gat.com:/cscratch/share/tokeye/tokeye-connect.sh ~/
+   ~/tokeye-connect.sh <you>@somega.gat.com
+   ```
+3. **Offline batch over many shots** — the **DIII-D Offline** tab in the web
+   app, or `tokeye diiid-batch --help` from the CLI (prefetch on somega,
+   one Slurm job on the `gpus` partition).
+
+More:
+- [`docs/diiid_tab_usage.md`](docs/diiid_tab_usage.md) — DIII-D tab walkthrough
+- [`deploy/omega/README.md`](deploy/omega/README.md) — full omega runbook: install, durable home +
+  self-healing env, env-var table
+- [`docs/diiid.md`](docs/diiid.md) — background/design
+
 ## Example Demonstration
 <video src="https://github.com/user-attachments/assets/03560db6-1941-483e-b9d7-706c164833f7" autoplay loop muted playsinline controls width="100%"></video>
 
