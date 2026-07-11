@@ -21,7 +21,7 @@ import gradio as gr
 from tokeye.app.analyze.analyze import (
     ensure_model,
     setup_stft_transform,
-    wrapper_model_load,
+    wrapper_model_load_pair,
 )
 from tokeye.app.analyze.load import find_models, model_infer
 from tokeye.hub import DEFAULT_MODEL, MODEL_REGISTRY
@@ -201,6 +201,7 @@ def render_spectrogram(signal_transform, stft_meta, stft_fmin, stft_fmax):
 def run_analyze(
     view_mode,
     model,
+    model_name,
     model_file,
     signal_transform,
     stft_meta,
@@ -216,33 +217,38 @@ def run_analyze(
 ):
     """Analyze button: run the model on the loaded probe and render the chosen view.
 
-    Returns ``[model, inference_output, figure]``.
+    ``model_name`` records which model the cached ``model`` state holds, so
+    ``ensure_model`` reloads when the dropdown changes since the last Analyze
+    (see :func:`tokeye.app.analyze.analyze.ensure_model`). Returns
+    ``[model, model_name, inference_output, figure]``.
     """
     meta = _meta_band(stft_meta, stft_fmin, stft_fmax)
 
     if signal_transform is None:
         gr.Warning("Load a shot first.")
-        return model, inference_output, plotly_view(view_mode, None, None, False, False,
-                                                    vmin, vmax, threshold, meta)
+        return model, model_name, inference_output, plotly_view(
+            view_mode, None, None, False, False, vmin, vmax, threshold, meta,
+        )
 
     if view_mode == "Original":
         fig = plotly_view(
             "Original", signal_transform, None, False, False, vmin, vmax, threshold, meta,
         )
-        return model, inference_output, fig
+        return model, model_name, inference_output, fig
 
     progress(0.3, desc="Running model …")
-    model = ensure_model(model, model_file, signal_transform)
+    model, model_name = ensure_model(model, model_name, model_file, signal_transform)
     if model is None:
-        return model, inference_output, plotly_view(view_mode, None, None, False, False,
-                                                    vmin, vmax, threshold, meta)
+        return model, model_name, inference_output, plotly_view(
+            view_mode, None, None, False, False, vmin, vmax, threshold, meta,
+        )
     inference_output = model_infer(signal_transform, model)
     progress(0.9, desc="Rendering …")
     fig = plotly_view(
         view_mode, signal_transform, inference_output, out_1, out_2, vmin, vmax,
         threshold, meta,
     )
-    return model, inference_output, fig
+    return model, model_name, inference_output, fig
 
 
 def rerender(
@@ -364,6 +370,7 @@ def diiid_tab():
 
     # State variables (same shape as the Analyze tab + stft_meta)
     model = gr.State()
+    model_name = gr.State(None)
     signal_transform = gr.State()
     stft_meta = gr.State()
     inference_output = gr.State()
@@ -400,7 +407,11 @@ def diiid_tab():
     shot.change(fn=fill_window, inputs=[shot, pointname], outputs=[t_min, t_max])
     pointname.change(fn=fill_window, inputs=[shot, pointname], outputs=[t_min, t_max])
 
-    load_model_btn.click(fn=wrapper_model_load, inputs=[model_file], outputs=[model])
+    load_model_btn.click(
+        fn=wrapper_model_load_pair,
+        inputs=[model_file],
+        outputs=[model, model_name],
+    )
 
     setup_transform_btn.click(
         fn=setup_stft_transform,
@@ -430,6 +441,7 @@ def diiid_tab():
         inputs=[
             view_mode,
             model,
+            model_name,
             model_file,
             signal_transform,
             stft_meta,
@@ -442,7 +454,7 @@ def diiid_tab():
             stft_fmin,
             stft_fmax,
         ],
-        outputs=[model, inference_output, visualize_out],
+        outputs=[model, model_name, inference_output, visualize_out],
     )
 
     ## Live re-render on slider release (re-color only, no recompute)

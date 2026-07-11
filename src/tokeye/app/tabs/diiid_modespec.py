@@ -21,7 +21,7 @@ import logging
 
 import gradio as gr
 
-from tokeye.app.analyze.analyze import wrapper_model_load
+from tokeye.app.analyze.analyze import wrapper_model_load, wrapper_model_load_pair
 from tokeye.app.analyze.load import find_models, model_infer
 from tokeye.hub import DEFAULT_MODEL, MODEL_REGISTRY
 from tokeye.sources.presets import MIRNOV_TOROIDAL
@@ -74,11 +74,18 @@ def _tlim(t_min, t_max) -> tuple[float, float] | None:
     return None
 
 
-def _ensure_model(model, model_file):
-    """Load the model on first gated Analyze; pass an already-loaded model through."""
-    if model is not None:
-        return model
-    return wrapper_model_load(model_file)
+def _ensure_model(model, loaded_name, model_file):
+    """(Re)load the gate model when missing or when the dropdown changed.
+
+    Returns ``(model, loaded_name)``. Reloads whenever ``model is None`` (nothing
+    loaded yet, or a prior load failed) or ``loaded_name != model_file`` (the
+    dropdown changed since the last gated Analyze) — mirroring
+    :func:`tokeye.app.analyze.analyze.ensure_model` so switching the gate model
+    takes effect on the next Analyze instead of being silently ignored.
+    """
+    if model is not None and loaded_name == model_file:
+        return model, loaded_name
+    return wrapper_model_load(model_file), model_file
 
 
 def fill_window(shot, ref_probe):
@@ -104,6 +111,7 @@ def run_modespec(
     t_min,
     t_max,
     model,
+    model_name,
     model_file,
     f_min,
     f_max,
@@ -117,13 +125,16 @@ def run_modespec(
 ):
     """Analyze: fetch array → mode-spectrogram → (optional band-matched gate) → figure.
 
-    Returns ``[model, result, tok_mask, gate_meta, figure]`` — ``result``/``tok_mask``/
-    ``gate_meta`` are cached in state so the coherence slider re-renders without
-    recompute (see :func:`rerender_coh`).
+    ``model_name`` records which model the cached ``model`` state holds, so the
+    gate reloads when the dropdown changed since the last Analyze (see
+    :func:`_ensure_model`). Returns
+    ``[model, model_name, result, tok_mask, gate_meta, figure]`` —
+    ``result``/``tok_mask``/``gate_meta`` are cached in state so the coherence
+    slider re-renders without recompute (see :func:`rerender_coh`).
     """
     if not shot:
         gr.Warning("Enter a shot number first.")
-        return model, None, None, None, None
+        return model, model_name, None, None, None, None
 
     from tokeye.sources.mirnov import (
         array_gate_mask,
@@ -147,12 +158,12 @@ def run_modespec(
         )
     except Exception as exc:  # noqa: BLE001 - surface any failure as a toast
         gr.Warning(f"Modespec failed for shot {int(shot)}: {exc}")
-        return model, None, None, None, None
+        return model, model_name, None, None, None, None
 
     tok_mask = None
     gate_meta = None
     if gate:
-        model = _ensure_model(model, model_file)
+        model, model_name = _ensure_model(model, model_name, model_file)
         if model is None:
             gr.Warning("Gate needs a model (load failed); showing ungated.")
         else:
@@ -187,7 +198,7 @@ def run_modespec(
 
     progress(0.95, desc="Rendering modes …")
     fig = plotly_modespec(result, nd=nd, coh_thresh=float(coh_thresh))
-    return model, result, tok_mask, gate_meta, fig
+    return model, model_name, result, tok_mask, gate_meta, fig
 
 
 def rerender_coh(result, tok_mask, gate_meta, coh_thresh, gate):
@@ -276,6 +287,7 @@ def diiid_modespec_tab():
 
     # State (cached so the coherence slider re-renders without recompute)
     model = gr.State()
+    model_name = gr.State(None)
     result_state = gr.State()
     tok_mask_state = gr.State()
     gate_meta_state = gr.State()
@@ -284,15 +296,22 @@ def diiid_modespec_tab():
     shot.change(fn=fill_window, inputs=[shot, ref_probe], outputs=[t_min, t_max])
     ref_probe.change(fn=fill_window, inputs=[shot, ref_probe], outputs=[t_min, t_max])
 
-    load_model_btn.click(fn=wrapper_model_load, inputs=[model_file], outputs=[model])
+    load_model_btn.click(
+        fn=wrapper_model_load_pair,
+        inputs=[model_file],
+        outputs=[model, model_name],
+    )
 
     analyze_btn.click(
         fn=run_modespec,
         inputs=[
-            shot, ref_probe, t_min, t_max, model, model_file,
+            shot, ref_probe, t_min, t_max, model, model_name, model_file,
             f_min, f_max, n_min, n_max, decimation, coh_thresh, gate, gate_source,
         ],
-        outputs=[model, result_state, tok_mask_state, gate_meta_state, modespec_out],
+        outputs=[
+            model, model_name, result_state, tok_mask_state, gate_meta_state,
+            modespec_out,
+        ],
     )
 
     # Coherence slider re-renders instantly from the cached result + gate mask.

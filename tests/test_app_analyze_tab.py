@@ -294,11 +294,17 @@ def test_create_app_constructs_without_error():
 
 def test_analyze_tab_wiring_labels():
     """Stale-flow controls are gone; the new one-click flow and export are
-    present."""
-    from tokeye.app.__main__ import create_app
+    present.
 
-    app = create_app()
-    labels = _collect_labels(app)
+    Scoped to just the Analyze tab: the DIII-D tab keeps its own separate
+    "Apply Transform Settings" button (a distinct transform path), so scanning
+    the whole app would pick that up. This test is about the Analyze tab.
+    """
+    import gradio as gr
+
+    with gr.Blocks() as demo:
+        analyze.analyze_tab()
+    labels = _collect_labels(demo)
 
     assert "Apply Transform Settings" not in labels
     assert "Visualize" not in labels
