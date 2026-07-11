@@ -254,6 +254,8 @@ class ModespecView(QtWidgets.QWidget):
             lambda pan: self.canvas.set_mouse_mode(rect_mode=not pan)
         )
         reset = QtWidgets.QPushButton("Reset view")
+        reset.setIcon(self.style().standardIcon(
+            QtWidgets.QStyle.StandardPixmap.SP_BrowserReload))
         reset.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         reset.clicked.connect(lambda: self.canvas.reset_view())
         lay.addSpacing(8)

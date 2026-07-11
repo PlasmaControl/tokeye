@@ -137,9 +137,12 @@ QPushButton#PrimaryButton:disabled {
 /* generic checkable toggle (plot-toolbar mode buttons, raw switch) */
 QPushButton:checked { background: #262b36; color: #63d0e2; border-color: #3a4150; }
 
-/* plot toolbar (above the spectrogram canvas) */
+/* plot toolbar (above the spectrogram canvas) — Pan/Zoom/Reset/Raw/Save as one
+ * compact strip: tighter padding, rounded corners, small gap for the icons. */
 #PlotToolbar { background: #171a21; border-bottom: 1px solid #2a2f3a; }
-#PlotToolbar QPushButton { padding: 4px 12px; font-weight: 500; }
+#PlotToolbar QPushButton {
+    padding: 4px 10px; border-radius: 6px; font-weight: 500; icon-size: 14px;
+}
 
 /* ---------- checkbox / radio ---------- */
 QCheckBox, QRadioButton { spacing: 8px; background: transparent; }

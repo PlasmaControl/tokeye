@@ -162,6 +162,54 @@ class TestDarkControlRoomTheme:
         assert app is not None
 
 
+# PALETTE key -> COLORS key. Locks the web mirror to the GUI source of truth.
+_PARITY = {
+    "bg_window": "bg", "bg_surface": "panel", "bg_raised": "panel2",
+    "border": "line", "text": "text", "text_muted": "muted",
+    "accent": "accent", "accent_hover": "accentHi",
+    "accent_text": "accentInk",
+}
+
+
+class TestPaletteParity:
+    """The three copies of the control-room palette (web PALETTE, GUI COLORS,
+    viz.py module constants) must never drift — one test locks them together."""
+
+    def test_web_palette_mirrors_gui_colors(self):
+        """Every mapped PALETTE hex equals its GUI COLORS counterpart."""
+        from tokeye.gui.theme import COLORS
+
+        for palette_key, colors_key in _PARITY.items():
+            assert PALETTE[palette_key] == COLORS[colors_key], (
+                f"PALETTE[{palette_key!r}] != COLORS[{colors_key!r}]"
+            )
+
+    def test_gui_theme_module_imports_no_qt(self):
+        """Importing gui.theme must stay Qt-free (Qt is deferred into functions),
+        so this parity check never drags PySide6 into a headless test run.
+        Fresh interpreter = order-independent."""
+        import subprocess
+        import sys
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import tokeye.gui.theme, sys; assert 'PySide6' not in sys.modules",
+            ],
+            check=True,
+        )
+
+    def test_viz_constants_match_gui_colors(self):
+        """viz.py's Plotly palette constants mirror the same GUI COLORS."""
+        from tokeye.gui.theme import COLORS
+        from tokeye.sources import viz
+
+        assert COLORS["bg"] == viz._PAPER_HEX
+        assert COLORS["plot"] == viz._PLOT_HEX
+        assert COLORS["accent"] == viz._ACCENT_HEX
+
+
 def _wait_for(predicate, timeout=5.0):
     """Poll ``predicate`` until true or ``timeout`` elapses; assert it became true."""
     deadline = time.monotonic() + timeout

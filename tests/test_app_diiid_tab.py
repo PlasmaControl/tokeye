@@ -178,6 +178,10 @@ def test_plotly_view_builds_interactive_figures():
         assert fig.layout.yaxis.title.text == "frequency (kHz)"
         # y-axis ascending -> low frequency sits at the bottom
         assert fig.layout.yaxis.range[0] < fig.layout.yaxis.range[1]
+        # shared control-room dark palette (not stock plotly_dark blue-grey)
+        assert fig.layout.paper_bgcolor == "#13151a"
+        assert fig.layout.plot_bgcolor == "#0c0d11"
+        assert fig.layout.modebar.activecolor == "#45b8cb"
 
     # Missing inputs -> a valid (empty) figure, never a crash.
     assert plotly_view("Enhanced", None, None, True, True, 0, 100, 0.5, meta).to_json()
@@ -203,6 +207,10 @@ def test_plotly_modespec_is_discrete_heatmap_with_integer_colorbar():
     # discrete integer colorbar: one tick per mode number in [-3, 3]
     assert list(fig.data[0].colorbar.ticktext) == ["-3", "-2", "-1", "+0", "+1", "+2", "+3"]
     assert fig.data[0].zmin == -3.5 and fig.data[0].zmax == 3.5
+    # shared control-room dark palette (suppressed bins read as the plot canvas)
+    assert fig.layout.paper_bgcolor == "#13151a"
+    assert fig.layout.plot_bgcolor == "#0c0d11"
+    assert fig.layout.modebar.activecolor == "#45b8cb"
 
     # Offline path stays matplotlib (Kaleido/Chromium absent on compute nodes).
     png = render_modespec_png(result, shot=190000)

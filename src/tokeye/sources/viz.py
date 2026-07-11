@@ -37,7 +37,17 @@ from tokeye.app.analyze.visualize import amplitude, enhance, mask
 
 DISPLAY_MAX_COLS = 1500
 _MODE_CMAP = "turbo"  # discrete rainbow for mode numbers; distinct adjacent bands
-_BG_HEX = "#111111"  # masked / no-mode background (mode contrast)
+
+# Control-room palette — mirrors gui/theme.py::COLORS — keep in sync. Shared with
+# the web PALETTE (app/utils/theme.py) so the interactive Plotly figures, the app
+# shell, and the native GUI read as one dark theme. The parity test in
+# tests/test_app_main.py locks these three copies together.
+_PAPER_HEX = "#13151a"  # figure paper / window            (COLORS["bg"])
+_PLOT_HEX = "#0c0d11"  # plot canvas (darkest)             (COLORS["plot"])
+_LINE_HEX = "#2a2f3a"  # hairline grid / axis lines        (COLORS["line"])
+_MUTED_HEX = "#8b93a1"  # axis + label text                (COLORS["muted"])
+_ACCENT_HEX = "#45b8cb"  # interactive / active modebar     (COLORS["accent"])
+_BG_HEX = _PLOT_HEX  # masked / no-mode bins read as the plot canvas, not a box
 
 
 # ── column reduction ─────────────────────────────────────────────────────────────
@@ -180,6 +190,29 @@ def _view_axes(stft_meta: dict | None, r_lo: int, factor: int):
     return x0, factor * dt0_ms, y0, df_khz, "time (ms)", "frequency (kHz)"
 
 
+def _apply_dark_layout(fig) -> None:
+    """Paint ``fig`` in the shared control-room dark palette (in place).
+
+    One helper so every interactive DIII-D figure matches the app shell and the
+    native GUI instead of stock ``plotly_dark`` blue-grey. Preserves any margin /
+    dragmode / titles / ranges already set — it only touches colours.
+    """
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=_PAPER_HEX,
+        plot_bgcolor=_PLOT_HEX,
+        font={"family": "Inter, Segoe UI, sans-serif", "color": _MUTED_HEX},
+        modebar={
+            "bgcolor": "rgba(0,0,0,0)",
+            "color": _MUTED_HEX,
+            "activecolor": _ACCENT_HEX,
+        },
+    )
+    axis = {"gridcolor": _LINE_HEX, "linecolor": _LINE_HEX, "zerolinecolor": _LINE_HEX}
+    fig.update_xaxes(**axis)
+    fig.update_yaxes(**axis)
+
+
 def _empty_fig(message: str):
     """A blank Plotly figure carrying a centred hint (e.g. \"Load a shot\")."""
     import plotly.graph_objects as go
@@ -187,11 +220,12 @@ def _empty_fig(message: str):
     fig = go.Figure()
     fig.add_annotation(
         text=message, showarrow=False, xref="paper", yref="paper", x=0.5, y=0.5,
-        font={"size": 14, "color": "#888"},
+        font={"size": 14, "color": _MUTED_HEX},
     )
     fig.update_xaxes(visible=False)
     fig.update_yaxes(visible=False)
     fig.update_layout(margin={"l": 10, "r": 10, "t": 10, "b": 10})
+    _apply_dark_layout(fig)
     return fig
 
 
@@ -252,11 +286,8 @@ def plotly_view(
     )
     fig.update_xaxes(title_text=x_title, range=[x_lo, x_hi])
     fig.update_yaxes(title_text=y_title, range=[y_lo, y_hi])
-    fig.update_layout(
-        margin={"l": 60, "r": 20, "t": 20, "b": 45},
-        dragmode="pan",
-        template="plotly_dark",
-    )
+    fig.update_layout(margin={"l": 60, "r": 20, "t": 20, "b": 45}, dragmode="pan")
+    _apply_dark_layout(fig)
     return fig
 
 
@@ -330,14 +361,11 @@ def plotly_modespec(
             hovertemplate="t=%{x:.1f} ms<br>f=%{y:.0f} kHz<br>n=%{z:.0f}<extra></extra>",
         )
     )
-    fig.update_layout(
-        margin={"l": 60, "r": 20, "t": 20, "b": 45},
-        dragmode="pan",
-        template="plotly_dark",
-        plot_bgcolor=_BG_HEX,
-    )
+    fig.update_layout(margin={"l": 60, "r": 20, "t": 20, "b": 45}, dragmode="pan")
     fig.update_xaxes(title_text="time (ms)")
     fig.update_yaxes(title_text="frequency (kHz)")
+    # Suppressed (NaN) bins fall through to plot_bgcolor == _BG_HEX == _PLOT_HEX.
+    _apply_dark_layout(fig)
     return fig
 
 

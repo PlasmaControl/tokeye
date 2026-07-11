@@ -152,6 +152,8 @@ class SpectrogramView(QtWidgets.QWidget):
         self._pan_btn.toggled.connect(self._on_mode_toggled)
 
         reset = QtWidgets.QPushButton("Reset view")
+        reset.setIcon(self.style().standardIcon(
+            QtWidgets.QStyle.StandardPixmap.SP_BrowserReload))
         reset.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         reset.clicked.connect(lambda: self.canvas.reset_view())
         lay.addSpacing(8)
