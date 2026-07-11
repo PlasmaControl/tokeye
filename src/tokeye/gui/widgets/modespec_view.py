@@ -354,25 +354,34 @@ class ModespecView(QtWidgets.QWidget):
             self._end_busy()
 
     # -------------------------------------------------------------- render
-    def _render_modes(self, reset_view: bool = False) -> None:
-        if self._result is None:
-            return
-        coh = self.gate_controls.coh()
-        nd = None
-        if (
+    def _gated_nd(self, coh: float) -> np.ndarray | None:
+        """Dominant-mode array gated by the cached TokEye mask, or None (ungated).
+
+        Shared by ``_render_modes`` and ``export_npz`` so display and export
+        never diverge. Falls back to ungated (returns None) on any gating
+        failure — callers are expected to just render/export ungated in that
+        case, same as before this was factored out.
+        """
+        if not (
             self.gate_controls.gate()
             and self._tok_mask is not None
             and self._gate_meta is not None
         ):
-            from tokeye.sources.mirnov import gate_dominant_mask
+            return None
+        from tokeye.sources.mirnov import gate_dominant_mask
 
-            try:
-                nd = gate_dominant_mask(
-                    self._result, self._tok_mask, self._gate_meta, coh_thresh=coh
-                )
-            except Exception:  # noqa: BLE001 - fall back to ungated on any failure
-                nd = None
+        try:
+            return gate_dominant_mask(
+                self._result, self._tok_mask, self._gate_meta, coh_thresh=coh
+            )
+        except Exception:  # noqa: BLE001 - fall back to ungated on any failure
+            return None
 
+    def _render_modes(self, reset_view: bool = False) -> None:
+        if self._result is None:
+            return
+        coh = self.gate_controls.coh()
+        nd = self._gated_nd(coh)
         nd_masked = nd_masked_for_display(self._result, nd, coh)
         n_lo, n_hi = (int(v) for v in self._result["n_range"])
         rgba = discrete_mode_image(nd_masked, n_lo, n_hi)
@@ -391,20 +400,7 @@ class ModespecView(QtWidgets.QWidget):
         if self._result is None:
             raise ValueError("Nothing to save — run Analyze first.")
         coh = self.gate_controls.coh()
-        nd = None
-        if (
-            self.gate_controls.gate()
-            and self._tok_mask is not None
-            and self._gate_meta is not None
-        ):
-            from tokeye.sources.mirnov import gate_dominant_mask
-
-            try:
-                nd = gate_dominant_mask(
-                    self._result, self._tok_mask, self._gate_meta, coh_thresh=coh
-                )
-            except Exception:  # noqa: BLE001 - fall back to ungated on any failure
-                nd = None
+        nd = self._gated_nd(coh)
 
         params = {
             "shot": self.shot_field.shot(),
