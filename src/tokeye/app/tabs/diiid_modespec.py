@@ -18,9 +18,12 @@ tab (and the app) does no I/O and no model load.
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 
 import gradio as gr
 
+from tokeye import export
 from tokeye.app.analyze.analyze import wrapper_model_load, wrapper_model_load_pair
 from tokeye.app.analyze.load import find_models, model_infer
 from tokeye.hub import DEFAULT_MODEL, MODEL_REGISTRY
@@ -212,9 +215,104 @@ def rerender_coh(result, tok_mask, gate_meta, coh_thresh, gate):
     if gate and tok_mask is not None and gate_meta is not None:
         try:
             nd = gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=float(coh_thresh))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            gr.Warning(f"Gate failed (showing ungated): {exc}")
             nd = None
     return plotly_modespec(result, nd=nd, coh_thresh=float(coh_thresh))
+
+
+def export_modespec(
+    shot,
+    ref_probe,
+    t_min,
+    t_max,
+    result,
+    tok_mask,
+    gate_meta,
+    f_min,
+    f_max,
+    n_min,
+    n_max,
+    decimation,
+    coh_thresh,
+    gate,
+    gate_source,
+    model_file,
+):
+    """Save the cached mode-spectrogram result as a ``.npz`` bundle + a modes ``.csv``.
+
+    Mirrors :func:`tokeye.app.tabs.diiid.export_diiid_analysis` (tempfile dir,
+    ``None``-clear convention, params style) and produces the same two files the
+    offline ``tokeye diiid-batch`` writes: ``<shot>_modespec.npz`` and
+    ``<shot>_modes.csv``. The gated dominant-``n`` array is recomputed from the
+    cached result + mask exactly like :func:`rerender_coh` (warn-and-continue on
+    failure; ``nd`` stays ``None`` when the gate is off/unavailable).
+
+    The no-data path returns ``None`` (not gradio's ``gr.update()`` skip
+    sentinel) so the multi-file download slot CLEARS instead of leaving a prior
+    export visible as a stale link. Only the CSV step is wrapped in try/except:
+    on failure the npz still ships (a one-element list).
+    """
+    if result is None:
+        gr.Warning("Run Analyze first.")
+        return None
+
+    from tokeye.sources.mirnov import gate_dominant_mask
+
+    nd = None
+    if gate and tok_mask is not None and gate_meta is not None:
+        try:
+            nd = gate_dominant_mask(result, tok_mask, gate_meta, coh_thresh=float(coh_thresh))
+        except Exception as exc:  # noqa: BLE001
+            gr.Warning(f"Gate failed (showing ungated): {exc}")
+            nd = None
+
+    params = {
+        "shot": int(shot) if shot else None,
+        "ref_probe": ref_probe,
+        "t_min": t_min,
+        "t_max": t_max,
+        "f_min": f_min,
+        "f_max": f_max,
+        "n_min": n_min,
+        "n_max": n_max,
+        "decimation": decimation,
+        "coh_thresh": coh_thresh,
+        "gate": gate,
+        "gate_source": gate_source,
+        "model": model_file,
+    }
+    bundle = export.modespec_bundle(
+        result=result,
+        nd=nd,
+        tok_mask=tok_mask,
+        coh_thresh=float(coh_thresh),
+        params=params,
+        source="diiid-modespec",
+    )
+
+    if shot:
+        npz_name = f"{int(shot)}_modespec.npz"
+        csv_name = f"{int(shot)}_modes.csv"
+    else:
+        stem = export.default_stem("modespec")
+        npz_name = f"{stem}.npz"
+        csv_name = f"{stem}_modes.csv"
+
+    out_dir = Path(tempfile.mkdtemp(prefix="tokeye-export-"))
+    npz_path = export.save_npz(out_dir / npz_name, bundle)
+
+    try:
+        csv_text = export.modes_csv_text(
+            result, array=_ARRAY, f_min=float(f_min), f_max=float(f_max)
+        )
+    except Exception as exc:  # noqa: BLE001
+        gr.Warning(f"CSV export failed: {exc}")
+        return [str(npz_path)]
+
+    csv_path = out_dir / csv_name
+    csv_path.write_text(csv_text)
+    return [str(npz_path), str(csv_path)]
 
 
 def diiid_modespec_tab():
@@ -285,6 +383,11 @@ def diiid_modespec_tab():
         analyze_btn = gr.Button("Analyze", variant="primary")
         modespec_out = gr.Plot(label="Toroidal mode number n")
 
+        save_export_btn = gr.Button("Save results (.npz + .csv)")
+        export_out = gr.File(
+            label="Download modespec results", file_count="multiple", interactive=False
+        )
+
     # State (cached so the coherence slider re-renders without recompute)
     model = gr.State()
     model_name = gr.State(None)
@@ -319,6 +422,18 @@ def diiid_modespec_tab():
         fn=rerender_coh,
         inputs=[result_state, tok_mask_state, gate_meta_state, coh_thresh, gate],
         outputs=[modespec_out],
+    )
+
+    # Save the cached result as an .npz bundle + a modes .csv (diiid-batch parity).
+    save_export_btn.click(
+        fn=export_modespec,
+        inputs=[
+            shot, ref_probe, t_min, t_max,
+            result_state, tok_mask_state, gate_meta_state,
+            f_min, f_max, n_min, n_max, decimation, coh_thresh, gate, gate_source,
+            model_file,
+        ],
+        outputs=[export_out],
     )
 
     return shot

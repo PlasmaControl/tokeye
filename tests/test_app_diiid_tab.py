@@ -182,3 +182,126 @@ def test_plotly_modespec_is_discrete_heatmap_with_integer_colorbar():
     png = render_modespec_png(result, shot=190000)
     assert png is not None
     assert png.size[0] > 100
+
+
+def _fake_modespec_result_with_mode_amp():
+    """Live-style mode-spectrogram result including ``mode_amp`` (required by the
+    CSV path's vendored ``detect_modes``). Shape cribbed from
+    ``tests/test_export.py``."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    result = {
+        "t_win_ms": np.linspace(1000, 1020, 30),
+        "freq_khz": np.linspace(5, 150, 25),
+        "n_dominant": rng.integers(-3, 4, size=(30, 25)),
+        "coherence": rng.random((30, 25)),
+        "n_range": (-3, 3),
+        "c95": 0.3,
+    }
+    n_lo, n_hi = result["n_range"]
+    n_win, n_freq = result["n_dominant"].shape
+    result["mode_amp"] = {
+        n: np.ones((n_win, n_freq)) for n in range(int(n_lo), int(n_hi) + 1)
+    }
+    return result
+
+
+def test_export_modespec_writes_npz_and_csv():
+    """Happy path (gate off -> nd None): a 2-file list — a modespec .npz + a modes
+    .csv — with diiid-batch filenames and the vendored CSV header."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from tokeye.app.tabs.diiid_modespec import export_modespec
+
+    result = _fake_modespec_result_with_mode_amp()
+    paths = export_modespec(
+        190000,           # shot
+        "MPI66M067D",     # ref_probe
+        1000.0,           # t_min
+        1020.0,           # t_max
+        result,           # result_state
+        None,             # tok_mask_state
+        None,             # gate_meta_state
+        5.0,              # f_min
+        150.0,            # f_max
+        -3,               # n_min
+        3,                # n_max
+        1,                # decimation
+        0.5,              # coh_thresh
+        False,            # gate
+        "Array average",  # gate_source
+        "big_tf_unet",    # model_file
+    )
+
+    assert isinstance(paths, list)
+    assert len(paths) == 2
+    npz_path, csv_path = paths
+    assert Path(npz_path).name == "190000_modespec.npz"
+    assert Path(csv_path).name == "190000_modes.csv"
+
+    data = np.load(npz_path, allow_pickle=False)
+    assert str(data["schema"]) == "tokeye-modespec/v1"
+    assert str(data["source"]) == "diiid-modespec"
+    for key in (
+        "n_dominant", "coherence", "t_win_ms", "freq_khz", "n_range", "c95",
+        "coh_thresh", "params_json",
+    ):
+        assert key in data
+
+    header = Path(csv_path).read_text().splitlines()[0]
+    assert "array" in header
+    assert "mode_label" in header
+
+
+def test_export_modespec_no_data_warns_and_returns_none():
+    """No-data path: a warning + None (not gr.update()) so the download slot clears."""
+    import pytest
+
+    from tokeye.app.tabs.diiid_modespec import export_modespec
+
+    with pytest.warns(UserWarning):
+        result = export_modespec(
+            190000, "MPI66M067D", None, None,
+            None, None, None,
+            5.0, 150.0, -3, 3, 1, 0.5, False, "Array average", "big_tf_unet",
+        )
+
+    assert result is None
+
+
+def test_rerender_coh_surfaces_gate_failure(monkeypatch):
+    """Gate-failure path: when ``gate_dominant_mask`` raises, ``rerender_coh`` warns
+    (no longer silent) and still returns the ungated figure (not None)."""
+    import numpy as np
+    import pytest
+
+    import tokeye.sources.mirnov as mirnov
+    from tokeye.app.tabs.diiid_modespec import rerender_coh
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("gate exploded")
+
+    # rerender_coh does `from tokeye.sources.mirnov import gate_dominant_mask`
+    # inside the function, so patch the attribute on the module it re-imports from.
+    monkeypatch.setattr(mirnov, "gate_dominant_mask", _boom)
+
+    rng = np.random.default_rng(0)
+    result = {
+        "t_win_ms": np.linspace(1000, 1020, 30),
+        "freq_khz": np.linspace(5, 150, 25),
+        "n_dominant": rng.integers(-3, 4, size=(30, 25)),
+        "coherence": rng.random((30, 25)),
+        "n_range": (-3, 3),
+        "c95": 0.3,
+    }
+    tok_mask = np.ones((128, 60), dtype=bool)
+    gate_meta = {"fs": 2.0e6, "t0_ms": 1000.0, "n_fft": 256, "hop": 64, "clip_dc": True}
+
+    with pytest.warns(UserWarning):
+        fig = rerender_coh(result, tok_mask, gate_meta, 0.5, True)
+
+    assert fig is not None
+    assert fig.to_json()  # serialisable Plotly figure, not None
