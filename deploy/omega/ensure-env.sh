@@ -116,7 +116,7 @@ echo "  (\"$ENV/bin/python -c '$HEALTH_IMPORTS'\" failed / python missing)" >&2
 
 # The exact rebuild command, kept in one place so the prompt, the non-tty
 # refusal message, and the code below can't drift apart.
-REBUILD_CMD="rm -rf \"$ENV\" && mamba env create -y -p \"$ENV\" -f \"$REPO/deploy/omega/environment-omega.yml\" && \"$ENV/bin/pip\" install -e \"$REPO[app]\""
+REBUILD_CMD="rm -rf \"$ENV\" && mamba env create -p \"$ENV\" -f \"$REPO/deploy/omega/environment-omega.yml\" && \"$ENV/bin/pip\" install -e \"$REPO[app]\""
 
 if [[ "$yes" -ne 1 ]]; then
   if [[ -t 0 ]]; then
@@ -159,7 +159,11 @@ echo "ensure-env.sh: rebuilding env at $ENV using $mamba_bin …" >&2
 # A half-swept env makes `mamba env create` fail; the user just confirmed a
 # rebuild, so clear it. Scoped strictly to $ENV — nothing else is ever removed.
 rm -rf "$ENV"
-"$mamba_bin" env create -y -p "$ENV" -f "$REPO/deploy/omega/environment-omega.yml"
+# NO -y here: `env create` never prompts (non-interactive by design), and old
+# conda/mamba — e.g. the 2022-mambaforge absolute fallback above — rejects the
+# flag outright (`mamba: error: unrecognized arguments: -y`, seen live on
+# omega14). Consent is handled by our own prompt/--yes gating above.
+"$mamba_bin" env create -p "$ENV" -f "$REPO/deploy/omega/environment-omega.yml"
 
 # TokEye (editable) + its wheels (torch/torchvision/gradio/plotly). No manual
 # gradio pin: since ab3245f the [app] extra pins gradio>=5.49,<6 itself, so pip

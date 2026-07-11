@@ -203,6 +203,54 @@ def test_ensure_env_noninteractive_refusal(tmp_path: Path):
     assert not sentinel.exists()  # …but mamba was never actually run
 
 
+def test_ensure_env_rebuild_never_passes_dash_y_to_mamba(tmp_path: Path):
+    """Unhealthy env + ``--yes`` → full rebuild flow against a fake mamba.
+
+    Old conda/mamba's ``env create`` subcommand has NO ``-y/--yes`` flag (it
+    never prompts — non-interactive by design) and hard-errors on it — observed
+    live on omega14 via the 2022-mambaforge absolute fallback:
+    ``mamba: error: unrecognized arguments: -y``. The fake mamba mimics that
+    old behaviour: it exits 2 on any ``-y``/``--yes`` argument, and otherwise
+    "creates" the env by dropping a healthy stub ``python`` and ``pip`` into
+    ``env-<arch>/bin`` so the script's subsequent ``pip install`` and
+    post-rebuild health check run against them.
+    """
+    envbin = tmp_path / _env_name() / "bin"
+    _write_exec(envbin / "python", "#!/usr/bin/env bash\nexit 1\n")  # unhealthy
+
+    fakebin = tmp_path / "fakebin"
+    _write_exec(
+        fakebin / "mamba",
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do\n'
+        '  if [[ "$a" == "-y" || "$a" == "--yes" ]]; then\n'
+        '    echo "mamba: error: unrecognized arguments: -y" >&2\n'
+        "    exit 2\n"
+        "  fi\n"
+        "done\n"
+        f'mkdir -p "{envbin}"\n'
+        f"printf '#!/usr/bin/env bash\\nexit 0\\n' > \"{envbin}/python\"\n"
+        f"printf '#!/usr/bin/env bash\\nexit 0\\n' > \"{envbin}/pip\"\n"
+        f'chmod +x "{envbin}/python" "{envbin}/pip"\n',
+    )
+
+    result = subprocess.run(
+        [str(ENSURE), "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        env=_env_without(
+            TOKEYE_DIR=str(tmp_path),
+            TOKEYE_REPO=str(REPO),
+            PATH=f"{fakebin}:{os.environ['PATH']}",
+        ),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rebuild OK" in (result.stdout + result.stderr)
+
+
 # --- 6. repo resolution -----------------------------------------------------
 
 
