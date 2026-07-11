@@ -41,7 +41,7 @@ train = [
     "wavio",
     "joblib",
     "lightning",
-    "torchaudio",
+    "torchaudio<2.11",  # match torch<2.11 (2.11 dropped its torch-version metadata)
     "torchmetrics",
     "scikit-learn",
     "scikit-image",
@@ -88,7 +88,7 @@ train = [
     "joblib",
 
     "lightning",
-    "torchaudio",
+    "torchaudio<2.11",  # match torch<2.11 (2.11 dropped its torch-version metadata)
     "torchmetrics",
 
     "scikit-learn",
