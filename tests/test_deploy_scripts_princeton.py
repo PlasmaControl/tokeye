@@ -100,6 +100,10 @@ def test_setup_renders_modulefile_and_calls_uv(tmp_path):
 
     module_file = modules_root / "tokeye" / "9.9.9"
     assert module_file.is_file(), result.stdout
+    # stellar's environment-modules needs an explicit default version.
+    version_file = modules_root / "tokeye" / ".version"
+    assert 'set ModulesVersion "9.9.9"' in version_file.read_text()
+    assert version_file.read_text().startswith("#%Module1.0")
     rendered = module_file.read_text()
     assert rendered.splitlines()[0] == "#%Module1.0"
     assert f'set root "{root}"' in rendered

@@ -83,6 +83,9 @@ sed -e "s|@ROOT@|$ROOT|g" \
     -e "s|@FOUNDATION_DIR@|$FOUNDATION_DIR|g" \
     -e "s|@HF_HOME@|$HF_HOME_DIR|g" \
     "$TEMPLATE" > "$module_file"
+# stellar's environment-modules does not auto-pick a highest version — without
+# a .version file `module load tokeye` fails with "No default version defined".
+printf '#%%Module1.0\nset ModulesVersion "%s"\n' "$version" > "$module_dir/.version"
 
 # ── 4. group permissions ──────────────────────────────────────────────────────
 say "Opening group read permissions (g+rX)"
