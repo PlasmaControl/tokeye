@@ -25,12 +25,13 @@ def run(view: str | None = None, self_test: bool = False) -> int:
 
     from tokeye.gui.main_window import MainWindow
     from tokeye.gui.theme import apply_theme, configure_pyqtgraph
+    from tokeye.sources.factory import source_label
 
     app = QtWidgets.QApplication.instance()
     if app is None:
         app = QtWidgets.QApplication(sys.argv[:1] or ["tokeye"])
     app.setApplicationName("TokEye")
-    app.setApplicationDisplayName("TokEye — DIII-D")
+    app.setApplicationDisplayName(f"TokEye — {source_label()}")
     app.setOrganizationName("PlasmaControl")
 
     configure_pyqtgraph()

@@ -12,11 +12,12 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from tokeye.sources.presets import (
-    DIAGNOSTICS,
-    MIRNOV_TOROIDAL,
-    diagnostic_dropdown_choices,
+from tokeye.sources.factory import (
+    active_diagnostics,
+    active_dropdown_choices,
+    default_diag_key,
 )
+from tokeye.sources.presets import MIRNOV_TOROIDAL
 
 VIEW_MODES = ["Enhanced", "Mask", "Amplitude", "Original"]
 GATE_AVERAGE = "Array average"
@@ -110,12 +111,13 @@ class ShotField(QtWidgets.QGroupBox):
 class DiagnosticProbe(QtWidgets.QGroupBox):
     probeChanged = QtCore.Signal(str, str)  # diag_key, pointname
 
-    def __init__(self, default_diag: str = "mag") -> None:
+    def __init__(self, default_diag: str | None = None) -> None:
         super().__init__("Diagnostic")
         form = QtWidgets.QFormLayout(self)
+        default_diag = default_diag or default_diag_key()
 
         self._diag = QtWidgets.QComboBox()
-        for label, key in diagnostic_dropdown_choices():
+        for label, key in active_dropdown_choices():
             self._diag.addItem(label, key)
         self._probe = QtWidgets.QComboBox()
         self._probe.setEditable(True)  # custom pointnames allowed
@@ -130,7 +132,7 @@ class DiagnosticProbe(QtWidgets.QGroupBox):
         self._probe.currentTextChanged.connect(self._emit_changed)
 
     def _repopulate_probes(self) -> None:
-        diag = DIAGNOSTICS.get(self.diag_key())
+        diag = active_diagnostics().get(self.diag_key())
         self._probe.blockSignals(True)
         self._probe.clear()
         if diag is not None:
@@ -146,7 +148,7 @@ class DiagnosticProbe(QtWidgets.QGroupBox):
         self.probeChanged.emit(self.diag_key(), self.pointname())
 
     def diag_key(self) -> str:
-        return self._diag.currentData() or "mag"
+        return self._diag.currentData() or default_diag_key()
 
     def pointname(self) -> str:
         return self._probe.currentText().strip()

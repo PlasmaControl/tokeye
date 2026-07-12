@@ -54,13 +54,14 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
 def _handle(args: argparse.Namespace) -> int:
     import numpy as np
 
-    from tokeye.sources import DIAGNOSTICS, MDSSource
+    from tokeye.sources.factory import active_diagnostics, get_source
 
-    diag = DIAGNOSTICS.get(args.diag)
+    diagnostics = active_diagnostics()
+    diag = diagnostics.get(args.diag)
     if diag is None:
         print(
             f"error: unknown diagnostic '{args.diag}' "
-            f"(choices: {', '.join(DIAGNOSTICS)})",
+            f"(choices: {', '.join(diagnostics)})",
             file=sys.stderr,
         )
         return 2
@@ -68,7 +69,7 @@ def _handle(args: argparse.Namespace) -> int:
     tlim = tuple(args.tlim) if args.tlim is not None else None
 
     try:
-        t_ms, x, fs = MDSSource().fetch(args.shot, pointname, tlim)
+        t_ms, x, fs = get_source().fetch(args.shot, pointname, tlim)
     except RuntimeError as exc:  # MDSplus unavailable and no cache
         print(f"error: {exc}", file=sys.stderr)
         return 2

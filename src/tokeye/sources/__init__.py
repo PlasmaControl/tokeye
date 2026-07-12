@@ -7,6 +7,7 @@ Importing this package does not import MDSplus: :class:`MDSSource` defers the
 from __future__ import annotations
 
 from .base import SignalSource
+from .factory import get_source, get_source_class, source_kind
 from .mds import (
     DEFAULT_ATLAS,
     DEFAULT_CACHE_ROOT,
@@ -26,6 +27,9 @@ __all__ = [
     "SignalSource",
     "cache_root",
     "diagnostic_dropdown_choices",
+    "get_source",
+    "get_source_class",
     "latest_shot",
+    "source_kind",
     "time_bounds",
 ]

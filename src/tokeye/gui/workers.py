@@ -46,7 +46,7 @@ class _Worker(QtCore.QRunnable):
 
 class LatestShotWorker(_Worker):
     def work(self, progress):
-        from tokeye.sources.mds import latest_shot
+        from tokeye.sources.factory import latest_shot
 
         return latest_shot()
 
@@ -58,7 +58,7 @@ class BoundsWorker(_Worker):
         self.pointname = pointname
 
     def work(self, progress):
-        from tokeye.sources.mds import time_bounds
+        from tokeye.sources.factory import time_bounds
 
         return time_bounds(int(self.shot), str(self.pointname))
 
@@ -83,11 +83,11 @@ class FetchSpectrogramWorker(_Worker):
         self.stft = stft
 
     def work(self, progress):
-        from tokeye.sources.mds import MDSSource
+        from tokeye.sources.factory import get_source
         from tokeye.transforms import compute_stft
 
         progress(0.1, f"Fetching {int(self.shot)} / {self.pointname} …")
-        t, x, fs = MDSSource().fetch(int(self.shot), str(self.pointname), self.tlim)
+        t, x, fs = get_source().fetch(int(self.shot), str(self.pointname), self.tlim)
         if x.size == 0:
             raise ValueError(
                 f"{int(self.shot)} / {self.pointname} returned no samples in that window."

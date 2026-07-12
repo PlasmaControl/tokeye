@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtWidgets
 from tokeye.gui.model_service import ModelService
 from tokeye.gui.widgets.modespec_view import ModespecView
 from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+from tokeye.sources.factory import source_label
 
 _VIEW_ORDER = ("spectrogram", "modespec")
 _VIEW_TITLES = {"spectrogram": "Spectrogram", "modespec": "Modespec"}
@@ -25,7 +26,7 @@ class MainWindow(QtWidgets.QMainWindow):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("MainWindow")
-        self.setWindowTitle("TokEye — DIII-D")
+        self.setWindowTitle(f"TokEye — {source_label()}")
         self.resize(1360, 860)
         self.setMinimumSize(980, 640)
 

@@ -575,6 +575,75 @@ def test_maybe_decimate_reduces_samples():
     assert sd2.shape[1] == n2
 
 
+# ── source factory (TOKEYE_SOURCE routing shared by GUI / tabs / CLI) ────────────
+def test_factory_defaults_to_mds(monkeypatch):
+    from tokeye.sources.factory import get_source_class, source_kind
+    from tokeye.sources.mds import MDSSource
+
+    monkeypatch.delenv("TOKEYE_SOURCE", raising=False)
+    assert source_kind() == "mds"
+    assert get_source_class() is MDSSource
+
+
+def test_factory_kind_aliases(monkeypatch):
+    from tokeye.sources.factory import get_source, get_source_class, source_kind
+    from tokeye.sources.mds import MDSSource
+
+    for alias in ("mds", "diiid", "d3d", "MDS", " diiid "):
+        monkeypatch.setenv("TOKEYE_SOURCE", alias)
+        assert source_kind() == "mds"
+    assert get_source_class("d3d") is MDSSource
+    src = get_source("mds", data_dir="/tmp/x")
+    assert isinstance(src, MDSSource) and src.data_dir == "/tmp/x"
+
+
+def test_factory_rejects_unknown_kind(monkeypatch):
+    import pytest
+
+    from tokeye.sources.factory import get_source_class, source_kind
+
+    monkeypatch.setenv("TOKEYE_SOURCE", "bogus")
+    with pytest.raises(ValueError, match="bogus"):
+        source_kind()
+    with pytest.raises(ValueError, match="choices"):
+        get_source_class("nope")
+
+
+def test_factory_active_diagnostics_follow_kind(monkeypatch):
+    from tokeye.sources import DIAGNOSTICS
+    from tokeye.sources.factory import (
+        active_diagnostics,
+        active_dropdown_choices,
+        default_diag_key,
+        source_label,
+    )
+
+    monkeypatch.delenv("TOKEYE_SOURCE", raising=False)
+    diags = active_diagnostics()
+    assert diags is DIAGNOSTICS
+    assert default_diag_key() == next(iter(DIAGNOSTICS))
+    choices = active_dropdown_choices()
+    assert choices == [(d.label, d.key) for d in DIAGNOSTICS.values()]
+    assert "DIII-D" in source_label()
+
+
+def test_factory_foundation_kind_resolves_or_explains():
+    # Branch-portable: on branches without tokeye.sources.foundation the factory
+    # must raise a self-explanatory ImportError; where it exists, resolve it.
+    from tokeye.sources.factory import get_source_class
+
+    try:
+        cls = get_source_class("foundation")
+    except ImportError as exc:
+        assert "princeton" in str(exc)
+    else:
+        assert cls.__name__ == "FoundationSource"
+
+
+def test_factory_reexported_from_sources():
+    from tokeye.sources import get_source, get_source_class, source_kind  # noqa: F401
+
+
 def test_cache_root_env_override(monkeypatch):
     from tokeye.sources import DEFAULT_CACHE_ROOT, MDSSource, cache_root
 
