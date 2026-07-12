@@ -259,7 +259,7 @@ class TestLatestShotPrefill:
             calls["n"] += 1
             return 199999
 
-        monkeypatch.setattr("tokeye.sources.latest_shot", fetcher)
+        monkeypatch.setattr("tokeye.sources.factory.latest_shot", fetcher)
 
         assert m._latest_shot() == 199999
         assert m._latest_shot() == 199999
@@ -282,7 +282,7 @@ class TestLatestShotPrefill:
             gate.wait(5.0)  # safety cap so a failed assert can't hang the suite
             return 199999
 
-        monkeypatch.setattr("tokeye.sources.latest_shot", blocking_fetcher)
+        monkeypatch.setattr("tokeye.sources.factory.latest_shot", blocking_fetcher)
 
         # First call: the fetch blocks -> times out fast -> fallback 0.
         t0 = time.monotonic()
@@ -315,7 +315,7 @@ class TestLatestShotPrefill:
                 raise RuntimeError("atlas unreachable")
             return 199999
 
-        monkeypatch.setattr("tokeye.sources.latest_shot", fetcher)
+        monkeypatch.setattr("tokeye.sources.factory.latest_shot", fetcher)
 
         # Prime the cache with a good shot.
         assert m._latest_shot() == 199999
