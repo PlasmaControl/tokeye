@@ -197,7 +197,10 @@ def test_build_sbatch_script_module_dir_default(monkeypatch):
     assert "module use /cscratch/share/tokeye/modulefiles && module load tokeye" in s
 
 
-def test_diiid_batch_is_registered():
+def test_diiid_batch_is_not_registered_here():
+    """The princeton branch does not wire diiid-batch (no MDSplus route on
+    stellar); the module stays importable and princeton-batch reuses its shot
+    parsing."""
     from tokeye.cli import build_parser
 
     parser = build_parser()
@@ -205,4 +208,5 @@ def test_diiid_batch_is_registered():
         a for a in parser._actions if getattr(a, "choices", None) and "run" in a.choices
     ]
     assert subactions, "no subparser action found"
-    assert "diiid-batch" in subactions[0].choices
+    assert "diiid-batch" not in subactions[0].choices
+    assert "princeton-batch" in subactions[0].choices

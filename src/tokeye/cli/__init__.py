@@ -15,10 +15,11 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+# diiid-batch is not registered on this branch (no MDSplus route on stellar);
+# its module stays importable — princeton_batch reuses its shot parsing.
 from tokeye.cli import (
     alfvenspec,
     app,
-    diiid_batch,
     download,
     eigspec,
     elmspec,
@@ -27,6 +28,7 @@ from tokeye.cli import (
     gui,
     modesearch,
     modespec,
+    princeton_batch,
     run,
 )
 
@@ -52,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_subcommand(subparsers)
     example.add_subcommand(subparsers)
     fetch.add_subcommand(subparsers)
-    diiid_batch.add_subcommand(subparsers)
+    princeton_batch.add_subcommand(subparsers)
     modespec.add_subcommand(subparsers)
     elmspec.add_subcommand(subparsers)
     alfvenspec.add_subcommand(subparsers)
