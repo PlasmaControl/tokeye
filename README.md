@@ -25,11 +25,15 @@ General pip-install instructions are in the sections below this one.
    module use --append /projects/EKOLEMEN/Modules/modulefiles-shared
    ```
 1. **Native desktop GUI (recommended)** — the stellar-vis nodes have V100S
-   GPUs and X11, so inference runs on-GPU right where you log in:
+   GPUs, so inference runs on-GPU right where you log in. Use **TurboVNC**
+   for the display (plain `ssh -X` is painfully slow and XQuartz eats
+   keyboard focus — see [docs/princeton-cluster.md](docs/princeton-cluster.md)):
    ```bash
-   ssh -X <netid>@stellar-vis1.princeton.edu    # or stellar-vis2
-   module load tokeye
-   tokeye          # opens the window (spectrogram viewer, GPU inference)
+   ssh <netid>@stellar-vis1.princeton.edu       # or stellar-vis2
+   module load turbovnc && vncserver            # note the display, e.g. :5
+   # laptop: ssh -N -L 5905:localhost:5905 <netid>@stellar-vis1.princeton.edu
+   #         then connect a VNC viewer to localhost:5905
+   module load tokeye && tokeye                 # inside the VNC desktop
    ```
 2. **Web app from your laptop** — start it on a vis node, tunnel the port:
    ```bash

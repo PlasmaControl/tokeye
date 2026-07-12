@@ -73,10 +73,50 @@ model weights into a shared `HF_HOME` under `/projects/EKOLEMEN`, and the
 `princeton-batch` job body exports `HF_HUB_OFFLINE=1` so a job never stalls on
 a Hugging Face call. Login and vis nodes do have internet (uv sync, downloads).
 
-## X11 / Qt
+## Remote display: use TurboVNC, not plain `ssh -X`
 
-`ssh -X` (or `-Y`) into stellar-vis1/2 works for the PySide6 GUI; the module
-sets `QT_QPA_PLATFORM=xcb`. Debug a blank window with
+Plain X11 forwarding technically works but is the wrong tool for the GUI
+(measured on stellar-vis2 → laptop over XQuartz: a single window open+paint
+took 28.6 s wall vs 6.7 s CPU — ~75 % of the time is network round-trips).
+The vis nodes ship the fix as modules: **TurboVNC** renders the desktop
+server-side and streams compressed pixels, so the GUI is fast and keyboard
+focus behaves like a normal desktop.
+
+```bash
+# on stellar-vis1/2 (once per session)
+module load turbovnc
+vncserver -geometry 1920x1080        # first run sets a VNC password; note the
+                                     # display it prints, e.g. :5
+
+# on your laptop: tunnel 5900 + display number, then point any VNC client at it
+ssh -N -L 5905:localhost:5905 <netid>@stellar-vis1.princeton.edu
+# TurboVNC Viewer (best) or another VNC client -> localhost:5905
+
+# inside the VNC desktop's terminal
+module load tokeye && tokeye
+
+# when done
+vncserver -kill :5
+```
+
+### If you stay on X11 forwarding anyway
+
+- **Use `ssh -Y -C`, not `-X`.** On macOS, `-X` is *untrusted* forwarding:
+  the X SECURITY extension slows everything further and causes input quirks
+  in Qt apps. `-Y` (trusted) + `-C` (compression) is markedly better.
+- **XQuartz can't type into the boxes?** That is XQuartz's window-focus
+  model, not the app: clicks into a forwarded Qt window don't hand it
+  keyboard focus by default. Fix once on your Mac, then restart XQuartz:
+  ```bash
+  defaults write org.xquartz.X11 wm_ffm -bool true            # focus follows mouse
+  defaults write org.xquartz.X11 wm_click_through -bool true
+  ```
+- The web app (`tokeye app` + port tunnel) sidesteps all of this — rendering
+  happens in your local browser.
+
+## Qt notes
+
+The module sets `QT_QPA_PLATFORM=xcb`. Debug a blank window with
 `QT_DEBUG_PLUGINS=1 tokeye gui --self-test`. The anaconda modules export
 `PYTHONPATH`, which poisons the uv venv — the tokeye module clears it (reload
 your anaconda module after `module unload tokeye` if you need it back).
