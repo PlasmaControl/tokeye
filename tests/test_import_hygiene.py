@@ -67,6 +67,9 @@ def test_cli_import_does_not_pull_in_gradio_or_torch():
             # import path so plain `tokeye --help` stays instant.
             "assert 'PySide6' not in sys.modules; "
             "assert 'pyqtgraph' not in sys.modules; "
+            # FoundationSource defers h5py to fetch-time; the CLI import must
+            # not pull it in (it is an optional 'princeton' extra).
+            "assert 'h5py' not in sys.modules; "
             "print('ok')",
         ],
         capture_output=True,

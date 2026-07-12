@@ -42,6 +42,11 @@ gui = [
 eigspec = [
     "scikit-learn",
 ]
+princeton = [
+    # FoundationSource reads the stellar /scratch/gpfs/EKOLEMEN/foundation_model
+    # HDF5 archive; h5py stays optional so the core install remains lean.
+    "h5py>=3.12",
+]
 train = [
     "ipykernel",
     "ipywidgets",

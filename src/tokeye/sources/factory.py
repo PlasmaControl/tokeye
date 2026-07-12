@@ -9,8 +9,9 @@ can swap the backend without touching consumers. Kinds:
   ``{shot}_processed.h5`` files (Princeton ``foundation_model`` set).
 
 ``DEFAULT_SOURCE_KIND`` is the one intentional divergence point between site
-branches (``mds`` here). Everything stays lazily imported: resolving a kind
-touches only :mod:`os`, and the concrete source module loads on first use.
+branches (``foundation`` here on the princeton branch). Everything stays lazily
+imported: resolving a kind touches only :mod:`os`, and the concrete source
+module loads on first use.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from tokeye.sources.base import SignalSource
     from tokeye.sources.presets import Diagnostic
 
-DEFAULT_SOURCE_KIND = "mds"
+DEFAULT_SOURCE_KIND = "foundation"
 
 _KIND_ALIASES = {
     "mds": "mds",

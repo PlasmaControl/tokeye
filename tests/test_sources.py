@@ -576,13 +576,14 @@ def test_maybe_decimate_reduces_samples():
 
 
 # ── source factory (TOKEYE_SOURCE routing shared by GUI / tabs / CLI) ────────────
-def test_factory_defaults_to_mds(monkeypatch):
+def test_factory_defaults_to_foundation(monkeypatch):
+    # princeton-branch default: local foundation_model archive, not MDSplus.
     from tokeye.sources.factory import get_source_class, source_kind
-    from tokeye.sources.mds import MDSSource
+    from tokeye.sources.foundation import FoundationSource
 
     monkeypatch.delenv("TOKEYE_SOURCE", raising=False)
-    assert source_kind() == "mds"
-    assert get_source_class() is MDSSource
+    assert source_kind() == "foundation"
+    assert get_source_class() is FoundationSource
 
 
 def test_factory_kind_aliases(monkeypatch):
@@ -618,13 +619,20 @@ def test_factory_active_diagnostics_follow_kind(monkeypatch):
         source_label,
     )
 
-    monkeypatch.delenv("TOKEYE_SOURCE", raising=False)
+    monkeypatch.setenv("TOKEYE_SOURCE", "mds")
     diags = active_diagnostics()
     assert diags is DIAGNOSTICS
     assert default_diag_key() == next(iter(DIAGNOSTICS))
     choices = active_dropdown_choices()
     assert choices == [(d.label, d.key) for d in DIAGNOSTICS.values()]
     assert "DIII-D" in source_label()
+
+    from tokeye.sources.foundation_presets import FOUNDATION_DIAGNOSTICS
+
+    monkeypatch.setenv("TOKEYE_SOURCE", "foundation")
+    assert active_diagnostics() is FOUNDATION_DIAGNOSTICS
+    assert default_diag_key() == "mirnov"
+    assert "foundation" in source_label()
 
 
 def test_factory_foundation_kind_resolves_or_explains():
