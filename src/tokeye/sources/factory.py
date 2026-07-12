@@ -93,7 +93,15 @@ def time_bounds(shot: int, pointname: str) -> tuple[float, float] | None:
 def active_diagnostics() -> dict[str, Diagnostic]:
     """Diagnostic presets matching the active source."""
     if source_kind() == "foundation":
-        from tokeye.sources.foundation_presets import FOUNDATION_DIAGNOSTICS
+        try:
+            from tokeye.sources.foundation_presets import FOUNDATION_DIAGNOSTICS
+        except ImportError as exc:
+            raise ImportError(
+                "the 'foundation' source is not available on this "
+                "branch/install (tokeye.sources.foundation_presets missing — "
+                "it ships on the princeton branch); unset TOKEYE_SOURCE or "
+                "set it to 'mds'"
+            ) from exc
 
         return FOUNDATION_DIAGNOSTICS
     from tokeye.sources.presets import DIAGNOSTICS

@@ -70,14 +70,39 @@ def test_cursor_readout_forwarded_to_window(qapp):
     assert "" in seen  # cleared on leave
 
 
-def test_main_window_registers_both_views(qapp):
+def test_main_window_registers_both_views_on_mds(qapp, monkeypatch):
     from tokeye.gui.main_window import MainWindow
 
+    monkeypatch.setenv("TOKEYE_SOURCE", "mds")
     win = MainWindow()
     assert set(win._views) == {"spectrogram", "modespec"}
     # switching views must not raise
     win.show_view("modespec")
     win.show_view("spectrogram")
+
+
+def test_active_view_order_hides_modespec_on_non_mds(monkeypatch):
+    # Modespec needs DIII-D probe geometry; any other source drops the view.
+    from tokeye.gui.main_window import _active_view_order
+
+    monkeypatch.setenv("TOKEYE_SOURCE", "mds")
+    assert _active_view_order() == ("spectrogram", "modespec")
+    monkeypatch.setenv("TOKEYE_SOURCE", "foundation")
+    assert _active_view_order() == ("spectrogram",)
+
+
+def test_main_window_hides_modespec_on_non_mds_source(qapp, monkeypatch):
+    # Full window construction needs the foundation presets (probe dropdown),
+    # which only site branches that ship the foundation source provide.
+    pytest.importorskip("tokeye.sources.foundation_presets")
+    from tokeye.gui.main_window import MainWindow
+
+    monkeypatch.setenv("TOKEYE_SOURCE", "foundation")
+    win = MainWindow()
+    assert set(win._views) == {"spectrogram"}
+    assert win.modespec_view is None
+    win.show_view("modespec")  # unknown key: ignored, must not raise
+    assert win._stack.currentIndex() == win._views["spectrogram"]
 
 
 def test_plot_toolbar_toggles_mouse_mode(qapp):
