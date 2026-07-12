@@ -41,6 +41,40 @@ def test_view_sets_image_rect_and_orientation(qapp):
     assert (bottom_left.x(), bottom_left.y()) == pytest.approx(expected[:2])
 
 
+def test_equal_pixels_toggle_locks_square_data_pixels(qapp):
+    """'1:1 pixels' locks the aspect so one STFT column renders as wide as one
+    bin is tall (ratio = xScale/yScale = df/dt), frames the full band anchored
+    at the data start, survives a re-load, and unlocks cleanly."""
+    from tokeye.gui.widgets.spectrogram_view import SpectrogramView
+
+    view = SpectrogramView(window=None)
+    view.stft._fmin.setValue(0.0)  # no display-band crop
+    view.stft._fmax.setValue(0.0)
+    h, w = 200, 60
+    arr = np.random.default_rng(0).random((h, w))
+    view.set_spectrogram(arr, _META)
+
+    vb = view.canvas.spectrogram_plot().getViewBox()
+    assert vb.state["aspectLocked"] is False
+    assert view.canvas.equal_pixels() is False
+
+    view._equal_btn.setChecked(True)
+    df = _META["fs"] / _META["n_fft"] / 1e3  # kHz per row
+    dt = _META["hop"] / _META["fs"] * 1e3  # ms per column
+    assert vb.state["aspectLocked"] == pytest.approx(df / dt)
+    x0, y0, _wms, hkhz = spectrogram_rect(_META, h, w, r_lo=0)
+    (xlo, _xhi), (ylo, yhi) = vb.viewRange()
+    assert (ylo, yhi) == pytest.approx((y0, y0 + hkhz), rel=1e-3)
+    assert xlo == pytest.approx(x0, abs=1e-6)
+
+    # a fresh load keeps the viewing style
+    view.set_spectrogram(arr, _META)
+    assert vb.state["aspectLocked"] == pytest.approx(df / dt)
+
+    view._equal_btn.setChecked(False)
+    assert vb.state["aspectLocked"] is False
+
+
 def test_axis_labels_have_no_si_prefix(qapp):
     from tokeye.gui.widgets.plot_items import SpectrogramCanvas
 

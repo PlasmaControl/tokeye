@@ -151,6 +151,17 @@ class SpectrogramView(QtWidgets.QWidget):
         self._pan_btn.setChecked(True)
         self._pan_btn.toggled.connect(self._on_mode_toggled)
 
+        self._equal_btn = QtWidgets.QPushButton("1:1 pixels")
+        self._equal_btn.setCheckable(True)
+        self._equal_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self._equal_btn.setToolTip(
+            "Equal-spaced pixels: one STFT column as wide as one bin is tall — "
+            "the shot becomes a long strip you pan along (full band tall)."
+        )
+        self._equal_btn.toggled.connect(self.canvas.set_equal_pixels)
+        lay.addSpacing(8)
+        lay.addWidget(self._equal_btn)
+
         reset = QtWidgets.QPushButton("Reset view")
         reset.setIcon(self.style().standardIcon(
             QtWidgets.QStyle.StandardPixmap.SP_BrowserReload))
