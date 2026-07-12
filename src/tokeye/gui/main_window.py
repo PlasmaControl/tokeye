@@ -12,10 +12,22 @@ from PySide6 import QtCore, QtWidgets
 from tokeye.gui.model_service import ModelService
 from tokeye.gui.widgets.modespec_view import ModespecView
 from tokeye.gui.widgets.spectrogram_view import SpectrogramView
-from tokeye.sources.factory import source_label
+from tokeye.sources.factory import source_kind, source_label
 
 _VIEW_ORDER = ("spectrogram", "modespec")
 _VIEW_TITLES = {"spectrogram": "Spectrogram", "modespec": "Modespec"}
+
+
+def _active_view_order() -> tuple[str, ...]:
+    """Views offered for the active source.
+
+    The Modespec view needs the DIII-D toroidal-probe geometry, which only the
+    MDSplus source provides — on any other source it would be a dead end, so
+    it is not offered at all.
+    """
+    if source_kind() == "mds":
+        return _VIEW_ORDER
+    return tuple(k for k in _VIEW_ORDER if k != "modespec")
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -35,6 +47,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_service = ModelService()
 
         # Stack must exist before the nav (its segments switch the stack).
+        self._view_order = _active_view_order()
         self._stack = QtWidgets.QStackedWidget()
         self._stack.setObjectName("Stack")
 
@@ -52,7 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._views: dict[str, int] = {}
         self._add_views()
 
-        key = initial_view if initial_view in self._views else _VIEW_ORDER[0]
+        key = initial_view if initial_view in self._views else self._view_order[0]
         self.show_view(key)
 
     # ------------------------------------------------------------------ build
@@ -86,7 +99,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._nav = QtWidgets.QButtonGroup(self)
         self._nav.setExclusive(True)
-        for i, key in enumerate(_VIEW_ORDER):
+        for i, key in enumerate(self._view_order):
             btn = QtWidgets.QPushButton(_VIEW_TITLES[key])
             btn.setCheckable(True)
             btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
@@ -117,9 +130,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _add_views(self) -> None:
         self.spectrogram_view = SpectrogramView(self)
-        self.modespec_view = ModespecView(self)
         self._register_view("spectrogram", self.spectrogram_view)
-        self._register_view("modespec", self.modespec_view)
+        # Only built when offered: on non-MDS sources the widget stays None.
+        self.modespec_view = None
+        if "modespec" in self._view_order:
+            self.modespec_view = ModespecView(self)
+            self._register_view("modespec", self.modespec_view)
 
     def _register_view(self, key: str, widget: QtWidgets.QWidget) -> None:
         self._views[key] = self._stack.addWidget(widget)
