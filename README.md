@@ -11,33 +11,45 @@ It is designed to be used in the context of plasma physics, but can be used for 
 
 Check out [this preprint](https://arxiv.org/abs/2602.20317) for more information.
 
-## Running at DIII-D (omega) — quickstart
+## Running at Princeton (stellar) — quickstart
 
-This branch ships a native desktop GUI, a web app, and a Slurm batch runner,
-already deployed on the omega cluster. General pip-install instructions are
-in the sections below this one.
+This branch reads DIII-D shots straight from the local
+`/scratch/gpfs/EKOLEMEN/foundation_model` archive (~17k shots on GPFS — no
+MDSplus, no network fetch) and is deployed as a `kolemen` group module.
+General pip-install instructions are in the sections below this one.
 
-1. **Native desktop GUI (recommended)** — over NoMachine (or `ssh -X`) on
-   `somega.gat.com`:
+0. **One-time** — stellar does not auto-discover this group's modules (the
+   probe looks for `/projects/KOLEMEN`, the space is `/projects/EKOLEMEN`), so
+   add to `~/.bashrc`:
    ```bash
-   module use /cscratch/share/tokeye/modulefiles
+   module use --append /projects/EKOLEMEN/Modules/modulefiles-shared
+   ```
+1. **Native desktop GUI (recommended)** — the stellar-vis nodes have V100S
+   GPUs and X11, so inference runs on-GPU right where you log in:
+   ```bash
+   ssh -X <netid>@stellar-vis1.princeton.edu    # or stellar-vis2
    module load tokeye
-   tokeye          # opens the DIII-D window (spectrogram + toroidal modespec)
+   tokeye          # opens the window (spectrogram viewer, GPU inference)
    ```
-2. **Web app from your laptop** — one command; copy the launcher once, then
-   run it (tunnel + remote app + browser open, Ctrl-C tears it all down):
+2. **Web app from your laptop** — start it on a vis node, tunnel the port:
    ```bash
-   scp <you>@somega.gat.com:/cscratch/share/tokeye/tokeye-connect.sh ~/
-   ~/tokeye-connect.sh <you>@somega.gat.com
+   module load tokeye && tokeye app             # on stellar-vis1/2
+   ssh -N -L 7860:localhost:7860 <netid>@stellar-vis1.princeton.edu   # laptop
+   # then browse http://localhost:7860 → the Princeton tab
    ```
-3. **Offline batch over many shots** — the **DIII-D Offline** tab in the web
-   app, or `tokeye diiid-batch --help` from the CLI (prefetch on somega,
-   one Slurm job on the `gpus` partition).
+3. **Batch over many shots** — one Slurm job on the A100 `gpu` partition
+   (or `--local` to run immediately on the vis node's V100S):
+   ```bash
+   tokeye princeton-batch --shots 190000-190010 \
+       --outdir /scratch/gpfs/$USER/tokeye/run1        # submits sbatch
+   tokeye princeton-batch --local --shots 190000 --outdir ...   # run here
+   ```
 
 More:
-- [`docs/diiid_tab_usage.md`](docs/diiid_tab_usage.md) — DIII-D tab walkthrough
-- [`deploy/omega/README.md`](deploy/omega/README.md) — full omega runbook: install, durable home +
-  self-healing env, env-var table
+- [`docs/princeton_tab_usage.md`](docs/princeton_tab_usage.md) — Princeton tab walkthrough
+- [`docs/princeton-cluster.md`](docs/princeton-cluster.md) — cluster notes: modules,
+  GPUs, filesystems, branch topology
+- [`deploy/princeton/README.md`](deploy/princeton/README.md) — group-install runbook
 - [`docs/diiid.md`](docs/diiid.md) — background/design
 
 ## Example Demonstration
