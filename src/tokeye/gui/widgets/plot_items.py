@@ -63,6 +63,7 @@ class SpectrogramCanvas(pg.GraphicsLayoutWidget):
 
         self._rect: tuple[float, float, float, float] | None = None
         self._sample_arr: np.ndarray | None = None  # 2-D scalar for readout
+        self._equal_pixels = False  # square data pixels (long strip) when True
 
         self.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self.scene().sigMouseClicked.connect(self._on_mouse_clicked)
@@ -86,7 +87,9 @@ class SpectrogramCanvas(pg.GraphicsLayoutWidget):
         self._cbar.setVisible(True)
         self._rect = tuple(float(v) for v in rect)
         self._sample_arr = arr2d
-        if reset_view:
+        if self._equal_pixels:
+            self._apply_equal_pixels(frame=reset_view)
+        elif reset_view:
             self._spec_plot.autoRange()
 
     def show_rgb(
@@ -105,7 +108,9 @@ class SpectrogramCanvas(pg.GraphicsLayoutWidget):
         self._sample_arr = (
             np.asarray(sample_arr, dtype=float) if sample_arr is not None else None
         )
-        if reset_view:
+        if self._equal_pixels:
+            self._apply_equal_pixels(frame=reset_view)
+        elif reset_view:
             self._spec_plot.autoRange()
 
     def set_raw(self, t_ms: np.ndarray, x: np.ndarray) -> None:
@@ -135,8 +140,54 @@ class SpectrogramCanvas(pg.GraphicsLayoutWidget):
         vb = self._spec_plot.getViewBox()
         vb.setMouseMode(pg.ViewBox.RectMode if rect_mode else pg.ViewBox.PanMode)
 
+    def set_equal_pixels(self, enabled: bool) -> None:
+        """Square data pixels: one STFT column as wide as one bin is tall.
+
+        A long shot then renders as a long strip — full frequency band tall,
+        panned/zoomed along time — instead of being squeezed to the window
+        width. Off restores the fit-to-window autorange.
+        """
+        self._equal_pixels = bool(enabled)
+        if self._equal_pixels:
+            self._apply_equal_pixels(frame=True)
+        else:
+            self._spec_plot.getViewBox().setAspectLocked(False)
+            self._spec_plot.autoRange()
+
+    def _apply_equal_pixels(self, frame: bool = False) -> None:
+        """Lock screen-square data pixels; optionally frame the strip start.
+
+        pyqtgraph's aspect ``ratio`` is xScale/yScale (screen px per x-unit
+        over screen px per y-unit); squares need ``sx*dx == sy*dy`` for data
+        pixels ``dx`` ms wide and ``dy`` kHz tall, i.e. ``ratio = dy/dx``.
+        """
+        img = self._img.image
+        if img is None or self._rect is None:
+            return
+        n_rows, n_cols = int(img.shape[0]), int(img.shape[1])
+        x0, y0, w, h = self._rect
+        if not (n_rows and n_cols and w > 0 and h > 0):
+            return
+        dx = w / n_cols
+        dy = h / n_rows
+        vb = self._spec_plot.getViewBox()
+        vb.setAspectLocked(True, ratio=dy / dx)
+        if frame:
+            # Full band tall; the lock derives the visible time span. Anchor
+            # the window at the start of the data (setXRange keeps the span
+            # consistent with the lock, so y stays the full band).
+            vb.setYRange(y0, y0 + h, padding=0)
+            span = vb.viewRange()[0]
+            vb.setXRange(x0, x0 + (span[1] - span[0]), padding=0)
+
+    def equal_pixels(self) -> bool:
+        return self._equal_pixels
+
     def reset_view(self) -> None:
-        self._spec_plot.autoRange()
+        if self._equal_pixels:
+            self._apply_equal_pixels(frame=True)
+        else:
+            self._spec_plot.autoRange()
         if self._raw_plot is not None:
             self._raw_plot.autoRange()
 
