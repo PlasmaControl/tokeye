@@ -90,7 +90,9 @@ def _handle(args: argparse.Namespace) -> int:
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{args.shot}_{pointname}.npy"
+    # Foundation-style pointnames are group/index — keep the '/' out of the
+    # filename (a no-op for MDS pointnames).
+    out_path = out_dir / f"{args.shot}_{pointname.replace('/', '-')}.npy"
     np.save(out_path, x)
 
     span_ms = float(t_ms[-1] - t_ms[0]) if t_ms.size > 1 else 0.0
