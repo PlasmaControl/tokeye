@@ -18,20 +18,25 @@ def test_model_selector_default_and_choices(qapp):
 
 
 def test_diagnostic_probe_repopulates_on_change(qapp):
+    # Source-agnostic: the probe follows the factory's active presets, so this
+    # holds on every site branch regardless of the default source kind.
     from tokeye.gui.widgets.controls import DiagnosticProbe
-    from tokeye.sources.presets import DIAGNOSTICS
+    from tokeye.sources.factory import active_diagnostics, default_diag_key
 
+    diags = active_diagnostics()
+    default_key = default_diag_key()
     dp = DiagnosticProbe()
-    assert dp.diag_key() == "mag"
-    assert dp.pointname() == DIAGNOSTICS["mag"].default
+    assert dp.diag_key() == default_key
+    assert dp.pointname() == diags[default_key].default
 
     seen = []
     dp.probeChanged.connect(lambda k, p: seen.append((k, p)))
-    idx = dp._diag.findData("mhr")
+    other = next(k for k in diags if k != default_key)
+    idx = dp._diag.findData(other)
     dp._diag.setCurrentIndex(idx)
-    assert dp.diag_key() == "mhr"
-    assert dp.pointname() == DIAGNOSTICS["mhr"].default
-    assert seen and seen[-1][0] == "mhr"
+    assert dp.diag_key() == other
+    assert dp.pointname() == diags[other].default
+    assert seen and seen[-1][0] == other
 
 
 def test_shot_field_shot_and_bounds(qapp):
