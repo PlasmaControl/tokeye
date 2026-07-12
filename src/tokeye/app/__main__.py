@@ -14,12 +14,12 @@ from pathlib import Path
 
 import gradio as gr
 
-# Import tabs
+# Import tabs. The DIII-D tab modules stay on disk (the facility branch owns
+# them and their handlers are still unit-tested); this branch just doesn't
+# register them — stellar has no MDSplus route, so they would be dead tabs.
 from .analyze.analyze import analyze_tab
 from .tabs.annotate import annotate_tab
-from .tabs.diiid import diiid_tab
-from .tabs.diiid_modespec import diiid_modespec_tab
-from .tabs.diiid_offline import diiid_offline_tab
+from .tabs.princeton import princeton_tab
 from .tabs.utilities import utilities_tab
 from .utils.theme import CUSTOM_CSS, make_theme
 
@@ -155,12 +155,6 @@ def _latest_shot() -> int:
     return int(shot)
 
 
-def _latest_shot_pair() -> tuple[int, int]:
-    """Latest shot for both DIII-D shot fields — one fetch, returned twice."""
-    shot = _latest_shot()
-    return shot, shot
-
-
 def create_app() -> gr.Blocks:
     with gr.Blocks(
         title=APP_TITLE,
@@ -184,18 +178,14 @@ def create_app() -> gr.Blocks:
             annotate_tab()
         with gr.Tab("Utilities"):
             utilities_tab()
-        with gr.Tab("DIII-D"):
-            diiid_shot = diiid_tab()
-        with gr.Tab("DIII-D Modespec"):
-            diiid_modespec_shot = diiid_modespec_tab()
-        with gr.Tab("DIII-D Offline"):
-            diiid_offline_tab()
-        # Prefill both DIII-D shot fields with the latest shot on page load: one
-        # bounded background fetch (see _latest_shot), not two blocking calls.
+        with gr.Tab("Princeton"):
+            princeton_shot = princeton_tab()
+        # Prefill the Princeton shot field with the newest archive shot on page
+        # load: one bounded background lookup (see _latest_shot), never blocking.
         app.load(
-            fn=_latest_shot_pair,
+            fn=_latest_shot,
             inputs=None,
-            outputs=[diiid_shot, diiid_modespec_shot],
+            outputs=[princeton_shot],
         )
     return app
 

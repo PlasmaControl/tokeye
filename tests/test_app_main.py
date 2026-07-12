@@ -328,8 +328,10 @@ class TestLatestShotPrefill:
         state["fail"] = True
         assert m._latest_shot() == 199999  # last known, not 0
 
-    def test_pair_returns_the_value_twice(self, monkeypatch, shot_state):
-        """_latest_shot_pair feeds both DIII-D shot fields from one fetch."""
-        m = shot_state
-        monkeypatch.setattr(m, "_latest_shot", lambda: 190904)
-        assert m._latest_shot_pair() == (190904, 190904)
+    def test_prefill_wired_to_single_shot_field(self):
+        """The page-load prefill feeds the one Princeton shot field directly —
+        the DIII-D pair helper is gone with the DIII-D tab registrations."""
+        import tokeye.app.__main__ as m
+
+        assert not hasattr(m, "_latest_shot_pair")
+        assert callable(m._latest_shot)

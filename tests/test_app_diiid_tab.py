@@ -31,17 +31,20 @@ def test_diiid_modespec_tab_import_is_mdsplus_free():
     )
 
 
-def test_create_app_registers_diiid_tabs():
-    """Building the app wires all three DIII-D tabs with no model load / no network."""
+def test_create_app_does_not_register_diiid_tabs():
+    """On the princeton branch the DIII-D tabs are not wired into the app —
+    stellar has no MDSplus route. The modules stay on disk (facility owns
+    them), so the handler tests below keep running."""
     from tokeye.app.__main__ import create_app
 
     app = create_app()
 
     assert app is not None
     labels = {getattr(b, "label", None) for b in getattr(app, "blocks", {}).values()}
-    assert "DIII-D" in labels
-    assert "DIII-D Modespec" in labels
-    assert "DIII-D Offline" in labels
+    assert "DIII-D" not in labels
+    assert "DIII-D Modespec" not in labels
+    assert "DIII-D Offline" not in labels
+    assert "Princeton" in labels
 
 
 def test_offline_default_outdir_honors_runs_dir_env(monkeypatch):
