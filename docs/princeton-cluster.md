@@ -78,21 +78,26 @@ a Hugging Face call. Login and vis nodes do have internet (uv sync, downloads).
 X11 forwarding is the default way to run the GUI — but tune it; the naive
 setup is slow and (on Macs) eats keyboard input:
 
-- **Use `ssh -Y -C`, not `-X`.** On macOS, `-X` is *untrusted* forwarding:
-  the X SECURITY extension adds overhead and causes input quirks in Qt apps.
-  `-Y` (trusted) + `-C` (compression) is markedly faster.
-- **XQuartz can't type into the boxes?** That is XQuartz's window-focus
-  model, not the app: clicks into a forwarded Qt window don't hand it
-  keyboard focus by default. Fix once on your Mac, then restart XQuartz:
+- **Use `ssh -Y -C`, not `-X`** (or `ForwardX11Trusted yes` + `Compression
+  yes` in `~/.ssh/config`). On macOS, `-X` is *untrusted* forwarding: the X
+  SECURITY extension adds overhead and causes input quirks in Qt apps.
+- **XQuartz slow and/or can't type into the boxes?** Two macOS-side issues,
+  both fixed once on your Mac (then quit + restart XQuartz):
   ```bash
+  # 1. App Nap throttles XQuartz whenever it isn't the frontmost app — X
+  #    round trips become multi-second (measured 2.6–4.3 s/round-trip from
+  #    stellar-vis2), which also delays keystrokes until they look lost.
+  defaults write org.xquartz.X11 NSAppSleepDisabled -bool YES
+  # 2. XQuartz's focus model doesn't hand keyboard focus to a forwarded Qt
+  #    window on click.
   defaults write org.xquartz.X11 wm_ffm -bool true            # focus follows mouse
   defaults write org.xquartz.X11 wm_click_through -bool true
   ```
 
-For scale: measured on stellar-vis2 → laptop over untrusted XQuartz
-forwarding, a single window open+paint took 28.6 s wall for 6.7 s CPU —
-~75 % of the time was network round-trips. `-Y -C` cuts that substantially;
-the options below remove it entirely.
+For scale: measured on stellar-vis2 → laptop over XQuartz with App Nap
+active, a bare X query round-trips in 2.6–4.3 s and a single window
+open+paint took 28.6 s wall for 6.7 s CPU. With the fixes above, X11 costs
+normal WAN round trips; the options below remove even those.
 
 ### If X11 is still too slow
 
