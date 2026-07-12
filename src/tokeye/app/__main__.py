@@ -60,13 +60,14 @@ _SHOT_PENDING: Future | None = None
 
 
 def _fetch_latest_shot() -> int | None:
-    """Worker body: the lazy MDS import + call, run off the request thread.
+    """Worker body: the lazy source lookup, run off the request thread.
 
-    The import stays inside the worker so the module never pulls in MDSplus at
-    import time (import-hygiene) and the network call never touches the thread
-    serving the page load.
+    Goes through the source factory so the prefill matches the active
+    ``TOKEYE_SOURCE`` backend. The import stays inside the worker so the module
+    never pulls in a backend (MDSplus, h5py) at import time (import-hygiene)
+    and a slow lookup never touches the thread serving the page load.
     """
-    from tokeye.sources import latest_shot
+    from tokeye.sources.factory import latest_shot
 
     return latest_shot()
 
