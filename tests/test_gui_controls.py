@@ -57,7 +57,7 @@ def test_stft_controls_params_and_band(qapp):
     s = StftControls()
     p = s.params()
     assert p["n_fft"] == 1024
-    assert p["hop"] == 256
+    assert p["hop"] == 128  # training-recipe default
     assert p["clip_dc"] is True
     assert p["clip_low"] == 1.0 and p["clip_high"] == 99.0
     assert s.decimation() == 1

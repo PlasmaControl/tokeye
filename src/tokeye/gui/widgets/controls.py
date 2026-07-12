@@ -194,8 +194,8 @@ class StftControls(QtWidgets.QGroupBox):
         self._n_fft.setCurrentText("1024")
         self._hop = QtWidgets.QComboBox()
         self._hop.addItems(["64", "128", "256", "512"])
-        self._hop.setCurrentText("256")
-        self._hop.setToolTip("UI default 256; the released model was trained at 128.")
+        self._hop.setCurrentText("128")
+        self._hop.setToolTip("Default 128 matches the released model's training recipe.")
         self._clip_dc = QtWidgets.QCheckBox("Remove DC bin")
         self._clip_dc.setChecked(True)
 
