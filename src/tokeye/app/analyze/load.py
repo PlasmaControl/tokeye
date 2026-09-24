@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from huggingface_hub import try_to_load_from_cache
 
 from tokeye import hub, inference
 from tokeye.examples import make_example_signal
@@ -71,9 +70,7 @@ def find_signals(
 # Model Functions
 def is_model_cached(name: str) -> bool:
     """Check whether a registry model's weights are already in the HF cache."""
-    spec = hub.MODEL_REGISTRY[name]
-    cached = try_to_load_from_cache(hub.DEFAULT_REPO_ID, spec.filename)
-    return isinstance(cached, str)
+    return hub.is_cached(name)
 
 
 def model_load(

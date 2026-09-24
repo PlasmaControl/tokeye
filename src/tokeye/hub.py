@@ -1,28 +1,28 @@
-"""Model loading: HuggingFace Hub downloads plus local file resolution.
+"""Model registry, Hugging Face downloads and local checkpoint loading.
 
-Gradio-free so it can be shared between the app and a future CLI.
+Gradio-free. Model architectures are imported lazily by their builders, so
+torchvision is only needed for ``ae_tf_maskrcnn`` (the ``ae`` extra).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import pickle
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
-import torch.nn as nn
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
-from .models.ae_tf_maskrcnn.config_ae_tf_maskrcnn import AETFMaskConfig
-from .models.ae_tf_maskrcnn.model_ae_tf_maskrcnn import AETFMaskModel
-from .models.big_tf_unet.config_big_tf_unet import BigTFUNetConfig
-from .models.big_tf_unet.model_big_tf_unet import BigTFUNetModel
+from .config import DEFAULT_CHANNELS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,43 @@ DEFAULT_REPO_ID = os.environ.get("TOKEYE_HF_REPO", "nc1/big_tf_unet")
 DEFAULT_MODEL = "big_tf_unet"
 
 _PATH_SUFFIXES = {".pt", ".pt2"}
+TASKS = ("segmentation", "instance")
 
 
 @dataclass(frozen=True)
 class ModelSpec:
+    """A registered model.
+
+    ``task`` is ``"segmentation"`` (``TokEye``, ``tokeye run``) or
+    ``"instance"`` (``tokeye alfvenspec``); ``channels`` names the mask
+    channels of a segmentation model; ``size_mb`` is the download size.
+    """
+
     name: str
     filename: str  # file in the HF repo
     builder: Callable[[], nn.Module]
     repo_id: str | None = None  # None -> DEFAULT_REPO_ID (TOKEYE_HF_REPO override)
+    task: str = "segmentation"
+    channels: tuple[str, ...] = DEFAULT_CHANNELS
+    size_mb: int = 0
+
+
+def _build_big_tf_unet() -> nn.Module:
+    from .models.big_tf_unet.config_big_tf_unet import BigTFUNetConfig
+    from .models.big_tf_unet.model_big_tf_unet import BigTFUNetModel
+
+    return BigTFUNetModel(BigTFUNetConfig())
+
+
+def _build_ae_tf_maskrcnn() -> nn.Module:
+    try:
+        from .models.ae_tf_maskrcnn.config_ae_tf_maskrcnn import AETFMaskConfig
+        from .models.ae_tf_maskrcnn.model_ae_tf_maskrcnn import AETFMaskModel
+    except ImportError as exc:
+        raise ImportError(
+            "ae_tf_maskrcnn needs torchvision: pip install 'tokeye[ae]'"
+        ) from exc
+    return AETFMaskModel(AETFMaskConfig(weights=None))
 
 
 # Insertion order matters: _build_from_state_dict tries specs in order, so the
@@ -47,15 +76,28 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     "big_tf_unet": ModelSpec(
         "big_tf_unet",
         "big_tf_unet_251210.pt",
-        lambda: BigTFUNetModel(BigTFUNetConfig()),
+        _build_big_tf_unet,
+        size_mb=31,
     ),
     "ae_tf_maskrcnn": ModelSpec(
         "ae_tf_maskrcnn",
         "ae_tf_maskrcnn_251223.pt",
-        lambda: AETFMaskModel(AETFMaskConfig(weights=None)),
+        _build_ae_tf_maskrcnn,
         repo_id="nc1/ae_tf_maskrcnn",
+        task="instance",
+        channels=(),
+        size_mb=184,
     ),
 }
+
+
+def _spec(name: str) -> ModelSpec:
+    try:
+        return MODEL_REGISTRY[name]
+    except KeyError:
+        raise ValueError(
+            f"Unknown model {name!r}; valid names: {sorted(MODEL_REGISTRY)}"
+        ) from None
 
 
 def repo_for(name: str) -> str:
@@ -66,19 +108,66 @@ def repo_for(name: str) -> str:
     return DEFAULT_REPO_ID
 
 
+def model_names(task: str | None = None) -> list[str]:
+    """Registry names, in registry order, optionally only for one ``task``."""
+    return [n for n, s in MODEL_REGISTRY.items() if task is None or s.task == task]
+
+
+def cached_path(name: str) -> Path | None:
+    """Local path of a registry model's weights, or ``None`` if not cached."""
+    spec = _spec(name)
+    cached = try_to_load_from_cache(repo_for(name), spec.filename)
+    return Path(cached) if isinstance(cached, str) else None
+
+
+def is_cached(name: str) -> bool:
+    """Whether a registry model's weights are already downloaded."""
+    return cached_path(name) is not None
+
+
+def require_task(source: str | Path, task: str) -> None:
+    """Raise ``ValueError`` if registry model ``source`` is not a ``task`` model.
+
+    Local checkpoint paths are not checked here (their task is only known
+    once loaded); :func:`tokeye.inference.infer` rejects detection outputs.
+    """
+    spec = MODEL_REGISTRY.get(str(source))
+    if spec is None or spec.task == task:
+        return
+    hint = {
+        "instance": "use `tokeye alfvenspec` (Python: tokeye.alfvenspec.detect)",
+        "segmentation": "use `tokeye run` (Python: tokeye.TokEye)",
+    }[spec.task]
+    raise ValueError(
+        f"{spec.name!r} is an {spec.task} model, but this needs a {task} model; {hint}"
+    )
+
+
+def channels_for(source: str | Path) -> tuple[str, ...]:
+    """Mask channel names for a model (the default names for local files)."""
+    spec = MODEL_REGISTRY.get(str(source))
+    return spec.channels if spec is not None else DEFAULT_CHANNELS
+
+
+def _mps_available() -> bool:
+    backend = getattr(torch.backends, "mps", None)
+    return bool(backend is not None and backend.is_available())
+
+
 def resolve_device(device: str = "auto") -> str:
+    """``"auto"`` becomes ``"cuda"``, then ``"mps"``, then ``"cpu"``."""
     if device == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            return "cuda"
+        if _mps_available():
+            return "mps"
+        return "cpu"
     return device
 
 
 def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Path:
-    try:
-        spec = MODEL_REGISTRY[name]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unknown model {name!r}; valid names: {sorted(MODEL_REGISTRY)}"
-        ) from exc
+    """Download (or find in the cache) a registry model's weights."""
+    spec = _spec(name)
     resolved_repo_id = repo_id or spec.repo_id or DEFAULT_REPO_ID
     return Path(hf_hub_download(resolved_repo_id, spec.filename))
 
@@ -86,10 +175,10 @@ def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Pat
 def _build_from_state_dict(state_dict: Mapping, device: str) -> nn.Module:
     mismatches: list[str] = []
     for spec in MODEL_REGISTRY.values():
-        model = spec.builder()
         try:
+            model = spec.builder()
             model.load_state_dict(state_dict, strict=True)
-        except RuntimeError as exc:
+        except (RuntimeError, ImportError) as exc:
             mismatches.append(f"{spec.name}: {exc}")
             continue
         return model.to(device).eval()
@@ -118,7 +207,7 @@ def _load_pt2(path: Path, device: str) -> nn.Module:
 def _load_pt(path: Path, device: str) -> nn.Module:
     try:
         loaded = torch.load(path, map_location=device, weights_only=True)
-    except Exception:
+    except pickle.UnpicklingError:
         # Legacy checkpoint pickled as a full module (not just a state dict).
         # Only ever done for local files: the registry/download path above
         # always loads with weights_only=True.
@@ -138,6 +227,16 @@ def _load_pt(path: Path, device: str) -> nn.Module:
 
 
 def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.Module:
+    """Load a registry model (downloading it once) or a local checkpoint.
+
+    Parameters
+    ----------
+    source
+        A registry name (see :data:`MODEL_REGISTRY`) or a path to a ``.pt``
+        state dict / legacy pickled module, or a ``.pt2`` exported program.
+    device
+        ``"auto"`` (CUDA, then MPS, then CPU) or any torch device string.
+    """
     resolved_device = resolve_device(device)
     name = str(source)
 
@@ -147,7 +246,7 @@ def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.M
     path = Path(source)
     if not path.exists():
         if path.suffix in _PATH_SUFFIXES:
-            raise FileNotFoundError(f"Model file not found: {path}")
+            raise FileNotFoundError(f"Model file not found: {name}")
         raise ValueError(
             f"Unknown model {name!r}; valid registry names: {sorted(MODEL_REGISTRY)}"
         )

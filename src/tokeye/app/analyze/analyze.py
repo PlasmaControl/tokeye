@@ -7,7 +7,7 @@ from pathlib import Path
 import gradio as gr
 
 from tokeye import export
-from tokeye.hub import DEFAULT_MODEL, MODEL_REGISTRY
+from tokeye.hub import DEFAULT_MODEL, model_names
 from tokeye.transforms import (
     DEFAULT_CLIP_DC,
     DEFAULT_CLIP_HIGH,
@@ -67,7 +67,7 @@ def setup_stft_transform(n_fft, hop_length, clip_dc, clip_low, clip_high):
 
 
 def refresh_dropdowns(signal_directory):
-    models = list(MODEL_REGISTRY) + find_models()
+    models = model_names("segmentation") + find_models()
     signals = find_signals(signal_directory)
     return [
         gr.Dropdown(choices=models),
@@ -105,7 +105,7 @@ def wrapper_model_load(model_file):
     if not model_file:
         return None
     try:
-        if model_file in MODEL_REGISTRY and not is_model_cached(model_file):
+        if model_file in model_names() and not is_model_cached(model_file):
             gr.Info(f"Downloading {model_file} from Hugging Face (~30 MB, one-time)…")
         return model_load(model_file)
     except Exception as e:
@@ -294,7 +294,7 @@ def analyze_tab():
                     "on first load (~30 MB, cached). Local model/*.pt files "
                     "also listed."
                 ),
-                choices=list(MODEL_REGISTRY) + find_models(),
+                choices=model_names("segmentation") + find_models(),
                 value=DEFAULT_MODEL,
                 interactive=True,
                 allow_custom_value=True,
