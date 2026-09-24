@@ -114,5 +114,10 @@ def test_write_detections_csv(tmp_path):
         rows = list(csv.DictReader(fh))
     assert rows[0]["input"] == "shot1.npy"
     assert rows[0]["detection"] == "0"
-    assert [rows[0][k] for k in ("x1", "y1", "x2", "y2")] == ["1.0", "2.0", "3.0", "4.0"]
+    assert [rows[0][k] for k in ("x1", "y1", "x2", "y2")] == [
+        "1.0",
+        "2.0",
+        "3.0",
+        "4.0",
+    ]
     assert rows[0]["score"] == "0.9"

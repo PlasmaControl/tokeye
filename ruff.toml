@@ -1,4 +1,9 @@
 line-length = 88
+target-version = "py311"  # = requires-python; keep in sync
+
+[format]
+# Frozen research code: formatting it would only churn paper provenance.
+exclude = ["src/tokeye/training/**", "scripts/**"]
 
 [lint]
 extend-select = [

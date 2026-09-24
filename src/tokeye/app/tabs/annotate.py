@@ -318,9 +318,7 @@ def _mask_from_layers(layers: list) -> np.ndarray | None:
     return (mask_bool.astype(np.uint8)) * 255
 
 
-def _mask_from_composite_diff(
-    composite, backdrop_arr: np.ndarray | None
-) -> np.ndarray:
+def _mask_from_composite_diff(composite, backdrop_arr: np.ndarray | None) -> np.ndarray:
     """Fallback: diff the flattened composite against the (normalized)
     backdrop, thresholding the max absolute difference across RGB channels.
 
@@ -348,9 +346,7 @@ def _mask_from_composite_diff(
 
     if backdrop_disp.shape != canvas_rgb.shape[:2]:
         backdrop_img = Image.fromarray(backdrop_disp)
-        backdrop_img = backdrop_img.resize(
-            (canvas_rgb.shape[1], canvas_rgb.shape[0])
-        )
+        backdrop_img = backdrop_img.resize((canvas_rgb.shape[1], canvas_rgb.shape[0]))
         backdrop_disp = np.array(backdrop_img)
 
     backdrop_rgb = np.stack([backdrop_disp] * 3, axis=-1).astype(np.int16)
@@ -489,9 +485,7 @@ def annotate_tab():
 
                 save_mask_btn = gr.Button("Save Mask", variant="primary")
                 save_status = gr.Textbox(label="Save Status", interactive=False)
-                download_mask_file = gr.File(
-                    label="Download mask", interactive=False
-                )
+                download_mask_file = gr.File(label="Download mask", interactive=False)
 
             # Right column: Annotation canvas
             with gr.Column(scale=2):

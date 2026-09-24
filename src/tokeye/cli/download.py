@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("download", help="Download one or more model checkpoints.")
+    parser = subparsers.add_parser(
+        "download", help="Download one or more model checkpoints."
+    )
     parser.add_argument(
         "models",
         nargs="*",

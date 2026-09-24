@@ -25,7 +25,16 @@ class TestBuildParser:
         parser = build_parser()
 
         args = parser.parse_args(
-            ["run", "a.npy", "--hop", "128", "--no-png", "--model", "model/x.pt", "--log"]
+            [
+                "run",
+                "a.npy",
+                "--hop",
+                "128",
+                "--no-png",
+                "--model",
+                "model/x.pt",
+                "--log",
+            ]
         )
 
         assert args.inputs == ["a.npy"]
@@ -91,9 +100,7 @@ class TestMain:
         input_path = tmp_path / "input.npy"
         np.save(input_path, np.zeros((64, 32), dtype=np.float32))
 
-        exit_code = main(
-            ["run", str(input_path), "--model", "nope/missing.pt"]
-        )
+        exit_code = main(["run", str(input_path), "--model", "nope/missing.pt"])
 
         assert exit_code == 2
         err = capsys.readouterr().err

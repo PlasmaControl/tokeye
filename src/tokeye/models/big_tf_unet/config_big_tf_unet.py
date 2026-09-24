@@ -1,5 +1,4 @@
 class BigTFUNetConfig:
-
     model_type = "big_tf_unet"
 
     def __init__(

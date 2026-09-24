@@ -12,6 +12,7 @@ matrix — the standard convention in semantic-segmentation papers) and
 Bustos et al. 2021 for TJII). Reporting both lets the paper compare directly
 against either convention.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,9 +64,7 @@ class Metrics:
                     # No GT and no prediction: skip (undefined for foreground)
                     continue
                 denom_iou = tp_i + fp_i + fn_i
-                self.per_image_iou.append(
-                    tp_i / denom_iou if denom_iou > 0 else 0.0
-                )
+                self.per_image_iou.append(tp_i / denom_iou if denom_iou > 0 else 0.0)
                 denom_dice = 2 * tp_i + fp_i + fn_i
                 self.per_image_dice.append(
                     2 * tp_i / denom_dice if denom_dice > 0 else 0.0
@@ -80,14 +79,8 @@ class Metrics:
             if (precision + recall) > 0
             else 0.0
         )
-        iou_global = (
-            tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
-        )
-        dice_global = (
-            2 * tp / (2 * tp + fp + fn)
-            if (2 * tp + fp + fn) > 0
-            else 0.0
-        )
+        iou_global = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
+        dice_global = 2 * tp / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0.0
         out = {
             "precision": float(precision),
             "recall": float(recall),

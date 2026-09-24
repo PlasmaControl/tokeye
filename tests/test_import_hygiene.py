@@ -22,9 +22,7 @@ def test_batch_import_does_not_pull_in_gradio():
         [
             sys.executable,
             "-c",
-            "import tokeye.batch, sys; "
-            "assert 'gradio' not in sys.modules; "
-            "print('ok')",
+            "import tokeye.batch, sys; assert 'gradio' not in sys.modules; print('ok')",
         ],
         capture_output=True,
         text=True,
@@ -42,9 +40,7 @@ def test_package_import_does_not_pull_in_torch():
         [
             sys.executable,
             "-c",
-            "import tokeye, sys; "
-            "assert 'torch' not in sys.modules; "
-            "print('ok')",
+            "import tokeye, sys; assert 'torch' not in sys.modules; print('ok')",
         ],
         capture_output=True,
         text=True,

@@ -5,7 +5,8 @@ from torchvision.models.detection import (
 )
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def build_model(num_classes=2):
     weights = FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
@@ -14,11 +15,14 @@ def build_model(num_classes=2):
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
 
+
 def load_model(model_path, *args, **kwargs):
     model = build_model(*args, **kwargs)
-    model.load_state_dict(torch.load(
-        model_path,
-        map_location=device,
-        weights_only=True,
-    ))
+    model.load_state_dict(
+        torch.load(
+            model_path,
+            map_location=device,
+            weights_only=True,
+        )
+    )
     return model

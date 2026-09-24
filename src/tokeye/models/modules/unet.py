@@ -20,7 +20,6 @@ from .nn import (
 
 
 class UNet(nn.Module):
-
     def __init__(
         self,
         in_channels: int = 3,
@@ -104,23 +103,26 @@ def build_model(
     dropout_rate: float = 0.2,
 ):
     return UNet(
-            in_channels=1,
-            out_channels=2,  # 2 channels: normal (ch0) and baseline (ch1)
-            num_layers=num_layers,
-            first_layer_size=first_layer_size,
-            dropout_rate=dropout_rate,
-        )
+        in_channels=1,
+        out_channels=2,  # 2 channels: normal (ch0) and baseline (ch1)
+        num_layers=num_layers,
+        first_layer_size=first_layer_size,
+        dropout_rate=dropout_rate,
+    )
+
 
 def load_model(
     model_path: str,
     device: str = "auto",
 ):
     model = build_model()
-    model.load_state_dict(torch.load(
-        model_path,
-        map_location=device,
-        weights_only=True,
-    ))
+    model.load_state_dict(
+        torch.load(
+            model_path,
+            map_location=device,
+            weights_only=True,
+        )
+    )
     return model
 
 

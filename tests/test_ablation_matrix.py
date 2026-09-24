@@ -10,8 +10,18 @@ CFG = {
     "variants": [
         {"id": "full", "baseline": True, "denoise": True, "representation": "complex"},
         {"id": "mag", "baseline": True, "denoise": True, "representation": "magnitude"},
-        {"id": "nobaseline", "baseline": False, "denoise": True, "representation": "complex"},
-        {"id": "nodenoise", "baseline": True, "denoise": False, "representation": "complex"},
+        {
+            "id": "nobaseline",
+            "baseline": False,
+            "denoise": True,
+            "representation": "complex",
+        },
+        {
+            "id": "nodenoise",
+            "baseline": True,
+            "denoise": False,
+            "representation": "complex",
+        },
     ]
 }
 
@@ -24,7 +34,11 @@ def test_build_variants_count_and_ids():
 
 def test_variant_flags():
     vs = {v.id: v for v in build_variants(CFG)}
-    assert vs["full"].baseline and vs["full"].denoise and vs["full"].representation == "complex"
+    assert (
+        vs["full"].baseline
+        and vs["full"].denoise
+        and vs["full"].representation == "complex"
+    )
     assert vs["mag"].representation == "magnitude"
     assert vs["nobaseline"].baseline is False
     assert vs["nodenoise"].denoise is False

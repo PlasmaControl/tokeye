@@ -71,11 +71,10 @@ def main(
             )
             return
         except OSError:
-            logger.warning("Port %d in use, trying %d",
-                           port + attempt, port + attempt + 1)
-    raise SystemExit(
-        f"No free port in {port}-{port + MAX_PORT_ATTEMPTS - 1}"
-    )
+            logger.warning(
+                "Port %d in use, trying %d", port + attempt, port + attempt + 1
+            )
+    raise SystemExit(f"No free port in {port}-{port + MAX_PORT_ATTEMPTS - 1}")
 
 
 if __name__ == "__main__":

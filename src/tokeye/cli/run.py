@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("run", help="Run batch inference on one or more inputs.")
+    parser = subparsers.add_parser(
+        "run", help="Run batch inference on one or more inputs."
+    )
     parser.add_argument(
         "inputs",
         nargs="+",

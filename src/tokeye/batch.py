@@ -145,13 +145,17 @@ def run_batch(
     Returns the number of files that failed to process.
     """
     paths = collect_inputs(inputs)
-    resolved_stft_kwargs = stft_kwargs if stft_kwargs is not None else {
-        "n_fft": DEFAULT_N_FFT,
-        "hop": DEFAULT_HOP,
-        "clip_dc": DEFAULT_CLIP_DC,
-        "clip_low": DEFAULT_CLIP_LOW,
-        "clip_high": DEFAULT_CLIP_HIGH,
-    }
+    resolved_stft_kwargs = (
+        stft_kwargs
+        if stft_kwargs is not None
+        else {
+            "n_fft": DEFAULT_N_FFT,
+            "hop": DEFAULT_HOP,
+            "clip_dc": DEFAULT_CLIP_DC,
+            "clip_low": DEFAULT_CLIP_LOW,
+            "clip_high": DEFAULT_CLIP_HIGH,
+        }
+    )
 
     loaded_model = hub.load_model(model, device)
 

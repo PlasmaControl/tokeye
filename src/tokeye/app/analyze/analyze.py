@@ -385,9 +385,7 @@ def analyze_tab():
             visualize_out = gr.Image(label="Visualization", type="pil")
 
             save_export_btn = gr.Button("Save results (.npz)")
-            export_out = gr.File(
-                label="Download analysis (.npz)", interactive=False
-            )
+            export_out = gr.File(label="Download analysis (.npz)", interactive=False)
 
     # State variables
     model = gr.State()

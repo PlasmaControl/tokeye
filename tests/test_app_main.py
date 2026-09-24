@@ -51,8 +51,10 @@ class TestMainPortRetry:
         fake_app = Mock()
         fake_app.launch.side_effect = OSError("Port in use")
 
-        with patch("tokeye.app.__main__.create_app", return_value=fake_app), \
-                pytest.raises(SystemExit) as exc_info:
+        with (
+            patch("tokeye.app.__main__.create_app", return_value=fake_app),
+            pytest.raises(SystemExit) as exc_info,
+        ):
             main(port=DEFAULT_PORT)
 
         # Check the message names the port range
@@ -79,8 +81,10 @@ class TestMainPortRetry:
         fake_app = Mock()
         fake_app.launch.side_effect = RuntimeError("Some other error")
 
-        with patch("tokeye.app.__main__.create_app", return_value=fake_app), \
-                pytest.raises(RuntimeError):
+        with (
+            patch("tokeye.app.__main__.create_app", return_value=fake_app),
+            pytest.raises(RuntimeError),
+        ):
             main(port=DEFAULT_PORT)
 
 

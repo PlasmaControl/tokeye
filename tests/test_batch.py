@@ -58,9 +58,7 @@ class TestCollectInputs:
 
         # The directory glob would also match a.npy; it should appear once,
         # in its first-seen position.
-        result = batch.collect_inputs(
-            [str(tmp_path / "a.npy"), str(tmp_path)]
-        )
+        result = batch.collect_inputs([str(tmp_path / "a.npy"), str(tmp_path)])
 
         assert result == [tmp_path / "a.npy", tmp_path / "b.npy"]
 

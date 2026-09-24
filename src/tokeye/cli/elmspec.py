@@ -174,7 +174,9 @@ def _handle(args: argparse.Namespace) -> int:
 
         if args.png:
             preview_path = out_dir / f"{path.stem}_elm_preview.png"
-            batch.save_overlay_png(spectrogram, mask, preview_path, threshold=args.threshold)
+            batch.save_overlay_png(
+                spectrogram, mask, preview_path, threshold=args.threshold
+            )
 
     events_csv = out_dir / "elm_events.csv"
     summary_csv = out_dir / "elm_summary.csv"

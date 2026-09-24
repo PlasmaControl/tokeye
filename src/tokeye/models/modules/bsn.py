@@ -346,7 +346,6 @@ class ATBSN(nn.Module):
         return self.unconcat(x)
 
 
-
 class N_BSN(nn.Module):  # student c, 1.00m (1.02m in the paper is a typo)
     def __init__(
         self,
@@ -378,7 +377,6 @@ class N_BSN(nn.Module):  # student c, 1.00m (1.02m in the paper is a typo)
 
     def forward(self, x):
         return self.unet(x)
-
 
 
 class DoubleNet(nn.Module):
