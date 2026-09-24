@@ -56,7 +56,10 @@ tokeye = "tokeye.cli:main"
 
 [tool.pytest.ini_options]
 minversion = "9.0"
-addopts = ["-ra", "-q"]
+addopts = ["-ra", "-q", "--strict-markers"]
+markers = [
+    "weights: needs the real big_tf_unet weights in the HF cache",
+]
 testpaths = [
     "tests",
 ]

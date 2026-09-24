@@ -211,6 +211,7 @@ __marimo__/
 cache/
 outputs/
 data/
+!tests/data/
 dev/
 logs/
 lightning_logs/
