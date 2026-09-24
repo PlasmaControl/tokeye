@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from tokeye.transforms import compute_stft
 
@@ -55,3 +56,26 @@ def test_values_within_percentile_clip_bounds():
     assert clipped.min() >= unclipped.min()
     assert clipped.max() <= unclipped.max()
     assert clipped.max() < unclipped.max()  # outlier should be visibly clipped
+
+
+def test_1d_and_single_row_inputs_agree():
+    arr = _sine_signal()
+    np.testing.assert_array_equal(
+        compute_stft(arr[0], n_fft=256, hop=64), compute_stft(arr, n_fft=256, hop=64)
+    )
+
+
+@pytest.mark.parametrize("shape", [(3, 4096), (1, 2, 4096), (0, 4096)])
+def test_unsupported_shapes_raise(shape):
+    # 3+ rows used to silently drop the extra rows (audit bug A7).
+    with pytest.raises(ValueError, match="compute_stft expects"):
+        compute_stft(np.zeros(shape), n_fft=256, hop=64)
+
+
+def test_defaults_come_from_the_config():
+    from tokeye import transforms
+    from tokeye.config import DEFAULT_CONFIG
+
+    assert transforms.DEFAULT_HOP == DEFAULT_CONFIG.hop == 128
+    assert transforms.DEFAULT_N_FFT == 1024
+    assert transforms.DEFAULT_WINDOW == "hann"

@@ -129,6 +129,31 @@ class TestAnalysisBundleRoundTrip:
         assert path.exists()
 
 
+class TestAnalysisBundleShapeCheck:
+    """A mask must match the spectrogram it is saved with (audit bug A3)."""
+
+    def test_two_d_mask_is_accepted(self):
+        bundle = analysis_bundle(spectrogram=np.zeros((4, 6)), mask=np.zeros((4, 6)))
+        assert bundle["mask"].shape == (4, 6)
+        assert bundle["mask"].dtype == np.float32
+
+    @pytest.mark.parametrize(
+        "mask_shape", [(2, 6, 4), (2, 4, 7), (4,), (1, 2, 4, 6), (3, 6)]
+    )
+    def test_mismatched_mask_raises(self, mask_shape):
+        with pytest.raises(ValueError, match="does not match"):
+            analysis_bundle(spectrogram=np.zeros((4, 6)), mask=np.zeros(mask_shape))
+
+    @pytest.mark.parametrize("spec_shape", [(6,), (2, 4, 6)])
+    def test_non_2d_spectrogram_raises(self, spec_shape):
+        with pytest.raises(ValueError, match="must be 2D"):
+            analysis_bundle(spectrogram=np.zeros(spec_shape))
+
+    def test_default_hop_is_the_config_hop(self):
+        time_ms, _ = stft_axes(4, 3, {"fs": 1000.0})
+        np.testing.assert_allclose(time_ms, [0.0, 128.0, 256.0])
+
+
 class TestParamsJsonNumpyTolerance:
     _PARAMS = {
         "n_fft": np.int64(512),

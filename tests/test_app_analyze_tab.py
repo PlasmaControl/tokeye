@@ -245,6 +245,29 @@ def test_export_analysis_no_signal_warns_and_returns_none():
     assert result is None
 
 
+def test_export_analysis_stale_mask_warns_and_returns_none():
+    """A mask left over from a previous, differently sized input must not be
+    bundled with the new spectrogram."""
+    spectrogram = np.zeros((4, 4), dtype=np.float32)
+    stale_mask = np.zeros((2, 6, 8), dtype=np.float32)
+
+    with pytest.warns(UserWarning, match="does not match"):
+        result = analyze.export_analysis(
+            spectrogram,
+            stale_mask,
+            "big_tf_unet",
+            1024,
+            128,
+            True,
+            1.0,
+            99.0,
+            0.5,
+            "Enhanced",
+        )
+
+    assert result is None
+
+
 def test_export_after_success_then_no_signal_clears_stale_download():
     spectrogram = np.zeros((4, 4), dtype=np.float32)
 

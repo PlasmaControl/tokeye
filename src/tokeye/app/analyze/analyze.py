@@ -260,12 +260,16 @@ def export_analysis(
         "threshold": threshold,
         "view_mode": view_mode,
     }
-    bundle = export.analysis_bundle(
-        spectrogram=signal_transform,
-        mask=inference_output,
-        params=params,
-        source="analyze",
-    )
+    try:
+        bundle = export.analysis_bundle(
+            spectrogram=signal_transform,
+            mask=inference_output,
+            params=params,
+            source="analyze",
+        )
+    except ValueError as exc:  # e.g. a stale mask from a previous input
+        gr.Warning(str(exc))
+        return None
     out_dir = Path(tempfile.mkdtemp(prefix="tokeye-export-"))
     path = export.save_npz(out_dir / f"{export.default_stem('analysis')}.npz", bundle)
     return str(path)

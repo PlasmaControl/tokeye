@@ -24,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .config import DEFAULT_CONFIG
+
 SCHEMA_ANALYSIS = "tokeye-analysis/v1"
 SCHEMA_MODESPEC = "tokeye-modespec/v1"
 
@@ -31,10 +33,10 @@ SCHEMA_MODESPEC = "tokeye-modespec/v1"
 # created_utc), or a numpy scalar (e.g. the c95/coh_thresh floats).
 NpzBundle = dict[str, np.ndarray | str | np.generic]
 
-_DEFAULT_N_FFT = 1024
-_DEFAULT_HOP = 256
+_DEFAULT_N_FFT = DEFAULT_CONFIG.n_fft
+_DEFAULT_HOP = DEFAULT_CONFIG.hop
 _DEFAULT_T0_MS = 0.0
-_DEFAULT_CLIP_DC = True
+_DEFAULT_CLIP_DC = DEFAULT_CONFIG.clip_dc
 
 
 def _now_utc_iso() -> str:
@@ -70,7 +72,7 @@ def stft_axes(
         freq_khz[r] = (r + offset) * df    (row centres, r in [0, n_rows))
 
     Returns ``(None, None)`` when ``stft_meta`` is falsy or ``fs <= 0``.
-    Defaults when keys are absent: ``n_fft=1024``, ``hop=256``,
+    Defaults when keys are absent: ``n_fft=1024``, ``hop=128``,
     ``t0_ms=0.0``, ``clip_dc=True``.
     """
     if not stft_meta:
@@ -109,8 +111,23 @@ def analysis_bundle(
     stored as ``raw_t_ms``/``raw_x``. Axes come from :func:`stft_axes`
     applied to ``spectrogram``'s shape; optional keys are simply omitted
     when their inputs are unavailable (never stored as ``None``).
+
+    ``spectrogram`` must be 2D ``(H, W)``; ``mask``, when given, must be
+    ``(C, H, W)`` or ``(H, W)`` with the same ``H, W`` (``ValueError``
+    otherwise, so a stale mask can never be saved next to a new input).
     """
     spectrogram = np.asarray(spectrogram, dtype=np.float32)
+    if spectrogram.ndim != 2:
+        raise ValueError(
+            f"spectrogram must be 2D (H, W), got shape {spectrogram.shape}"
+        )
+    if mask is not None:
+        mask = np.asarray(mask, dtype=np.float32)
+        if mask.shape[-2:] != spectrogram.shape or mask.ndim not in (2, 3):
+            raise ValueError(
+                f"mask shape {mask.shape} does not match spectrogram shape "
+                f"{spectrogram.shape}; expected (C, H, W) or (H, W)"
+            )
 
     bundle: NpzBundle = {
         "schema": SCHEMA_ANALYSIS,
@@ -121,7 +138,7 @@ def analysis_bundle(
     }
 
     if mask is not None:
-        bundle["mask"] = np.asarray(mask, dtype=np.float32)
+        bundle["mask"] = mask
 
     n_rows, n_cols = spectrogram.shape
     time_ms, freq_khz = stft_axes(n_rows, n_cols, stft_meta)
