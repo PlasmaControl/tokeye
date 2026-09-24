@@ -234,3 +234,11 @@ sbatch-smoke/
 # Local agent context — deliberately untracked (deleted from main in 6a11675)
 CLAUDE.md
 .DS_Store
+
+# Agent context: private, never committed (the repo is public)
+.claude/
+/AGENTS.md
+
+# App/CLI working outputs (everything under them, not just *.npy)
+annotations/
+tokeye_*/
