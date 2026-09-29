@@ -43,31 +43,31 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "--threshold",
-        type=float,
+        type=_options.unit_float,
         default=0.5,
-        help="mask binarization threshold (default: %(default)s)",
+        help="mask binarization threshold, in [0, 1] (default: %(default)s)",
     )
     parser.add_argument(
         "--activity-min",
-        type=float,
+        type=_options.unit_float,
         default=0.1,
         help=(
             "minimum fraction of active frequency bins for a time column to "
-            "belong to an ELM (default: %(default)s)"
+            "belong to an ELM, in [0, 1] (default: %(default)s)"
         ),
     )
     parser.add_argument(
         "--min-gap-cols",
-        type=int,
+        type=_options.nonnegative_int,
         default=3,
-        help="merge events separated by at most this many columns "
+        help="merge events separated by at most this many columns, >= 0 "
         "(default: %(default)s)",
     )
     parser.add_argument(
         "--min-duration-cols",
-        type=int,
+        type=_options.positive_int,
         default=1,
-        help="drop events shorter than this many columns (default: %(default)s)",
+        help="drop events shorter than this many columns, >= 1 (default: %(default)s)",
     )
     _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
@@ -99,7 +99,7 @@ def _handle(args: argparse.Namespace) -> int:
     from tokeye.inference import infer
     from tokeye.result import Segmentation
 
-    setup = _common.setup_or_report(args, "segmentation")
+    setup = _common.setup_or_report(args, "segmentation", unique_stems=args.png)
     if setup is None:
         return _common.EXIT_USAGE
     config, out_dir = setup.config, setup.out_dir

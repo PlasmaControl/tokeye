@@ -112,7 +112,7 @@ For headless / scripted use (no browser needed), run inference directly. For exa
 tokeye run "files/*.npy" --output-dir results
 ```
 
-`INPUT` arguments can be files (`.npy`, `.npz`, `.wav`, `.flac`, `.ogg`, `.csv`, `.txt`, `.mat`, `.h5`), directories (every supported file inside except `.csv`/`.txt`), or quoted glob patterns. The sampling rate is read from the file when it records one (or from a `_sr<fs>` filename suffix); `--fs` sets it explicitly. Each input is interpreted by its shape:
+`INPUT` arguments can be files (`.npy`, `.npz`, `.wav`, `.flac`, `.ogg`, `.csv`, `.txt`, `.mat`, `.h5`), directories (every supported file inside except `.csv`/`.txt`), or quoted glob patterns. Glob patterns match supported files only. Outputs are named after each input's file stem, so inputs that share a stem, ignoring case (`shot.npy` and `shot.wav`, or `Shot.npy` and `shot.npy`), are rejected; run them into separate `--output-dir`s. The sampling rate is read from the file when it records one (or from a `_sr<fs>` filename suffix); `--fs` sets it explicitly. Each input is interpreted by its shape:
 - **1D array** — a raw time series. TokEye computes its STFT spectrogram using the flags below before running inference.
 - **2D array** — a precomputed spectrogram, fed to the model directly.
 
@@ -137,7 +137,7 @@ Flags:
 | `--clip-dc` / `--no-clip-dc` | on | Drop the DC bin. |
 | `--clip-low` / `--clip-high` | `1.0` / `99.0` | Percentile clip bounds applied to the spectrogram. |
 | `--log` / `--no-log` | off | Apply `log1p` to 2D spectrogram inputs stored in linear scale (1D signals are always log-scaled during the STFT). |
-| `--threshold` | `0.5` | Mask threshold used only for the preview PNG overlay. |
+| `--threshold` | `0.5` | Mask threshold (0–1) used only for the preview PNG overlay. |
 | `--png` / `--no-png` | on | Write preview PNGs. |
 | `--device` | `auto` | `cpu`, `cuda`, `cuda:N`, `mps`, or `auto` (an unavailable device is an error; see `tokeye info`). |
 | `--tile` | `auto` | Tile side for long inputs: `auto` (untiled up to 2^21 pixels), `none`, or an int ≥ 512. For `big_tf_unet`, tiled output matches untiled output to float32 rounding. |

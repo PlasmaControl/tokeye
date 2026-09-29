@@ -101,7 +101,18 @@ def detect_windowed(
     ``i + 1`` marks detection ``i`` (its row in the detections CSV).
     ``masks`` (per-detection soft masks) is ``None`` whenever more than one
     window is used, since per-window masks have no common global shape.
+
+    Raises
+    ------
+    ValueError
+        If ``0 < window_cols < 32``: windows that narrow mean one model
+        pass per few columns (60,000 passes for a 60,000-column shot at 1).
     """
+    if 0 < window_cols < _MIN_WINDOW_COLS:
+        raise ValueError(
+            f"window_cols must be 0 (no windowing) or >= {_MIN_WINDOW_COLS}, "
+            f"got {window_cols}"
+        )
     n_rows, n_cols = spectrogram.shape
     instance_map = np.zeros((n_rows, n_cols), dtype=np.int32)
     if window_cols <= 0 or n_cols <= window_cols:

@@ -7,6 +7,8 @@ files import it as ``from cli_helpers import ...`` (like ``golden_utils``).
 from __future__ import annotations
 
 import huggingface_hub
+import torch
+import torch.nn as nn
 from huggingface_hub.errors import RepositoryNotFoundError
 
 _REPO_URL = "https://huggingface.co/does/not/exist"
@@ -80,3 +82,38 @@ def multiline_repository_not_found_error() -> RepositoryNotFoundError:
     import requests
 
     return RepositoryNotFoundError(_REPO_NOT_FOUND_TEXT, response=requests.Response())
+
+
+class _TransientStub(nn.Module):
+    """Segmentation stub: channel 1 lights up wherever the input is high."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 2, kernel_size=1)
+        with torch.no_grad():
+            self.conv.weight.fill_(10.0)
+            self.conv.bias.zero_()
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class _StubRCNN(nn.Module):
+    """Instance stub: one detection over rows 0:2, cols 0:2 of each image."""
+
+    def __init__(self):
+        super().__init__()
+        self.dummy = nn.Parameter(torch.zeros(1))
+
+    def forward(self, images):
+        _, height, width = images[0].shape
+        masks = torch.zeros(1, 1, height, width)
+        masks[0, 0, 0:2, 0:2] = 1.0
+        return [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, 2.0, 2.0]]),
+                "labels": torch.ones(1, dtype=torch.int64),
+                "scores": torch.tensor([0.9]),
+                "masks": masks,
+            }
+        ]

@@ -24,8 +24,8 @@ from ._plotting import overlay_rgba, save_preview
 from ._version import __version__
 from .config import DEFAULT_CHANNELS, SpectrogramConfig, resolve_channels
 from .inference import _device_of, _plan_tiles, check_tile, infer
-from .io import DIRECTORY_SUFFIXES, load_signal
-from .preprocess import Spectrogram, prepare
+from .io import DIRECTORY_SUFFIXES, SIGNAL_SUFFIXES, load_signal
+from .preprocess import Spectrogram, _check_fs, prepare
 from .result import Segmentation
 
 if TYPE_CHECKING:
@@ -41,13 +41,28 @@ FORMATS = ("npy", "npz")
 def collect_inputs(inputs: list[str]) -> list[Path]:
     """Expand a list of files/directories/glob patterns into concrete paths.
 
-    Each item is resolved as: an existing file (kept as-is), an existing
-    directory (its files with a suffix in
-    :data:`tokeye.io.DIRECTORY_SUFFIXES`, sorted), or otherwise a glob
-    pattern (matches, sorted). Duplicates are dropped, preserving
-    first-seen order.
+    Each item is resolved as:
+
+    - an existing file: kept as-is, whatever its suffix (an unsupported one
+      then fails in :func:`tokeye.io.load_signal`);
+    - an existing directory: its files with a suffix in
+      :data:`tokeye.io.DIRECTORY_SUFFIXES`, sorted;
+    - otherwise a glob pattern: its matches that are files with a suffix in
+      :data:`tokeye.io.SIGNAL_SUFFIXES` (``.csv``/``.txt`` included), sorted.
+
+    A file reached twice under the same name (through its directory and by
+    name, or by a relative and an absolute path) is kept once, in its
+    first-seen position and spelling. A symlink with another name stays a
+    separate input.
+
+    Raises
+    ------
+    ValueError
+        Nothing was collected. The message counts the glob matches that
+        were skipped for their suffix, if any.
     """
     collected: list[Path] = []
+    skipped: dict[Path, str] = {}  # resolved path -> suffix, for the error
     for item in inputs:
         path = Path(item)
         if path.is_file():
@@ -61,20 +76,79 @@ def collect_inputs(inputs: list[str]) -> list[Path]:
         else:
             # glob.glob (not Path.glob) so absolute patterns keep working:
             # Path(".").glob() rejects non-relative patterns outright.
-            found = sorted(Path(match) for match in glob.glob(item))  # noqa: PTH207
+            matches = sorted(Path(match) for match in glob.glob(item))  # noqa: PTH207
+            files = [p for p in matches if p.is_file()]
+            found = [p for p in files if p.suffix.lower() in SIGNAL_SUFFIXES]
+            for p in files:
+                if p.suffix.lower() not in SIGNAL_SUFFIXES:
+                    skipped[p.resolve()] = p.suffix.lower() or "(none)"
         collected.extend(found)
 
-    seen: set[Path] = set()
+    seen: set[tuple[Path, str]] = set()
     result: list[Path] = []
     for path in collected:
-        if path not in seen:
-            seen.add(path)
+        key = (path.resolve(), path.name.casefold())
+        if key not in seen:
+            seen.add(key)
             result.append(path)
 
     if not result:
-        raise ValueError(f"No input files found for: {inputs}")
+        detail = ""
+        if skipped:
+            count = len(skipped)
+            detail = (
+                f" ({count} {'match' if count == 1 else 'matches'} skipped with "
+                f"unsupported suffixes: {', '.join(sorted(set(skipped.values())))}; "
+                f"supported: {', '.join(SIGNAL_SUFFIXES)})"
+            )
+        raise ValueError(f"No input files found for: {inputs}{detail}")
 
     return result
+
+
+def _join_limited(parts: Sequence[str], *, sep: str, limit: int = 5) -> str:
+    """``parts`` joined by ``sep``, the first ``limit`` only, then a count."""
+    text = sep.join(parts[:limit])
+    remaining = len(parts) - limit
+    if remaining > 0:
+        text += f"{sep}… and {remaining} more"
+    return text
+
+
+def check_unique_stems(paths: Sequence[Path]) -> None:
+    """Reject inputs whose outputs would overwrite each other.
+
+    Every per-input output is named after the file stem, so ``shot.npy`` and
+    ``shot.wav``, or ``a/shot.npy`` and ``b/shot.npy``, would write the same
+    files. Stems are compared ignoring case (``Shot`` and ``shot`` are one
+    file on the default macOS and Windows file systems).
+
+    Parameters
+    ----------
+    paths
+        The inputs, e.g. from :func:`collect_inputs`.
+
+    Raises
+    ------
+    ValueError
+        Two or more inputs share a stem. The one-line message names each
+        group of inputs (the first 5, then a count).
+    """
+    groups: dict[str, list[Path]] = {}
+    for path in map(Path, paths):
+        groups.setdefault(path.stem.casefold(), []).append(path)
+    clashes = [
+        f"{', '.join(map(str, members))} -> {members[0].stem!r}"
+        for members in groups.values()
+        if len(members) > 1
+    ]
+    if clashes:
+        raise ValueError(
+            "inputs would overwrite each other's outputs (outputs are named "
+            f"after the file stem, ignoring case): {_join_limited(clashes, sep='; ')}"
+            ". Process files that share a stem in separate runs with different "
+            "output directories, or rename them."
+        )
 
 
 def load_spectrogram(
@@ -237,7 +311,8 @@ def process_files(
 
     Each path goes through :func:`process_file` into ``out_dir``, which must
     exist, under a progress bar. One input that fails does not stop the
-    others.
+    others. Inputs that share a stem are rejected before anything is
+    written (:func:`check_unique_stems`).
 
     Parameters
     ----------
@@ -265,12 +340,14 @@ def process_files(
     Raises
     ------
     ValueError
-        ``fmt`` is not ``"npy"`` or ``"npz"``, or ``tile`` is below 512.
+        ``fmt`` is not ``"npy"`` or ``"npz"``, ``tile`` is below 512, or two
+        inputs share a stem (their outputs would overwrite each other).
     TypeError
         ``tile`` is not ``"auto"``, ``None`` or an int.
     """
     _check_fmt(fmt)
     check_tile(tile)
+    check_unique_stems(paths)
     cfg = _coerce_config(config)
     failures = 0
     for path in tqdm(paths, desc="tokeye run"):
@@ -347,11 +424,14 @@ def run_batch(
     Raises
     ------
     ValueError
-        Bad settings, an instance model, no inputs found, an unknown or
+        Bad settings, an ``fs`` that is not finite and positive, an instance
+        model, no inputs found, inputs that share a stem (checked before the
+        model loads; see :func:`check_unique_stems`), an unknown or
         unavailable ``device``, or a model that cannot be loaded (see
         :func:`tokeye.hub.load_model`, which also lists its other errors).
     TypeError
-        ``tile`` is not ``"auto"``, ``None`` or an int.
+        ``fs`` is not a number, or ``tile`` is not ``"auto"``, ``None`` or an
+        int.
     """
     if stft_kwargs is not None or log is not None:
         warnings.warn(
@@ -363,6 +443,7 @@ def run_batch(
     if stft_kwargs is not None and config is not None:
         raise ValueError("pass either config or stft_kwargs, not both")
     _check_fmt(fmt)
+    _check_fs(fs)
     check_tile(tile)
     cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
     if log is not None:
@@ -370,6 +451,7 @@ def run_batch(
 
     hub.require_task(model, "segmentation")
     paths = collect_inputs(inputs)
+    check_unique_stems(paths)
     loaded_model = hub.load_model(model, device)
 
     out_dir = Path(out_dir)

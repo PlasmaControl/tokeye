@@ -58,8 +58,10 @@ def load_signal(path: str | Path) -> tuple[np.ndarray, float | None]:
     FileNotFoundError
         If ``path`` is not a file.
     ValueError
-        For an unsupported suffix, or a container whose signal array
-        cannot be identified.
+        For an unsupported suffix, a container whose signal array cannot be
+        identified, a text file that is not a numeric table, or no numeric
+        data (an empty or header-only table, an empty or 0-d array, or a
+        non-numeric dtype such as strings or bool).
     ImportError
         For FLAC/OGG without ``soundfile`` or HDF5 without ``h5py``.
     """
@@ -75,7 +77,11 @@ def load_signal(path: str | Path) -> tuple[np.ndarray, float | None]:
     data, fs = loader(path)
     if fs is None:
         fs = fs_from_name(path)
-    return _squeeze_vector(np.asarray(data)), fs
+    arr = _squeeze_vector(np.asarray(data))
+    detail = _no_data(arr)
+    if detail is not None:
+        raise ValueError(f"{path}: no numeric data ({detail})")
+    return arr, fs
 
 
 def fs_from_name(path: str | Path) -> float | None:
@@ -102,6 +108,17 @@ def _squeeze_vector(arr: np.ndarray) -> np.ndarray:
 
 def _is_numeric(arr: np.ndarray) -> bool:
     return arr.dtype != np.bool_ and np.issubdtype(arr.dtype, np.number)
+
+
+def _no_data(arr: np.ndarray) -> str | None:
+    """Why ``arr`` holds no signal, or ``None`` if it does."""
+    if arr.ndim == 0:
+        return "a single value, not a signal"
+    if arr.size == 0:
+        return "empty array"
+    if not _is_numeric(arr):
+        return f"dtype {arr.dtype}"
+    return None
 
 
 def _fs_from_mapping(arrays: Mapping[str, Any]) -> float | None:
@@ -195,10 +212,19 @@ def _load_soundfile(path: Path) -> tuple[np.ndarray, float | None]:
 
 def _load_text(path: Path) -> tuple[np.ndarray, float | None]:
     delimiter = "," if path.suffix.lower() == ".csv" else None
-    try:
-        table = np.loadtxt(path, delimiter=delimiter, ndmin=1)
-    except ValueError:  # a header row
-        table = np.loadtxt(path, delimiter=delimiter, ndmin=1, skiprows=1)
+    # An empty table is reported by load_signal, so numpy's warning is noise.
+    # Not thread-safe (the filter list is global): at worst it leaks through.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message=r"loadtxt: input contained no data", category=UserWarning
+        )
+        try:
+            table = np.loadtxt(path, delimiter=delimiter, ndmin=1)
+        except ValueError:  # a header row
+            try:
+                table = np.loadtxt(path, delimiter=delimiter, ndmin=1, skiprows=1)
+            except ValueError as exc:
+                raise ValueError(f"{path}: not a numeric table ({exc})") from exc
     if table.ndim == 2 and table.shape[1] == 2 and table.shape[0] > 2:
         dt = np.diff(table[:, 0])
         if np.all(dt > 0):  # (time, value) columns

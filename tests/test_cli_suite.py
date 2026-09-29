@@ -6,46 +6,10 @@ import csv
 
 import numpy as np
 import pytest
-import torch
-import torch.nn as nn
+from cli_helpers import _StubRCNN, _TransientStub
 
 from tokeye.cli import alfvenspec as alfvenspec_cli
 from tokeye.cli import build_parser, main
-
-
-class _TransientStub(nn.Module):
-    """Segmentation stub: channel 1 lights up wherever the input is high."""
-
-    def __init__(self):
-        super().__init__()
-        self.conv = nn.Conv2d(1, 2, kernel_size=1)
-        with torch.no_grad():
-            self.conv.weight.fill_(10.0)
-            self.conv.bias.zero_()
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class _StubRCNN(nn.Module):
-    """Instance stub: one detection over rows 0:2, cols 0:2 of each image."""
-
-    def __init__(self):
-        super().__init__()
-        self.dummy = nn.Parameter(torch.zeros(1))
-
-    def forward(self, images):
-        _, height, width = images[0].shape
-        masks = torch.zeros(1, 1, height, width)
-        masks[0, 0, 0:2, 0:2] = 1.0
-        return [
-            {
-                "boxes": torch.tensor([[0.0, 0.0, 2.0, 2.0]]),
-                "labels": torch.ones(1, dtype=torch.int64),
-                "scores": torch.tensor([0.9]),
-                "masks": masks,
-            }
-        ]
 
 
 def _must_not_load(*args, **kwargs):

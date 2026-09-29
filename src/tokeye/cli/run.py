@@ -41,9 +41,9 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "--threshold",
-        type=float,
+        type=_options.unit_float,
         default=0.5,
-        help="preview threshold (default: %(default)s)",
+        help="preview threshold, in [0, 1] (default: %(default)s)",
     )
     _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
@@ -52,7 +52,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
 def _handle(args: argparse.Namespace) -> int:
     from tokeye import batch
 
-    setup = _common.setup_or_report(args, "segmentation")
+    setup = _common.setup_or_report(args, "segmentation", unique_stems=True)
     if setup is None:
         return _common.EXIT_USAGE
     failures = batch.process_files(

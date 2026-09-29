@@ -47,14 +47,57 @@ VERBOSE.add_argument(
 )
 
 
-def positive_float(text: str) -> float:
-    """argparse ``type=`` for a finite number > 0."""
+def _number(text: str) -> float:
     try:
-        value = float(text)
+        return float(text)
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+
+
+def _integer(text: str) -> int:
+    try:
+        return int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+
+
+def positive_float(text: str) -> float:
+    """argparse ``type=`` for a finite number > 0."""
+    value = _number(text)
     if not (math.isfinite(value) and value > 0):
         raise argparse.ArgumentTypeError(f"must be a positive number, got {text}")
+    return value
+
+
+def unit_float(text: str) -> float:
+    """argparse ``type=`` for a finite number in [0, 1]."""
+    value = _number(text)
+    if not 0.0 <= value <= 1.0:  # False for nan too
+        raise argparse.ArgumentTypeError(f"must be a number in [0, 1], got {text}")
+    return value
+
+
+def finite_float(text: str) -> float:
+    """argparse ``type=`` for any finite number (not nan or inf)."""
+    value = _number(text)
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
+    return value
+
+
+def nonnegative_int(text: str) -> int:
+    """argparse ``type=`` for an integer >= 0."""
+    value = _integer(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be an integer >= 0, got {text}")
+    return value
+
+
+def positive_int(text: str) -> int:
+    """argparse ``type=`` for an integer >= 1."""
+    value = _integer(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be an integer >= 1, got {text}")
     return value
 
 

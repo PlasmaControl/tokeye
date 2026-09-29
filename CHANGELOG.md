@@ -82,6 +82,12 @@ and a golden test now pins its output.
   `auto`) or points to `tokeye info`; in the CLI it is one line and exit 2.
 - An empty `window` is a `ValueError` (was a `TypeError`), and `--window` is
   checked before the model loads, even when every input is 2D.
+- Numeric flags are range-checked: `--threshold`, `--score-min` and
+  `--activity-min` in [0, 1], `--window-cols` 0 or ≥ 32, a finite `--mean`,
+  `--min-gap-cols` ≥ 0 and `--min-duration-cols` ≥ 1.
+- `detect_windowed(window_cols=…)` rejects 1–31; `run_batch` rejects
+  colliding stems and a non-finite or non-positive `fs` before loading the
+  model.
 - `tokeye app` opens a browser automatically in a local (non-SSH) session
   (0.12.0 opened one only with `--open`); `--no-browser` turns it off.
 - The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
@@ -113,6 +119,13 @@ and a golden test now pins its output.
 - The Hugging Face message appears only for hub errors; an unreachable hub
   without cached weights says so and points to `tokeye download`.
 - Per-input errors name the exception type.
+- Inputs whose outputs would overwrite each other (the same file stem,
+  ignoring case) are rejected by `tokeye run`, `elmspec --png`, `alfvenspec`
+  (unless `--no-masks`) and `run_batch` before the model loads, and the error
+  names them.
+- Glob patterns match only supported files.
+- Unreadable text tables and empty or non-numeric arrays get an error naming
+  the file.
 
 ## [0.12.0] - 2026-07-08
 

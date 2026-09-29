@@ -168,12 +168,26 @@ class Setup:
     device: str
 
 
-def setup_or_report(args: argparse.Namespace, task: str) -> Setup | None:
+def setup_or_report(
+    args: argparse.Namespace, task: str, *, unique_stems: bool
+) -> Setup | None:
     """The start-up checks of ``tokeye run``, ``elmspec`` and ``alfvenspec``.
 
     In order: the spectrogram flags, ``--window``, ``--device``, ``--tile``
-    (when the command has it), the inputs, the model (which must suit
-    ``task``), and the output directory, which only the last step creates.
+    (when the command has it), the inputs, with ``unique_stems`` that no
+    two share a stem (:func:`tokeye.batch.check_unique_stems`), the model
+    (which must suit ``task``), and the output directory, which only the
+    last step creates.
+
+    Parameters
+    ----------
+    args
+        The parsed command line.
+    task
+        ``"segmentation"`` or ``"instance"``.
+    unique_stems
+        Whether this run writes per-input files named after the stem. It
+        has no default, so a new command cannot skip the check by omission.
 
     Returns
     -------
@@ -182,7 +196,7 @@ def setup_or_report(args: argparse.Namespace, task: str) -> Setup | None:
         the handler then returns :data:`EXIT_USAGE`.
     """
     try:
-        return _setup(args, task)
+        return _setup(args, task, unique_stems=unique_stems)
     except Exception as exc:  # noqa: BLE001 - one line, never a traceback
         logger.debug("start-up failed", exc_info=exc)
         error(f"{type(exc).__name__}: {exc}")
@@ -200,7 +214,7 @@ def _window_error(config: SpectrogramConfig) -> str | None:
     return None
 
 
-def _setup(args: argparse.Namespace, task: str) -> Setup | None:
+def _setup(args: argparse.Namespace, task: str, *, unique_stems: bool) -> Setup | None:
     from tokeye import batch, hub
     from tokeye.inference import check_tile
 
@@ -225,6 +239,12 @@ def _setup(args: argparse.Namespace, task: str) -> Setup | None:
     except ValueError as exc:
         error(f"{exc}{NO_INPUT_HINT}")
         return None
+    if unique_stems:
+        try:
+            batch.check_unique_stems(paths)
+        except ValueError as exc:  # no NO_INPUT_HINT: there are inputs
+            error(str(exc))
+            return None
     try:
         with quiet_hub_logs(getattr(args, "verbose", False)):
             hub.require_task(args.model, task)
