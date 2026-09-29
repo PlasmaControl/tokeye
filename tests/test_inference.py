@@ -261,7 +261,6 @@ def _assert_matches_untiled(tiled: np.ndarray, untiled: np.ndarray) -> None:
 
 
 @pytest.mark.weights
-@pytest.mark.usefixtures("few_threads")
 def test_tiled_matches_untiled_on_the_example(real_weights):
     from tokeye import hub
     from tokeye.examples import make_example_signal
@@ -274,7 +273,6 @@ def test_tiled_matches_untiled_on_the_example(real_weights):
 
 
 @pytest.mark.weights
-@pytest.mark.usefixtures("few_threads")
 def test_auto_tiles_a_long_input_exactly(real_weights):
     from tokeye import hub
     from tokeye.examples import make_example_signal

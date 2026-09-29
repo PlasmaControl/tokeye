@@ -20,8 +20,8 @@ _FIELDS = dataclasses.fields(SpectrogramConfig)
 # The floor is tokeye.inference.MIN_TILE; importing it would import torch.
 TILE_HELP = (
     "tile side in pixels for long inputs: auto (untiled up to 2^21 pixels), "
-    "none, or an int >= 512; tiled output matches untiled output to float32 "
-    "rounding"
+    "none, or an int >= 512; for big_tf_unet, tiled output matches untiled "
+    "output to float32 rounding"
 )
 
 

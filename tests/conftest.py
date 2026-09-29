@@ -1,4 +1,4 @@
-"""Suite-wide fixtures and collection guards.
+"""Suite-wide fixtures, collection guards and the xdist thread cap.
 
 Tests stay offline by default: the hub is mocked everywhere except in tests
 marked ``weights``, which need the real ``big_tf_unet`` weights already in the
@@ -12,6 +12,7 @@ are skipped at collection time instead of erroring.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -47,17 +48,17 @@ def real_weights() -> Path:
     return Path(cached)
 
 
-@pytest.fixture
-def few_threads():
-    """Run the test's forward passes on at most four torch threads.
+def pytest_configure(config: pytest.Config) -> None:
+    """Give each xdist worker its share of the torch threads.
 
     Under ``pytest -n 8`` every worker's thread pool otherwise spans all the
-    machine's cores, and heavy tests running side by side thrash: on a 40-core
-    node the suite took 5.5 minutes instead of 30 seconds.
+    machine's cores, and torch-heavy tests running side by side thrash (on a
+    40-core node the suite took 5.5 minutes instead of 30 seconds). Serial
+    runs keep every thread.
     """
+    if "PYTEST_XDIST_WORKER" not in os.environ:
+        return
     import torch
 
-    threads = torch.get_num_threads()
-    torch.set_num_threads(min(threads, 4))
-    yield
-    torch.set_num_threads(threads)
+    workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+    torch.set_num_threads(max(1, torch.get_num_threads() // workers))

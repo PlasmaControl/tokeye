@@ -5,19 +5,39 @@ depends on the input's size, so a tile interpolates on a different grid than
 the whole image does -- everywhere in the tile, not only near its edges.
 :func:`tiling_view` gives :func:`tokeye.inference.infer` a copy of the model
 whose x2 bilinear ``align_corners=True`` upsamples sample on the whole
-image's grid instead, so every tile core reproduces an untiled run to
-float32 rounding.
+image's grid instead. When the model's receptive field is within the tile
+margin and no pooling level is deeper than the tile alignment (as for
+``big_tf_unet``, and any ``BigTFUNetModel`` with ``num_layers <= 5``), every
+tile core then reproduces an untiled run to float32 rounding.
+
+A feature map the view cannot place on the whole image's grid raises
+:class:`TileGeometryError` during the forward pass; ``infer`` then reruns the
+tiles on the model itself, by plain core cropping, and warns.
 """
 
 from __future__ import annotations
 
 import copy
+import logging
 
 import numpy as np
 import torch
 import torch.nn as nn
 
+logger = logging.getLogger(__name__)
+
 CHUNK = 16  # most channels one upsample interpolates at a time
+
+
+class TileGeometryError(Exception):
+    """A window's feature map that the whole-grid upsample cannot place.
+
+    Its pooling level is deeper than the tile alignment, it does not halve
+    by flooring, or the window's offset is not a multiple of its stride.
+    :func:`tokeye.inference.infer` catches it and falls back to plain core
+    cropping. It is not a :class:`RuntimeError`, so the MPS-to-CPU fallback,
+    which catches those, cannot mistake it for an MPS failure.
+    """
 
 
 class TileGrid:
@@ -30,12 +50,17 @@ class TileGrid:
     ----------
     full
         ``(H, W)`` of the whole image.
+    align
+        What every window offset is a multiple of
+        (:data:`tokeye.inference.ALIGN`). A pooling level ``k`` with
+        ``2**k > align`` cannot be placed.
     """
 
-    __slots__ = ("full", "offset", "window")
+    __slots__ = ("align", "full", "offset", "window")
 
-    def __init__(self, full: tuple[int, int]) -> None:
+    def __init__(self, full: tuple[int, int], *, align: int) -> None:
         self.full = full
+        self.align = align
         self.offset = (0, 0)  # (row, column) of the window's first pixel
         self.window = full  # (height, width) of the window
 
@@ -62,13 +87,15 @@ def global_grid_upsample(x: torch.Tensor, grid: TileGrid) -> torch.Tensor:
 
     Raises
     ------
-    RuntimeError
-        If ``x`` is not a pooling level of the window, or the window's
-        offset is not a multiple of that level's stride.
+    TileGeometryError
+        If ``x`` is not a pooling level of the window, the level is deeper
+        than ``grid.align`` allows, or the window's offset is not a multiple
+        of that level's stride.
     """
     batch, channels, height, width = x.shape
-    rows = _Axis(2, height, grid.window[0], grid.offset[0], grid.full[0], x)
-    cols = _Axis(3, width, grid.window[1], grid.offset[1], grid.full[1], x)
+    align = grid.align
+    rows = _Axis(2, height, grid.window[0], grid.offset[0], grid.full[0], align, x)
+    cols = _Axis(3, width, grid.window[1], grid.offset[1], grid.full[1], align, x)
     out = x.new_empty((batch, channels, 2 * height, 2 * width))
     # Separable, in channel chunks: the columns pass, then the rows pass,
     # computes PyTorch's (1-ly)*((1-lx)*a + lx*b) + ly*((1-lx)*c + lx*d).
@@ -90,15 +117,24 @@ class _Axis:
     Output ``o`` is ``src[i0[o]] * (1 - lam[o]) + src[i1[o]] * lam[o]``, with
     the taps of :func:`_taps`. Inside the map those are ``(q - 1, q)`` for
     ``o = 2q`` and ``(q, q + 1)`` for ``o = 2q + 1``, so shifted slices
-    compute all outputs but the two ends at once. The ends, and the rare
-    outputs whose float32 taps leave that pattern (where rounding crosses an
-    integer), are then computed from their own taps.
+    compute all outputs but the two ends at once. The two ends, whose
+    pattern taps fall outside the map, are then computed from their own
+    taps. An interior output whose float32 taps rounding moved off the
+    pattern would be too, but a scan of level sizes up to about 2**21 found
+    none: that check is a guard.
     """
 
     def __init__(
-        self, dim: int, n: int, window: int, offset: int, full: int, like: torch.Tensor
+        self,
+        dim: int,
+        n: int,
+        window: int,
+        offset: int,
+        full: int,
+        align: int,
+        like: torch.Tensor,
     ) -> None:
-        i0, i1, lam = _taps(n, window, offset, full, like)
+        i0, i1, lam = _taps(n, window, offset, full, align, like)
         out = torch.arange(2 * n, device=like.device)
         # The pattern's taps. At the two ends they fall outside the map (-1
         # and n), so the ends always get their own taps.
@@ -156,16 +192,30 @@ def _lerp(
 
 
 def _taps(
-    n: int, window: int, offset: int, full: int, like: torch.Tensor
+    n: int, window: int, offset: int, full: int, align: int, like: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Local source indices ``(i0, i1)`` and weight ``lambda`` along one axis.
 
     The float32 arithmetic of PyTorch's ``align_corners=True`` kernel, on
     the whole image's grid at the level of an ``n``-long window map.
+
+    Raises
+    ------
+    TileGeometryError
+        If ``n`` is not a pooling level ``k`` of ``window``, if
+        ``2**k > align``, or if ``offset`` is not a multiple of ``2**k``.
     """
     k = _level(window, n)
+    if 1 << k > align:
+        # Offsets are multiples of `align` only, so at this depth they would
+        # be multiples of 2**k by chance; and a model this deep (a six-level
+        # BigTFUNetModel) has a receptive field wider than the tile margin.
+        raise TileGeometryError(
+            f"pooling level {k} (stride 2**{k}) is deeper than the {align}-px "
+            "tile alignment"
+        )
     if offset % (1 << k):
-        raise RuntimeError(
+        raise TileGeometryError(
             f"tile offset {offset} is not a multiple of 2**{k}, the stride of "
             f"pooling level {k}"
         )
@@ -189,7 +239,7 @@ def _level(window: int, n: int) -> int:
     while window >> k > n:
         k += 1
     if window >> k != n:
-        raise RuntimeError(
+        raise TileGeometryError(
             f"a {n}-px feature map is not a pooling level of a {window}-px tile"
         )
     return k
@@ -216,12 +266,18 @@ def tiling_view(model: nn.Module, grid: TileGrid) -> nn.Module | None:
     torch.nn.Module or None
         - A copy of ``model`` sharing every parameter and buffer, with each
           x2 bilinear ``align_corners=True`` :class:`~torch.nn.Upsample`
-          replaced by a :class:`GlobalGridUpsample` reading ``grid``;
-        - ``model`` itself when it has no ``align_corners=True`` upsampling
-          (plain core cropping already matches an untiled run);
+          replaced by a :class:`GlobalGridUpsample` reading ``grid``. Its
+          forward pass raises :class:`TileGeometryError` on a feature map
+          it cannot place;
+        - ``model`` itself when it has no ``align_corners=True``
+          :class:`~torch.nn.Upsample`. Plain core cropping then matches an
+          untiled run only if the model's receptive field is within the tile
+          margin and ``forward`` calls no ``F.interpolate(...,
+          align_corners=True)`` itself, which cannot be seen;
         - ``None`` when it cannot be made tile-exact: it contains TorchScript
           or FX graph modules (which cannot be inspected) or other
-          ``align_corners=True`` upsampling, or ``copy.deepcopy`` fails on it.
+          ``align_corners=True`` upsampling, or ``copy.deepcopy`` fails on it
+          (logged at debug level).
     """
     modules = list(model.modules())
     opaque = (torch.jit.ScriptModule, torch.fx.GraphModule)
@@ -236,7 +292,8 @@ def tiling_view(model: nn.Module, grid: TileGrid) -> nn.Module | None:
     memo = {id(t): t for t in (*model.parameters(), *model.buffers())}
     try:
         view = copy.deepcopy(model, memo)
-    except Exception:  # noqa: BLE001 - e.g. an attribute deepcopy cannot copy
+    except Exception as exc:  # noqa: BLE001 - e.g. an attribute deepcopy cannot copy
+        logger.debug("tile-exact view unavailable: %r", exc)
         return None
     swaps = [
         (parent, name)

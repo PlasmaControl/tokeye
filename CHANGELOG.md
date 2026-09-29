@@ -26,10 +26,11 @@ and a golden test now pins its output.
   filename suffix) when recorded.
 - Tiled inference: long inputs run in overlapping tiles, bounding peak memory
   (`TokEye(tile=...)`, `--tile auto|none|N` for `tokeye run` and
-  `tokeye elmspec`); inputs up to 2^21 pixels run untiled. Tiled output
-  matches an untiled run to float32 rounding, because each tile's upsampling
-  uses the whole image's grid. `<stem>_params.json` records `tile` and
-  `tile_shape`.
+  `tokeye elmspec`); inputs up to 2^21 pixels run untiled. For `big_tf_unet`
+  and any `BigTFUNetModel` with `num_layers <= 5`, tiled output matches an
+  untiled run to float32 rounding, because each tile's upsampling uses the
+  whole image's grid; other models may differ slightly, with one warning
+  when TokEye can tell. `<stem>_params.json` records `tile` and `tile_shape`.
 - Apple-silicon GPUs: `device="auto"` tries CUDA, then MPS, then CPU, and an
   op MPS cannot run falls back to CPU with one warning.
 - `tokeye info` reports versions, the device `auto` picks, installed extras

@@ -78,7 +78,7 @@ seg["coherent"], seg.freqs, seg.times   # Hz and seconds when fs is known
 seg.save("shot.npz")                    # reload with tokeye.Segmentation.load
 ```
 
-Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. Standardization happens internally, and long inputs run in tiles so memory stays bounded; tiled output matches an untiled run to float32 rounding.
+Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. Standardization happens internally, and long inputs run in tiles so memory stays bounded. With `big_tf_unet`, tiled output matches an untiled run to float32 rounding; other models may differ slightly, and TokEye warns when it can tell.
 
 If your 2D spectrogram is stored in **linear scale** (raw STFT magnitude/power), pass `log=True` so TokEye applies `log1p` first since the model expects log-scaled input:
 
@@ -140,7 +140,7 @@ Flags:
 | `--threshold` | `0.5` | Mask threshold used only for the preview PNG overlay. |
 | `--png` / `--no-png` | on | Write preview PNGs. |
 | `--device` | `auto` | `cpu`, `cuda`, `mps`, or `auto`. |
-| `--tile` | `auto` | Tile side for long inputs: `auto` (untiled up to 2^21 pixels), `none`, or an int ≥ 512. Tiled output matches untiled output to float32 rounding. |
+| `--tile` | `auto` | Tile side for long inputs: `auto` (untiled up to 2^21 pixels), `none`, or an int ≥ 512. For `big_tf_unet`, tiled output matches untiled output to float32 rounding. |
 
 The defaults (`n_fft=1024`, `hop=128`) match the released model's training configuration. A larger hop (e.g. `--hop 256`) halves the columns for faster, lighter runs at some fidelity cost.
 

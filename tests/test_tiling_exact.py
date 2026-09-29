@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor
@@ -14,11 +15,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from tokeye import _tiling
-from tokeye.inference import _plan_tiles, infer
+from tokeye.inference import ALIGN, TILE_WARNING, _axis_windows, _plan_tiles, infer
 from tokeye.models.big_tf_unet.config_big_tf_unet import BigTFUNetConfig
 from tokeye.models.big_tf_unet.model_big_tf_unet import BigTFUNetModel
-
-pytestmark = pytest.mark.usefixtures("few_threads")
 
 SHAPES = [
     (300, 1300),  # columns only
@@ -26,9 +25,12 @@ SHAPES = [
     (531, 1037),  # odd sizes on both axes: the decoder's F.pad path
 ]
 CONFIG = BigTFUNetConfig(first_layer_size=4, dropout_rate=0.0)
+# One level deeper than the shipped model: its bottleneck is pooling level 5
+# (2**5 > ALIGN), and its receptive field is wider than MARGIN.
+DEEP = BigTFUNetConfig(first_layer_size=4, dropout_rate=0.0, num_layers=6)
 
 
-def _narrow_unet() -> BigTFUNetModel:
+def _narrow_unet(config: BigTFUNetConfig = CONFIG) -> BigTFUNetModel:
     """The shipped architecture, 8x narrower (about 64x fewer FLOPs).
 
     He-initialized: under PyTorch's default init the activations' variance
@@ -37,7 +39,7 @@ def _narrow_unet() -> BigTFUNetModel:
     run. He init keeps the variance, so a tiling error shows.
     """
     torch.manual_seed(0)
-    model = BigTFUNetModel(CONFIG)
+    model = BigTFUNetModel(config)
     for module in model.modules():
         if isinstance(module, nn.Conv2d):
             nn.init.kaiming_normal_(module.weight, a=0.01, nonlinearity="leaky_relu")
@@ -47,6 +49,11 @@ def _narrow_unet() -> BigTFUNetModel:
 @pytest.fixture(scope="module")
 def unet() -> BigTFUNetModel:
     return _narrow_unet()
+
+
+@pytest.fixture(scope="module")
+def deep_unet() -> BigTFUNetModel:
+    return _narrow_unet(DEEP)
 
 
 def _input(shape: tuple[int, int], seed: int = 0) -> np.ndarray:
@@ -74,7 +81,7 @@ def test_the_comparison_sees_the_old_tiling_error(unet, shape, monkeypatch):
 
 
 def _grid(full, offset=(0, 0), window=None) -> _tiling.TileGrid:
-    grid = _tiling.TileGrid(full)
+    grid = _tiling.TileGrid(full, align=ALIGN)
     grid.offset = offset
     grid.window = full if window is None else window
     return grid
@@ -105,10 +112,25 @@ def test_upsample_of_a_window_matches_the_whole_image():
 
 def test_upsample_rejects_inconsistent_geometry():
     x = torch.zeros(1, 1, 12, 20)  # pooling level 2 of a 48x80 window
-    with pytest.raises(RuntimeError, match="not a pooling level"):
+    with pytest.raises(_tiling.TileGeometryError, match="not a pooling level"):
         _tiling.global_grid_upsample(x, _grid((80, 144), window=(56, 80)))
-    with pytest.raises(RuntimeError, match="not a multiple of 2"):
+    with pytest.raises(_tiling.TileGeometryError, match="not a multiple of 2"):
         _tiling.global_grid_upsample(x, _grid((80, 144), (6, 0), (48, 80)))
+
+
+def test_geometry_errors_are_not_runtime_errors():
+    # So the MPS fallback, which catches RuntimeError, can never take one
+    # for an MPS failure.
+    assert issubclass(_tiling.TileGeometryError, Exception)
+    assert not issubclass(_tiling.TileGeometryError, RuntimeError)
+    like = torch.zeros(1)
+    with pytest.raises(_tiling.TileGeometryError, match="not a pooling level"):
+        _tiling._level(397, 199)  # ceil halving (a strided conv), not 397 >> 1
+    with pytest.raises(_tiling.TileGeometryError, match="not a multiple of 2"):
+        _tiling._taps(12, 48, 6, 80, ALIGN, like)
+    with pytest.raises(_tiling.TileGeometryError, match="deeper than the 16-px"):
+        _tiling._taps(300 >> 5, 300, 0, 300, ALIGN, like)  # 2**5 > ALIGN
+    _tiling._taps(300 >> 4, 300, 0, 300, ALIGN, like)  # 2**4 == ALIGN is fine
 
 
 def test_view_shares_weights_and_swaps_the_upsamples(unet):
@@ -193,11 +215,16 @@ def _uncopyable() -> nn.Module:
     return model
 
 
-def _tile_warnings(model: nn.Module, x: np.ndarray, tile) -> list[str]:
+def _infer_recording(model: nn.Module, x: np.ndarray, tile) -> tuple:
+    """``infer``'s scores, and the messages of the ``UserWarning``s it gave."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        infer(model, x, tile=tile)
-    return [str(w.message) for w in caught if w.category is UserWarning]
+        out = infer(model, x, tile=tile)
+    return out, [str(w.message) for w in caught if w.category is UserWarning]
+
+
+def _tile_warnings(model: nn.Module, x: np.ndarray, tile) -> list[str]:
+    return _infer_recording(model, x, tile)[1]
 
 
 @pytest.mark.parametrize(
@@ -242,3 +269,70 @@ def test_small_eager_models_with_the_x2_upsample_are_exact():
 def test_a_tile_covering_the_input_runs_untiled():
     assert _plan_tiles((300, 400), 512) is None
     assert _plan_tiles((300, 1300), 512) == (300, 512)
+
+
+def test_a_failed_copy_logs_why(caplog):
+    with caplog.at_level(logging.DEBUG, logger="tokeye"):
+        assert _tile_warnings(_uncopyable(), _input((40, 1024)), 512) == [TILE_WARNING]
+    reasons = [r.getMessage() for r in caplog.records if r.name == "tokeye._tiling"]
+    assert len(reasons) == 1
+    assert reasons[0].startswith("tile-exact view unavailable: ")
+
+
+# ---------------------------------------------------------------------------
+# Models whose feature maps the view cannot place fall back mid-run
+# ---------------------------------------------------------------------------
+
+
+def _core_crop(model: nn.Module, x: np.ndarray, tile) -> np.ndarray:
+    """What the plain core-crop tiler gives (no view)."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(_tiling, "tiling_view", lambda model, grid: None)
+        out, messages = _infer_recording(model, x, tile)
+    assert messages == [TILE_WARNING]
+    return out
+
+
+def test_a_deeper_unet_falls_back_to_core_crop(deep_unet, caplog):
+    x = _input((700, 3100))
+    assert _plan_tiles(x.shape, "auto") == (700, 2992)
+    with caplog.at_level(logging.DEBUG, logger="tokeye"):
+        out, messages = _infer_recording(deep_unet, x, "auto")
+    assert messages == [TILE_WARNING]
+    reasons = [r.getMessage() for r in caplog.records if r.name == "tokeye.inference"]
+    assert len(reasons) == 1
+    assert reasons[0].startswith("tile-exact view unavailable: ")
+    assert np.abs(out - _core_crop(deep_unet, x, "auto")).max() <= 1e-6
+
+
+def test_a_deeper_unet_warns_even_when_its_offsets_align(deep_unet):
+    # Every 512-px window starts at a multiple of 128, so its level-5 offset
+    # is exact; only the depth rule (2**5 > ALIGN) can tell that this
+    # model's receptive field outgrows the margin.
+    x = _input((700, 900))
+    starts = [[w[0] for w in _axis_windows(n, 512)] for n in x.shape]
+    assert starts == [[0, 128, 384], [0, 128, 384, 640]]
+    assert _tile_warnings(deep_unet, x, 512) == [TILE_WARNING]
+
+
+class _Strided(nn.Module):
+    """A stride-2 conv (``ceil(n / 2)``, not ``n >> 1``), then the x2 upsample."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.down = nn.Conv2d(1, 2, kernel_size=3, stride=2, padding=1)
+        self.up = _bilinear_x2()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.up(self.down(x))[:, :, : x.shape[2], : x.shape[3]]
+
+
+def test_ceil_halving_falls_back_to_core_crop():
+    torch.manual_seed(0)
+    model = _Strided().eval()
+    x = _input((40, 1037))
+    # The fourth window is 397 px wide: its map is 199 px, not 397 >> 1.
+    assert [hi - lo for lo, hi, *_ in _axis_windows(1037, 512)][3] == 397
+    out, messages = _infer_recording(model, x, 512)
+    assert messages == [TILE_WARNING]
+    assert np.abs(out - _core_crop(model, x, 512)).max() <= 1e-6

@@ -120,6 +120,11 @@ def save_overlay_png(
     fig.savefig(out_path, dpi=dpi)
 
 
+def _check_fmt(fmt: str) -> None:
+    if fmt not in FORMATS:
+        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+
+
 def _coerce_config(config: Any) -> SpectrogramConfig:
     if isinstance(config, dict):
         warnings.warn(
@@ -158,8 +163,7 @@ def process_file(
     removed before the first write and written last, so it only ever sits
     beside a complete set of outputs.
     """
-    if fmt not in FORMATS:
-        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+    _check_fmt(fmt)
     check_tile(tile)
     path, out_dir = Path(path), Path(out_dir)
     cfg = _coerce_config(config)
@@ -270,8 +274,7 @@ def run_batch(
         )
     if stft_kwargs is not None and config is not None:
         raise ValueError("pass either config or stft_kwargs, not both")
-    if fmt not in FORMATS:
-        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+    _check_fmt(fmt)
     check_tile(tile)
     cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
     if log is not None:

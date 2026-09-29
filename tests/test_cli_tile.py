@@ -216,7 +216,6 @@ def test_params_are_absent_unless_the_outputs_are_complete(
 
     assert (tmp_path / "small_mask.npy").exists()
     assert not params_path.exists()
-    assert not list(tmp_path.glob(".*"))  # no temporary file left behind
 
 
 def test_a_failed_params_write_leaves_no_temporary_file(

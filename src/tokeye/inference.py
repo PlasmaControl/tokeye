@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
     import torch.nn as nn
 
+    from ._tiling import TileGrid
+
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
@@ -31,8 +33,10 @@ WARMUP_INPUT_SHAPE = (1, 1, 512, 512)  # (batch_size, channels, height, width)
 
 STD_EPS = 1e-6  # the v1 standardization: (x - mean) / (std + STD_EPS)
 MIN_SIZE = 16  # smallest H or W the U-Net accepts
-# Tile offsets are multiples of this (2^4, the U-Net's total stride), so
-# every level's offset is exact.
+# Tile offsets are multiples of this: 2^4, big_tf_unet's total stride, so
+# every pooling level's offset is exact for it and for any BigTFUNetModel
+# with num_layers <= 5. A model with a deeper level tiles by plain core-crop,
+# with TILE_WARNING.
 ALIGN = 16
 # Context kept on each side of a tile core: at least the model's
 # receptive-field radius (<= 118 px for big_tf_unet). With global-grid
@@ -71,11 +75,17 @@ def infer(
     tile
         ``"auto"`` (default) runs untiled up to ``2**21`` pixels and tiles
         larger inputs; an int ``>= 512`` sets the tile side; ``None``
-        never tiles. Standardization always uses the whole image, and
-        tiled output matches an untiled run to float32 rounding. Models
-        whose upsampling cannot be swapped for the whole image's grid
-        (TorchScript, ``torch.fx``/``.pt2``) still tile, with one
-        ``UserWarning``.
+        never tiles. Standardization always uses the whole image. Tiled
+        output matches an untiled run to float32 rounding for
+        ``big_tf_unet`` and any ``BigTFUNetModel`` of the default depth or
+        shallower (``num_layers <= 5``). Other models still tile, and
+        TokEye warns (one ``UserWarning``) when it can tell that tiles may
+        differ: TorchScript and ``torch.fx`` (``.pt2``) models, other
+        ``align_corners=True`` upsampling, deeper models, feature maps that
+        do not halve by flooring, and models ``copy.deepcopy`` cannot copy.
+        It cannot tell for a model that upsamples through ``F.interpolate``
+        inside ``forward``, or whose receptive field is wider than the
+        128-px margin.
 
     Returns
     -------
@@ -195,27 +205,48 @@ def _run(
 ) -> tuple[np.ndarray, bool]:
     """Standardize ``arr`` as a whole, then segment it in one pass or tiles.
 
-    Returns ``(scores, exact)``; ``exact`` is ``False`` when a tiled run had
-    to use ``model`` as is (see :func:`tokeye._tiling.tiling_view`).
+    Returns ``(scores, exact)``. ``exact`` is ``False`` when a tiled run
+    fell back to plain core cropping on ``model`` itself: no tile-exact view
+    could be built (see :func:`tokeye._tiling.tiling_view`), or the view met
+    a feature map it cannot place (:class:`tokeye._tiling.TileGeometryError`)
+    and the tiles were rerun.
     """
     mean = float(arr.mean(dtype=np.float64))
     scale = float(arr.std(dtype=np.float64)) + STD_EPS
     height, width = arr.shape
-    net, grid, exact = model, None, True
     if plan is None:
-        rows = [(0, height, 0, height)]
-        cols = [(0, width, 0, width)]
-    else:
-        from . import _tiling
+        rows, cols = [(0, height, 0, height)], [(0, width, 0, width)]
+        return _segment(model, arr, mean, scale, rows, cols, device), True
+    from . import _tiling
 
-        rows = _axis_windows(height, plan[0])
-        cols = _axis_windows(width, plan[1])
-        grid = _tiling.TileGrid((height, width))
-        view = _tiling.tiling_view(model, grid)
-        if view is None:
-            exact = False
-        else:
-            net = view
+    rows, cols = _axis_windows(height, plan[0]), _axis_windows(width, plan[1])
+    grid = _tiling.TileGrid((height, width), align=ALIGN)
+    view = _tiling.tiling_view(model, grid)
+    if view is not None:
+        try:
+            return _segment(view, arr, mean, scale, rows, cols, device, grid), True
+        except _tiling.TileGeometryError as exc:
+            logger.debug("tile-exact view unavailable: %s", exc)
+    return _segment(model, arr, mean, scale, rows, cols, device), False
+
+
+def _segment(
+    net: nn.Module,
+    arr: np.ndarray,
+    mean: float,
+    scale: float,
+    rows: list[tuple[int, int, int, int]],
+    cols: list[tuple[int, int, int, int]],
+    device: torch.device,
+    grid: TileGrid | None = None,
+) -> np.ndarray:
+    """``net``'s scores for ``arr``, window by window, keeping each core.
+
+    ``rows`` and ``cols`` are :func:`_axis_windows` lists; each block is
+    standardized as ``(block - mean) / scale``. ``grid``, when given, is
+    moved to each window before that window's forward pass.
+    """
+    height, width = arr.shape
     out: np.ndarray | None = None
     with torch.inference_mode():
         for r_lo, r_hi, rc_lo, rc_hi in rows:
@@ -237,7 +268,7 @@ def _run(
                 out[:, rc_lo:rc_hi, cc_lo:cc_hi] = probs[
                     :, rc_lo - r_lo : rc_hi - r_lo, cc_lo - c_lo : cc_hi - c_lo
                 ]
-    return out, exact
+    return out
 
 
 def _unwrap(output: object) -> torch.Tensor:
