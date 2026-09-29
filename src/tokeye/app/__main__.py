@@ -4,9 +4,9 @@ TokEye Main Inference
 
 from __future__ import annotations
 
-import argparse
 import importlib.resources
 import logging
+import sys
 from pathlib import Path
 
 import gradio as gr
@@ -19,6 +19,7 @@ from .utils.theme import CUSTOM_CSS, make_theme
 
 # Constants
 APP_TITLE = "TokEye"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7860
 MAX_PORT_ATTEMPTS = 10
 
@@ -59,12 +60,15 @@ def main(
     port: int = DEFAULT_PORT,
     share: bool = False,
     open_browser: bool = False,
+    host: str = DEFAULT_HOST,
 ) -> None:
+    """Build the app and serve it on ``host``, trying ports upward from ``port``."""
     logger.info(f"Initializing TokEye in: {Path.cwd()}")
     app = create_app()
     for attempt in range(MAX_PORT_ATTEMPTS):
         try:
             app.launch(
+                server_name=host,
                 share=share,
                 inbrowser=open_browser,
                 server_port=port + attempt,
@@ -78,21 +82,7 @@ def main(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="python -m tokeye.app",
-        description="Launch the TokEye Gradio app.",
-    )
-    parser.add_argument(
-        "--port", type=int, default=DEFAULT_PORT, help="Port to serve the app on."
-    )
-    parser.add_argument(
-        "--share", action="store_true", help="Create a public Gradio share link."
-    )
-    parser.add_argument(
-        "--open",
-        dest="open_browser",
-        action="store_true",
-        help="Open the app in a browser on launch.",
-    )
-    args = parser.parse_args()
-    main(port=args.port, share=args.share, open_browser=args.open_browser)
+    # `python -m tokeye.app [flags]` == `tokeye app [flags]`
+    from tokeye import cli
+
+    sys.exit(cli.main(["app", *sys.argv[1:]]))

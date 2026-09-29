@@ -68,6 +68,7 @@ HEAVY = ("torch", "gradio", "scipy")
         ["elmspec"],
         ["alfvenspec"],
         ["app"],
+        ["info"],
     ],
     ids=lambda argv: " ".join(argv) or "tokeye",
 )

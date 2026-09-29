@@ -19,7 +19,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from tokeye._version import __version__
-from tokeye.cli import alfvenspec, app, download, elmspec, example, run
+from tokeye.cli import alfvenspec, app, download, elmspec, example, info, run
 from tokeye.cli._common import EXIT_INTERRUPTED, EXIT_USAGE
 
 if TYPE_CHECKING:
@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     app.add_subcommand(subparsers)
     download.add_subcommand(subparsers)
     example.add_subcommand(subparsers)
+    info.add_subcommand(subparsers)
     elmspec.add_subcommand(subparsers)
     alfvenspec.add_subcommand(subparsers)
     return parser

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from unittest.mock import Mock, patch
 
 import pytest
 
-from tokeye.app.__main__ import DEFAULT_PORT, MAX_PORT_ATTEMPTS, create_app, main
+from tokeye.app.__main__ import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    MAX_PORT_ATTEMPTS,
+    create_app,
+    main,
+)
 from tokeye.app.utils.theme import PALETTE, make_theme
 
 
@@ -73,8 +81,16 @@ class TestMainPortRetry:
             main(port=7777, share=True, open_browser=True)
 
         fake_app.launch.assert_called_once_with(
-            share=True, inbrowser=True, server_port=7777
+            server_name="127.0.0.1", share=True, inbrowser=True, server_port=7777
         )
+
+    def test_host_is_passed_through(self):
+        fake_app = Mock()
+
+        with patch("tokeye.app.__main__.create_app", return_value=fake_app):
+            main(port=7777, host="0.0.0.0")
+
+        assert fake_app.launch.call_args[1]["server_name"] == "0.0.0.0"
 
     def test_non_oserror_exceptions_propagate(self):
         """Non-OSError exceptions should propagate (not be caught by retry logic)."""
@@ -86,6 +102,27 @@ class TestMainPortRetry:
             pytest.raises(RuntimeError),
         ):
             main(port=DEFAULT_PORT)
+
+
+def test_cli_defaults_match_the_app():
+    """cli/app.py cannot import this module (gradio), so it repeats these."""
+    from tokeye.cli import app as app_cli
+
+    assert app_cli.DEFAULT_HOST == DEFAULT_HOST
+    assert app_cli.DEFAULT_PORT == DEFAULT_PORT
+
+
+def test_python_m_tokeye_app_delegates_to_the_cli():
+    result = subprocess.run(
+        [sys.executable, "-m", "tokeye.app", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage: tokeye app" in result.stdout
+    assert "--workspace" in result.stdout
 
 
 class TestDarkControlRoomTheme:

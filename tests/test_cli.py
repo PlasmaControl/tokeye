@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import httpx
+import sys
+from pathlib import Path
+
+import huggingface_hub
 import numpy as np
 import pytest
 import torch.nn as nn
@@ -10,17 +13,28 @@ import tokeye
 from tokeye import SpectrogramConfig
 from tokeye.cli import build_parser, main
 from tokeye.cli._options import config_from_args
+from tokeye.cli.example import default_output
+from tokeye.io import fs_from_name, load_signal
 
 
 def _repository_not_found_error() -> RepositoryNotFoundError:
     """Build a real RepositoryNotFoundError the way huggingface_hub does.
 
-    ``HfHubHTTPError`` (its base class) requires a ``response`` kwarg with no
-    default, so a bare ``RepositoryNotFoundError("msg")`` raises ``TypeError``.
+    ``HfHubHTTPError`` needs a ``response``: an ``httpx.Response`` on
+    huggingface_hub >= 1.0, a ``requests.Response`` before that (the floor
+    of the supported range).
     """
-    response = httpx.Response(
-        404, request=httpx.Request("GET", "https://huggingface.co/does/not/exist")
-    )
+    url = "https://huggingface.co/does/not/exist"
+    if int(huggingface_hub.__version__.split(".")[0]) >= 1:
+        import httpx
+
+        response = httpx.Response(404, request=httpx.Request("GET", url))
+    else:
+        import requests
+
+        response = requests.Response()
+        response.status_code = 404
+        response.url = url
     return RepositoryNotFoundError("Repository Not Found", response=response)
 
 
@@ -140,9 +154,16 @@ class TestBuildParser:
 
         args = parser.parse_args(["app"])
 
+        assert args.host == "127.0.0.1"
         assert args.port == 7860
         assert args.share is False
-        assert args.open_browser is False
+        assert args.browser is None  # decided at launch: local -> open
+        assert args.workspace is None
+
+    def test_app_open_and_no_browser_are_exclusive(self):
+        with pytest.raises(SystemExit) as exc_info:
+            build_parser().parse_args(["app", "--open", "--no-browser"])
+        assert exc_info.value.code == 2
 
 
 class TestMain:
@@ -333,25 +354,115 @@ class TestMain:
         assert "TOKEYE_HF_REPO" in err
         assert "Traceback" not in err
 
-    def test_app_subcommand_delegates_to_app_main(self, monkeypatch):
-        calls = {}
+    def test_example_default_name_records_the_rate(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
 
-        def fake_app_main(port, share, open_browser):
-            calls["port"] = port
-            calls["share"] = share
-            calls["open_browser"] = open_browser
-
-        monkeypatch.setattr("tokeye.app.__main__.main", fake_app_main)
-
-        exit_code = main(["app", "--port", "1234", "--share"])
+        exit_code = main(["example", "--duration", "0.01"])
 
         assert exit_code == 0
-        assert calls == {"port": 1234, "share": True, "open_browser": False}
+        path = tmp_path / "tokeye_example_sr200000.npy"
+        assert capsys.readouterr().out.strip() == path.name
+        data, fs = load_signal(path)
+        assert fs == 200_000.0
+        assert data.shape == (2000,)
+
+    @pytest.mark.parametrize("fs", [200_000.0, 44_100.0, 1234.5])
+    def test_example_default_name_round_trips(self, fs):
+        assert fs_from_name(default_output(fs)) == fs
+
+    def test_info_reports_the_environment(self, monkeypatch, capsys):
+        monkeypatch.setattr("tokeye.hub.cached_path", lambda name: None)
+
+        exit_code = main(["info"])
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert out.startswith(f"tokeye    {tokeye.__version__}")
+        for key in ("python", "torch", "cuda", "mps", "device", "extras", "hf cache"):
+            assert f"\n{key}" in out
+        assert "(what --device auto picks)" in out
+        assert "not cached (run: tokeye download big_tf_unet)" in out
+        assert "ae_tf_maskrcnn" in out
+
+
+class TestAppCommand:
+    @pytest.fixture
+    def calls(self, monkeypatch):
+        calls = {}
+
+        def fake_app_main(port, share, open_browser, host):
+            calls.update(port=port, share=share, open_browser=open_browser, host=host)
+
+        monkeypatch.setattr("tokeye.app.__main__.main", fake_app_main)
+        return calls
+
+    def test_local_session_opens_the_browser(self, calls, monkeypatch):
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+
+        exit_code = main(["app", "--port", "1234"])
+
+        assert exit_code == 0
+        assert calls == {
+            "port": 1234,
+            "share": False,
+            "open_browser": True,
+            "host": "127.0.0.1",
+        }
+
+    def test_ssh_session_does_not_open_and_explains_forwarding(
+        self, calls, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")
+
+        main(["app"])
+
+        assert calls["open_browser"] is False
+        assert "ssh -L 7860:localhost:7860" in capsys.readouterr().err
+
+    def test_explicit_flags_win(self, calls, monkeypatch):
+        monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")
+        main(["app", "--open"])
+        assert calls["open_browser"] is True
+
+        monkeypatch.delenv("SSH_CONNECTION")
+        main(["app", "--no-browser", "--host", "0.0.0.0"])
+        assert calls["open_browser"] is False
+        assert calls["host"] == "0.0.0.0"
+
+    def test_share_warns(self, calls, capsys):
+        main(["app", "--share", "--no-browser"])
+
+        assert calls["share"] is True
+        assert "anyone with the link" in capsys.readouterr().err
+
+    def test_workspace_is_created_and_entered(self, calls, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)  # restores the cwd afterwards
+        workspace = tmp_path / "ws" / "inner"
+
+        main(["app", "--no-browser", "--workspace", str(workspace)])
+
+        assert workspace.is_dir()
+        assert Path.cwd() == workspace.resolve()
+
+    def test_missing_extra_is_a_usage_error(self, monkeypatch, capsys):
+        monkeypatch.setitem(sys.modules, "tokeye.app.__main__", None)
+
+        exit_code = main(["app"])
+
+        assert exit_code == 2
+        assert "pip install 'tokeye[app]'" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
     "argv",
-    [["--help"], ["run", "--help"], ["download", "--help"], ["example", "--help"]],
+    [
+        ["--help"],
+        ["run", "--help"],
+        ["download", "--help"],
+        ["example", "--help"],
+        ["info", "--help"],
+        ["app", "--help"],
+    ],
 )
 def test_help_does_not_crash(argv, capsys):
     with pytest.raises(SystemExit) as exc_info:
