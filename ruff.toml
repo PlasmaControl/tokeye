@@ -35,6 +35,3 @@ ignore = [
 "*.ipynb" = ["E402"]
 
 "scripts/**" = ["E402", "E702", "E741", "SIM115", "PTH208"]
-
-"src/tokeye/extra/eval/**" = ["E702"]
-

@@ -3,7 +3,7 @@
 Deliberately thin for now: ``tokeye alfvenspec`` runs the ``ae_tf_maskrcnn``
 instance-detection model over spectrograms and writes per-detection boxes,
 scores, and masks. Deeper EP-group workflows (AE taxonomy, cross-diagnostic
-checks) land here once their requirements are gathered — see docs/ROADMAP.md.
+checks) land here once their requirements are gathered (see the docs roadmap).
 """
 
 from __future__ import annotations
