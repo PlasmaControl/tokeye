@@ -1,29 +1,46 @@
 [build-system]
-requires = ["uv_build"]
+requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
 
 [project]
 name = "tokeye"
-version = "0.12.0"
+version = "1.0.0"
 description = "Automatic classification and localization of fluctuating signals in spectrograms"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nathaniel Chen", email = "nathaniel@princeton.edu" }]
+keywords = [
+    "spectrogram",
+    "segmentation",
+    "fusion",
+    "tokamak",
+    "plasma",
+    "bioacoustics",
+    "pytorch",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Typing :: Typed",
+]
+# Floors are the oldest versions the CI floor job installs and tests.
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    # PyTorch 2.11 dropped Volta/V100 (sm_70) from its CUDA wheels; DIII-D's
-    # omega GPU partition is V100 (gres=gpu:v100), so we stay below it. Pinned
-    # exactly rather than capped: uv.lock is untracked, so a range would let the
-    # torch family drift apart between machines.
-    "torch==2.9.1",
-    "torchvision==0.24.1",  # the torchvision built against torch 2.9.1
-    "torchinfo",
-    "omegaconf",
-    "pydantic",
+    "numpy>=1.26",
+    "scipy>=1.12",  # ShortTimeFFT
+    "matplotlib>=3.8",
+    "torch>=2.4",
     "huggingface-hub>=0.30",
-    "tqdm",
-    "pyyaml",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]
@@ -31,25 +48,16 @@ app = [
     # gradio 6 removes Image(show_download_button=...) (used in app/__main__.py)
     # and moves theme=/css= from Blocks() to launch() — the app is 5.x-only.
     "gradio>=5.49,<6",
+    "soundfile>=0.12",  # .flac/.ogg inputs
 ]
-train = [
-    "ipykernel",
-    "ipywidgets",
-    "h5py",
-    "wavio",
-    "joblib",
-    "lightning",
-    "torchaudio==2.9.1",  # must match torch exactly, or libtorchaudio.so won't load
-    "torchmetrics",
-    "scikit-learn",
-    "scikit-image",
-    "pybaselines",
-    "tifffile",
-    "pandas",
-    "tables",
-    "kneed",
-    "threadpoolctl",
-]
+ae = ["torchvision>=0.19"]  # ae_tf_maskrcnn / tokeye alfvenspec
+hdf5 = ["h5py>=3.10"]  # .h5 / v7.3 .mat inputs
+all = ["tokeye[app,ae,hdf5]"]
+
+[project.urls]
+Documentation = "https://plasmacontrol.github.io/tokeye/"
+Source = "https://github.com/PlasmaControl/tokeye"
+Issues = "https://github.com/PlasmaControl/tokeye/issues"
 
 [project.scripts]
 tokeye = "tokeye.cli:main"
@@ -66,6 +74,16 @@ testpaths = [
 
 [tool.uv]
 package = true
+# The DIII-D/Princeton GPU partitions are V100 (sm_70), which PyTorch 2.11
+# dropped from its CUDA wheels. Constraints bind only this repo's own
+# environments (uv sync / uv lock), never users installing tokeye. They are
+# exact because uv.lock is untracked, so a range would let the torch family
+# drift apart between machines.
+constraint-dependencies = [
+    "torch==2.9.1",
+    "torchvision==0.24.1",  # the torchvision built against torch 2.9.1
+    "torchaudio==2.9.1",  # must match torch exactly, or libtorchaudio.so won't load
+]
 # Keep torch/torchvision/torchaudio on ONE index. Mixing a +cuXXX torch with a
 # plain-PyPI torchaudio gives an import-time ABI error
 # (libtorchaudio.so: undefined symbol ...c10_cuda_check_implementation...).
@@ -75,6 +93,9 @@ torch-backend = "auto"
 [tool.uv.build-backend]
 module-name = "tokeye"
 module-root = "src"
+# Research code, frozen for paper provenance: in the repo, not in the wheel or
+# sdist. Train from a clone with `uv sync --group train`.
+source-exclude = ["src/tokeye/training"]
 
 [dependency-groups]
 dev = [
@@ -97,8 +118,12 @@ train = [
     "joblib",
 
     "lightning",
-    "torchaudio==2.9.1",  # must match torch exactly, or libtorchaudio.so won't load
+    "torchaudio",  # pinned with torch in [tool.uv] constraint-dependencies
+    "torchvision",
     "torchmetrics",
+
+    "omegaconf",
+    "pyyaml",
 
     "scikit-learn",
     "scikit-image",
@@ -108,6 +133,5 @@ train = [
     "pandas",
     "tables",
 
-    "kneed",
     "threadpoolctl",
 ]

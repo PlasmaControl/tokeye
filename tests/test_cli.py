@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 import huggingface_hub
@@ -388,12 +389,15 @@ class TestMain:
 class TestAppCommand:
     @pytest.fixture
     def calls(self, monkeypatch):
+        """Replace tokeye.app.__main__ with a stub, so gradio is not needed."""
         calls = {}
 
         def fake_app_main(port, share, open_browser, host):
             calls.update(port=port, share=share, open_browser=open_browser, host=host)
 
-        monkeypatch.setattr("tokeye.app.__main__.main", fake_app_main)
+        stub = types.ModuleType("tokeye.app.__main__")
+        stub.main = fake_app_main
+        monkeypatch.setitem(sys.modules, "tokeye.app.__main__", stub)
         return calls
 
     def test_local_session_opens_the_browser(self, calls, monkeypatch):
