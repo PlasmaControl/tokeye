@@ -1,8 +1,8 @@
 """Model inference: standardize, tile when large, forward, sigmoid.
 
-:func:`infer` is the 1.0 entry point. :func:`model_infer` and
-:func:`signal_to_spectrogram` keep their pre-1.0 behaviour for existing
-callers (the app, dev scripts).
+:func:`infer` is the 1.0 entry point. :func:`model_infer`,
+:func:`signal_to_spectrogram` and :func:`warmup` keep their pre-1.0
+behaviour for existing callers (the app, dev scripts).
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import numbers
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 import torch
@@ -19,19 +19,32 @@ from tqdm.auto import tqdm
 from .transforms import compute_stft
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import torch.nn as nn
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 WARMUP_INPUT_SHAPE = (1, 1, 512, 512)  # (batch_size, channels, height, width)
 
 STD_EPS = 1e-6  # the v1 standardization: (x - mean) / (std + STD_EPS)
 MIN_SIZE = 16  # smallest H or W the U-Net accepts
-ALIGN = 16  # tile cores are multiples of this (the U-Net's total stride)
-MARGIN = 128  # context kept on each side of a tile core (> receptive field / 2)
-MIN_TILE = 2 * MARGIN + ALIGN
+# Tile offsets are multiples of this (2^4, the U-Net's total stride), so
+# every level's offset is exact.
+ALIGN = 16
+# Context kept on each side of a tile core: at least the model's
+# receptive-field radius (<= 118 px for big_tf_unet). With global-grid
+# upsampling, each core then matches an untiled run.
+MARGIN = 128
+MIN_TILE = 4 * MARGIN  # every core is at least 2 * MARGIN
 AUTO_TILE_PIXELS = 2**21  # "auto" runs untiled up to this many pixels
 AUTO_TILE_HEIGHT = 1024
+TILE_WARNING = (
+    "tiled output of this model may differ slightly from an untiled run; "
+    "pass tile=None (CLI: --tile none) for untiled output"
+)
 
 
 def infer(
@@ -57,8 +70,12 @@ def infer(
         model moves to the CPU with one ``RuntimeWarning``.
     tile
         ``"auto"`` (default) runs untiled up to ``2**21`` pixels and tiles
-        larger inputs; an int ``>= 272`` sets the tile side; ``None``
-        never tiles. Standardization always uses the whole image.
+        larger inputs; an int ``>= 512`` sets the tile side; ``None``
+        never tiles. Standardization always uses the whole image, and
+        tiled output matches an untiled run to float32 rounding. Models
+        whose upsampling cannot be swapped for the whole image's grid
+        (TorchScript, ``torch.fx``/``.pt2``) still tile, with one
+        ``UserWarning``.
 
     Returns
     -------
@@ -67,23 +84,36 @@ def infer(
     """
     arr = _check_values(values)
     dev = _device_of(model) if device is None else torch.device(device)
-    mean = float(arr.mean(dtype=np.float64))
-    scale = float(arr.std(dtype=np.float64)) + STD_EPS
     plan = _plan_tiles(arr.shape, tile)
-    try:
+
+    def run(target: torch.device) -> tuple[np.ndarray, bool]:
         if device is not None:
-            model.to(dev)
-        return _run(model, arr, mean, scale, plan, dev)
+            model.to(target)
+        return _run(model, arr, plan, target)
+
+    out, exact = _with_cpu_fallback(model, dev, run)
+    if not exact:
+        warnings.warn(TILE_WARNING, UserWarning, stacklevel=2)
+    return out
+
+
+def _with_cpu_fallback(
+    model: nn.Module, device: torch.device, run: Callable[[torch.device], _T]
+) -> _T:
+    """``run(device)``; if it raises ``RuntimeError`` on MPS, move ``model``
+    to the CPU, warn once and rerun there."""
+    try:
+        return run(device)
     except RuntimeError as exc:
-        if dev.type != "mps":
+        if device.type != "mps":
             raise
         warnings.warn(
             f"MPS inference failed ({exc}); falling back to CPU",
             RuntimeWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
         model.to("cpu")
-        return _run(model, arr, mean, scale, plan, torch.device("cpu"))
+        return run(torch.device("cpu"))
 
 
 def _check_values(values: np.ndarray) -> np.ndarray:
@@ -112,7 +142,7 @@ def _device_of(model: nn.Module) -> torch.device:
 
 
 def check_tile(tile: int | str | None) -> None:
-    """Raise if ``tile`` is not ``"auto"``, ``None`` or an int >= 272."""
+    """Raise if ``tile`` is not ``"auto"``, ``None`` or an int >= 512."""
     if tile is None or tile == "auto":
         return
     if isinstance(tile, str):
@@ -137,7 +167,8 @@ def _plan_tiles(
         tile_h = min(height, AUTO_TILE_HEIGHT)
         tile_w = max(MIN_TILE, (AUTO_TILE_PIXELS // tile_h) // ALIGN * ALIGN)
         return tile_h, min(width, tile_w)
-    return min(height, int(tile)), min(width, int(tile))
+    plan = min(height, int(tile)), min(width, int(tile))
+    return None if plan == (height, width) else plan
 
 
 def _axis_windows(n: int, size: int) -> list[tuple[int, int, int, int]]:
@@ -159,22 +190,43 @@ def _axis_windows(n: int, size: int) -> list[tuple[int, int, int, int]]:
 def _run(
     model: nn.Module,
     arr: np.ndarray,
-    mean: float,
-    scale: float,
     plan: tuple[int, int] | None,
     device: torch.device,
-) -> np.ndarray:
+) -> tuple[np.ndarray, bool]:
+    """Standardize ``arr`` as a whole, then segment it in one pass or tiles.
+
+    Returns ``(scores, exact)``; ``exact`` is ``False`` when a tiled run had
+    to use ``model`` as is (see :func:`tokeye._tiling.tiling_view`).
+    """
+    mean = float(arr.mean(dtype=np.float64))
+    scale = float(arr.std(dtype=np.float64)) + STD_EPS
     height, width = arr.shape
-    rows = [(0, height, 0, height)] if plan is None else _axis_windows(height, plan[0])
-    cols = [(0, width, 0, width)] if plan is None else _axis_windows(width, plan[1])
+    net, grid, exact = model, None, True
+    if plan is None:
+        rows = [(0, height, 0, height)]
+        cols = [(0, width, 0, width)]
+    else:
+        from . import _tiling
+
+        rows = _axis_windows(height, plan[0])
+        cols = _axis_windows(width, plan[1])
+        grid = _tiling.TileGrid((height, width))
+        view = _tiling.tiling_view(model, grid)
+        if view is None:
+            exact = False
+        else:
+            net = view
     out: np.ndarray | None = None
     with torch.inference_mode():
         for r_lo, r_hi, rc_lo, rc_hi in rows:
             for c_lo, c_hi, cc_lo, cc_hi in cols:
+                if grid is not None:
+                    grid.offset = (r_lo, c_lo)
+                    grid.window = (r_hi - r_lo, c_hi - c_lo)
                 block = arr[r_lo:r_hi, c_lo:c_hi].astype(np.float64)
                 x = ((block - mean) / scale).astype(np.float32)
                 tensor = torch.from_numpy(x)[None, None].to(device)
-                probs = torch.sigmoid(_unwrap(model(tensor))).float().cpu().numpy()
+                probs = torch.sigmoid(_unwrap(net(tensor))).float().cpu().numpy()
                 if probs.shape[1:] != block.shape:
                     raise ValueError(
                         f"model output {probs.shape[1:]} does not match its "
@@ -185,17 +237,23 @@ def _run(
                 out[:, rc_lo:rc_hi, cc_lo:cc_hi] = probs[
                     :, rc_lo - r_lo : rc_hi - r_lo, cc_lo - c_lo : cc_hi - c_lo
                 ]
-    return out
+    return out, exact
 
 
 def _unwrap(output: object) -> torch.Tensor:
     """``(C, H, W)`` logits from a model's raw output."""
     if isinstance(output, (list, tuple)):
+        if not output:
+            raise ValueError("the model returned an empty output")
         output = output[0]
     if isinstance(output, dict):
-        raise ValueError(
-            "the model returned detections, not a segmentation mask; for "
-            "ae_tf_maskrcnn use `tokeye alfvenspec` or tokeye.alfvenspec.detect"
+        if "boxes" in output or "labels" in output:
+            raise ValueError(
+                "the model returned detections, not a segmentation mask; for "
+                "ae_tf_maskrcnn use `tokeye alfvenspec` or tokeye.alfvenspec.detect"
+            )
+        raise TypeError(
+            f"unexpected model output: dict with keys {sorted(output, key=str)}"
         )
     if not isinstance(output, torch.Tensor):
         raise TypeError(f"unexpected model output type {type(output).__name__}")
@@ -212,10 +270,17 @@ def model_infer(
     inp_array: np.ndarray | None,
     model: nn.Module | None,
 ) -> np.ndarray | None:
-    """Pre-1.0 inference helper: untiled, no size check, ``None`` passthrough.
+    """Pre-1.0 inference helper: one untiled pass on the model's device.
 
-    Returns ``(C, H, W)``, or ``(H, W)`` for a single-channel model, or
-    ``None`` (with a warning) when either argument is ``None``.
+    Unlike :func:`infer`, it does no input validation (shape, dtype,
+    minimum size or finiteness). ``None`` for either argument passes
+    through: it returns ``None`` and logs a warning. It has the same
+    MPS->CPU fallback as :func:`infer`.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        ``(C, H, W)`` sigmoid scores, or ``(H, W)`` for a one-channel model.
     """
     if inp_array is None or model is None:
         logger.warning("Missing input or model for inference")
@@ -223,9 +288,9 @@ def model_infer(
 
     arr = np.asarray(inp_array)
     logger.info("Running inference on input shape: %s", arr.shape)
-    mean = float(arr.mean(dtype=np.float64))
-    scale = float(arr.std(dtype=np.float64)) + STD_EPS
-    out = _run(model, arr, mean, scale, None, _device_of(model))
+    out, _ = _with_cpu_fallback(
+        model, _device_of(model), lambda target: _run(model, arr, None, target)
+    )
     return out[0] if out.shape[0] == 1 else out
 
 

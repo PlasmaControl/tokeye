@@ -45,3 +45,19 @@ def real_weights() -> Path:
     if not isinstance(cached, str):
         pytest.skip(f"{spec.name} weights not cached; run: tokeye download")
     return Path(cached)
+
+
+@pytest.fixture
+def few_threads():
+    """Run the test's forward passes on at most four torch threads.
+
+    Under ``pytest -n 8`` every worker's thread pool otherwise spans all the
+    machine's cores, and heavy tests running side by side thrash: on a 40-core
+    node the suite took 5.5 minutes instead of 30 seconds.
+    """
+    import torch
+
+    threads = torch.get_num_threads()
+    torch.set_num_threads(min(threads, 4))
+    yield
+    torch.set_num_threads(threads)

@@ -49,7 +49,8 @@ class TokEye:
     fs
         Default sampling rate in Hz for :meth:`segment` (labels axes only).
     tile
-        Tiling policy passed to :func:`tokeye.inference.infer`.
+        ``"auto"`` (default), ``None`` or an int >= 512; passed to
+        :func:`tokeye.inference.infer`.
     """
 
     def __init__(

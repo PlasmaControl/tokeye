@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import os
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from . import hub
 from ._plotting import overlay_rgba, save_preview
 from ._version import __version__
 from .config import DEFAULT_CHANNELS, SpectrogramConfig, resolve_channels
-from .inference import _device_of, infer
+from .inference import _device_of, _plan_tiles, check_tile, infer
 from .io import DIRECTORY_SUFFIXES, load_signal
 from .preprocess import Spectrogram, prepare
 from .result import Segmentation
@@ -143,6 +144,7 @@ def process_file(
     fmt: str = "npy",
     model_name: str = hub.DEFAULT_MODEL,
     channels: tuple[str, ...] | None = None,
+    tile: int | str | None = "auto",
 ) -> Path:
     """Segment one input file and write its outputs to ``out_dir``.
 
@@ -151,16 +153,26 @@ def process_file(
     ``<stem>_preview.png`` unless ``save_png`` is off; and
     ``<stem>_params.json`` recording how the output was made. Returns the
     mask (or bundle) path.
+
+    ``tile`` is passed to :func:`tokeye.inference.infer`. ``params.json`` is
+    removed before the first write and written last, so it only ever sits
+    beside a complete set of outputs.
     """
-    path = Path(path)
+    if fmt not in FORMATS:
+        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+    check_tile(tile)
+    path, out_dir = Path(path), Path(out_dir)
     cfg = _coerce_config(config)
     if log is not None:
         cfg = cfg.replace(log=log)
     spec = load_spectrogram(path, cfg, fs=fs)
-    mask = infer(model, spec.values)
+    mask = infer(model, spec.values, tile=tile)
+    plan = _plan_tiles(spec.values.shape, tile)  # the plan infer just used
     names = resolve_channels(channels or DEFAULT_CHANNELS, mask.shape[0])
     seg = Segmentation(mask, spec, names, model_name)
 
+    params_path = out_dir / f"{path.stem}_params.json"
+    params_path.unlink(missing_ok=True)
     if fmt == "npz":
         output = seg.save(out_dir / f"{path.stem}_tokeye.npz")
     else:
@@ -180,13 +192,25 @@ def process_file(
         "config": cfg.to_dict(),
         "mask_shape": list(mask.shape),
         "channels": list(names),
-        "threshold": threshold,
+        "threshold": float(threshold),
+        "tile": tile if tile is None or isinstance(tile, str) else int(tile),
+        "tile_shape": None if plan is None else list(plan),
         "output": output.name,
         "created_utc": datetime.now(UTC).isoformat(),
     }
-    params_path = out_dir / f"{path.stem}_params.json"
-    params_path.write_text(json.dumps(params, indent=2) + "\n", encoding="utf-8")
+    _write_atomic(params_path, json.dumps(params, indent=2) + "\n")
     return output
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write ``text`` to a temporary file beside ``path``, then rename it."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def run_batch(
@@ -202,6 +226,7 @@ def run_batch(
     config: SpectrogramConfig | None = None,
     fs: float | None = None,
     fmt: str = "npy",
+    tile: int | str | None = "auto",
 ) -> int:
     """Segment every input, writing outputs to ``out_dir``.
 
@@ -218,6 +243,9 @@ def run_batch(
         Sampling rate for every input (else read per file, if recorded).
     fmt
         ``"npy"`` (mask only) or ``"npz"`` (full bundle).
+    tile
+        ``"auto"`` (default), ``None`` or an int >= 512; passed to
+        :func:`tokeye.inference.infer`.
     stft_kwargs, log
         Deprecated spellings of ``config``.
 
@@ -230,6 +258,8 @@ def run_batch(
     ------
     ValueError
         Bad settings, an instance model, or no inputs found.
+    TypeError
+        ``tile`` is not ``"auto"``, ``None`` or an int.
     """
     if stft_kwargs is not None or log is not None:
         warnings.warn(
@@ -242,6 +272,7 @@ def run_batch(
         raise ValueError("pass either config or stft_kwargs, not both")
     if fmt not in FORMATS:
         raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+    check_tile(tile)
     cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
     if log is not None:
         cfg = cfg.replace(log=log)
@@ -268,6 +299,7 @@ def run_batch(
                 fmt=fmt,
                 model_name=str(model),
                 channels=channels,
+                tile=tile,
             )
         except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
             logger.error("Failed to process %s: %s", path, exc)

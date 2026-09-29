@@ -29,6 +29,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         help="files, directories, or glob patterns",
     )
     _options.add_model_options(parser)
+    _options.add_tile_option(parser)
     _options.add_output_options(parser, default_dir="tokeye_elms", png_default=False)
     _options.add_fs_option(parser)
     parser.add_argument(
@@ -95,11 +96,12 @@ def _handle(args: argparse.Namespace) -> int:
         write_event_rows,
         write_summary_csv,
     )
-    from tokeye.inference import infer
+    from tokeye.inference import check_tile, infer
     from tokeye.result import Segmentation
 
     try:
         config = _options.config_from_args(args)
+        check_tile(args.tile)
     except ValueError as exc:
         return _common.error(str(exc))
     paths = _common.collect_inputs_or_report(args.inputs)
@@ -119,7 +121,7 @@ def _handle(args: argparse.Namespace) -> int:
     for path in paths:
         try:
             spec = batch.load_spectrogram(path, config, fs=args.fs)
-            mask = infer(model, spec.values)
+            mask = infer(model, spec.values, tile=args.tile)
             names = resolve_channels(channels, mask.shape[0])
             seg = Segmentation(mask, spec, names, str(args.model))
             events = extract_elm_events(

@@ -11,11 +11,18 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import math
+import re
 import sys
 
 from tokeye.config import DEFAULT_MODEL, SpectrogramConfig
 
 _FIELDS = dataclasses.fields(SpectrogramConfig)
+# The floor is tokeye.inference.MIN_TILE; importing it would import torch.
+TILE_HELP = (
+    "tile side in pixels for long inputs: auto (untiled up to 2^21 pixels), "
+    "none, or an int >= 512; tiled output matches untiled output to float32 "
+    "rounding"
+)
 
 
 def _flag(name: str) -> str:
@@ -131,4 +138,31 @@ def add_fs_option(parser: argparse.ArgumentParser) -> None:
             "sampling rate [Hz] for every input; enables physical time and "
             "frequency axes (default: read from the file when recorded)"
         ),
+    )
+
+
+def tile_value(text: str) -> int | str | None:
+    """argparse ``type=`` for ``--tile``: ``auto``, ``none`` or an integer.
+
+    ``auto`` and ``none`` are case-insensitive. The range check is
+    :func:`tokeye.inference.check_tile`, which runs before the model loads.
+    """
+    word = text.lower()
+    if word == "auto":
+        return "auto"
+    if word == "none":
+        return None
+    if re.fullmatch(r"[+-]?[0-9]+", text):
+        return int(text)
+    raise argparse.ArgumentTypeError(f"expected auto, none or an integer, got {text!r}")
+
+
+def add_tile_option(parser: argparse.ArgumentParser) -> None:
+    """``--tile`` (``args.tile``): ``"auto"``, ``None`` or an int."""
+    parser.add_argument(
+        "--tile",
+        type=tile_value,
+        default="auto",
+        metavar="auto|none|N",
+        help=TILE_HELP,
     )

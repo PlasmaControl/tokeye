@@ -28,6 +28,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "directories, or glob patterns",
     )
     _options.add_model_options(parser)
+    _options.add_tile_option(parser)
     _options.add_output_options(parser, default_dir="tokeye_output", png_default=True)
     _options.add_fs_option(parser)
     parser.add_argument(
@@ -69,6 +70,7 @@ def _handle(args: argparse.Namespace) -> int:
             device=args.device,
             fs=args.fs,
             fmt=args.fmt,
+            tile=args.tile,
         )
     except ValueError as exc:
         hint = _common.NO_INPUT_HINT if "No input files found" in str(exc) else ""

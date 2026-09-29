@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+import warnings
+
 import numpy as np
 import pytest
 import torch
@@ -110,7 +113,7 @@ def test_infer_untiled_matches_model_infer():
 
 
 @pytest.mark.parametrize("kernel", [1, 3])
-@pytest.mark.parametrize(("shape", "tile"), [((40, 3000), 300), ((700, 900), 400)])
+@pytest.mark.parametrize(("shape", "tile"), [((40, 3000), 512), ((700, 900), 512)])
 def test_tiled_equals_untiled_for_local_models(kernel, shape, tile):
     x = np.random.default_rng(3).normal(size=shape)
     model = _conv_stub(kernel)
@@ -120,7 +123,7 @@ def test_tiled_equals_untiled_for_local_models(kernel, shape, tile):
 
 
 @pytest.mark.parametrize(
-    ("n", "size"), [(100, 300), (3000, 300), (1000, 272), (4097, 4096)]
+    ("n", "size"), [(100, 300), (3000, 300), (1000, 512), (4097, 4096)]
 )
 def test_axis_windows_partition_the_axis(n, size):
     windows = _axis_windows(n, size)
@@ -141,7 +144,7 @@ def test_plan_tiles():
     assert _plan_tiles((2048, 4096), "auto") == (1024, 2048)
     assert _plan_tiles((512, 8192), None) is None
     assert _plan_tiles((512, 8192), 1024) == (512, 1024)
-    with pytest.raises(ValueError, match=">= 272"):
+    with pytest.raises(ValueError, match=">= 512"):
         _plan_tiles((512, 8192), 100)
     with pytest.raises(ValueError, match="'auto'"):
         _plan_tiles((512, 8192), "big")
@@ -155,6 +158,7 @@ def test_plan_tiles():
         (np.zeros(64), "2D"),
         (np.zeros((8, 100)), "at least 16x16"),
         (np.full((32, 32), np.nan), "NaN"),
+        (np.zeros((32, 32), dtype=complex), "real-valued"),
     ],
 )
 def test_infer_rejects_bad_values(values, match):
@@ -165,6 +169,39 @@ def test_infer_rejects_bad_values(values, match):
 def test_infer_rejects_detection_models_with_a_hint():
     with pytest.raises(ValueError, match="alfvenspec"):
         infer(_DictModel(), np.zeros((32, 32)))
+
+
+class _Returns(_Echo):
+    """A model that returns a fixed ``output``."""
+
+    def __init__(self, output: object) -> None:
+        super().__init__()
+        self.output = output
+
+    def forward(self, x: torch.Tensor):
+        return self.output
+
+
+@pytest.mark.parametrize(
+    ("output", "error", "match"),
+    [
+        ((), ValueError, "the model returned an empty output"),
+        ([], ValueError, "the model returned an empty output"),
+        ({"boxes": torch.zeros(0, 4)}, ValueError, "alfvenspec"),
+        ([{"labels": torch.zeros(0)}], ValueError, "alfvenspec"),
+        (
+            {"out": torch.zeros(1, 1, 32, 32), "aux": None},
+            TypeError,
+            re.escape("unexpected model output: dict with keys ['aux', 'out']"),
+        ),
+        ([{"masks": None}], TypeError, re.escape("dict with keys ['masks']")),
+    ],
+)
+def test_infer_rejects_unusable_outputs(output, error, match):
+    with pytest.raises(error, match=match) as info:
+        infer(_Returns(output), np.zeros((32, 32)))
+    if error is TypeError:
+        assert "alfvenspec" not in str(info.value)
 
 
 def test_single_channel_models():
@@ -181,25 +218,69 @@ def test_mps_failure_falls_back_to_cpu_once():
     x = np.random.default_rng(5).normal(size=(32, 32))
     expected = infer(model, x, device="cpu")
 
-    with pytest.warns(RuntimeWarning, match="falling back to CPU"):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         out = infer(model, x, device="mps")
+    assert [w.category for w in caught] == [RuntimeWarning]
+    assert re.fullmatch(
+        r"MPS inference failed \(.+\); falling back to CPU", str(caught[0].message)
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        again = infer(model, x)
+    assert caught == []
 
+    np.testing.assert_allclose(out, expected)
+    np.testing.assert_allclose(again, expected)
+    assert next(model.parameters()).device.type == "cpu"
+
+
+@pytest.mark.skipif(torch.backends.mps.is_available(), reason="MPS is real here")
+def test_model_infer_falls_back_to_cpu(monkeypatch):
+    model = _IdentityLikeModel()
+    x = np.random.default_rng(6).normal(size=(32, 32)).astype(np.float32)
+    expected = model_infer(x, model)
+    monkeypatch.setattr(
+        "tokeye.inference._device_of", lambda model: torch.device("mps")
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        out = model_infer(x, model)
+
+    assert [w.category for w in caught] == [RuntimeWarning]
+    assert "falling back to CPU" in str(caught[0].message)
     np.testing.assert_allclose(out, expected)
     assert next(model.parameters()).device.type == "cpu"
 
 
+def _assert_matches_untiled(tiled: np.ndarray, untiled: np.ndarray) -> None:
+    assert np.abs(tiled - untiled).max() <= 1e-5
+    decided = np.abs(untiled - 0.5) > 1e-5
+    assert not ((tiled >= 0.5) != (untiled >= 0.5))[decided].any()
+
+
 @pytest.mark.weights
-def test_tiling_error_is_bounded_on_the_example(real_weights):
+@pytest.mark.usefixtures("few_threads")
+def test_tiled_matches_untiled_on_the_example(real_weights):
     from tokeye import hub
     from tokeye.examples import make_example_signal
     from tokeye.preprocess import prepare
 
     model = hub.load_model(hub.DEFAULT_MODEL, "cpu")
     values = prepare(make_example_signal()).values
-    untiled = infer(model, values, tile=None)
     tiled = infer(model, values, tile=1024)
+    _assert_matches_untiled(tiled, infer(model, values, tile=None))
 
-    diff = np.abs(tiled - untiled)
-    assert diff.mean() < 2e-3
-    assert np.quantile(diff, 0.999) < 0.08
-    assert ((tiled >= 0.5) != (untiled >= 0.5)).mean() < 1e-3
+
+@pytest.mark.weights
+@pytest.mark.usefixtures("few_threads")
+def test_auto_tiles_a_long_input_exactly(real_weights):
+    from tokeye import hub
+    from tokeye.examples import make_example_signal
+    from tokeye.preprocess import prepare
+
+    model = hub.load_model(hub.DEFAULT_MODEL, "cpu")
+    values = prepare(make_example_signal(duration_s=2.8)).values
+    assert _plan_tiles(values.shape, "auto") == (512, 4096)
+    _assert_matches_untiled(infer(model, values), infer(model, values, tile=None))
