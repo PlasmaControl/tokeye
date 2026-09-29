@@ -38,7 +38,9 @@ class TokEye:
         local ``.pt``/``.pt2`` checkpoint. Instance models such as
         ``ae_tf_maskrcnn`` are rejected; use ``tokeye alfvenspec``.
     device
-        ``"auto"`` (CUDA, then MPS, then CPU) or a torch device string.
+        ``"auto"`` (CUDA, then MPS, then CPU), ``"cpu"``, ``"cuda"``,
+        ``"cuda:N"`` or ``"mps"``. An unknown or unavailable device raises
+        ``ValueError``.
     n_fft, hop, clip_dc, clip_low, clip_high, log
         Override single fields of ``config`` (see
         :class:`~tokeye.config.SpectrogramConfig`). ``None`` keeps the

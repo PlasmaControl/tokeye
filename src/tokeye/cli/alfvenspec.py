@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 from tokeye.cli import _common, _options
 
@@ -14,6 +12,7 @@ DEFAULT_WINDOW_COLS = 710  # = tokeye.alfvenspec.DEFAULT_WINDOW_COLS (no torch h
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "alfvenspec",
+        parents=[_options.VERBOSE],
         help="Detect Alfvén-eigenmode activity (boxes + masks via ae_tf_maskrcnn).",
         description=(
             "Run the ae_tf_maskrcnn instance model (needs the 'ae' extra: "
@@ -73,35 +72,26 @@ def _handle(args: argparse.Namespace) -> int:
     from tokeye import batch
     from tokeye.alfvenspec import detect_windowed, write_detections_csv
 
-    try:
-        config = _options.config_from_args(args)
-    except ValueError as exc:
-        return _common.error(str(exc))
-    paths = _common.collect_inputs_or_report(args.inputs)
-    if paths is None:
+    setup = _common.setup_or_report(args, "instance")
+    if setup is None:
         return _common.EXIT_USAGE
-    model = _common.load_model_or_report(args.model, args.device, "instance")
-    if model is None:
-        return _common.EXIT_USAGE
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = setup.out_dir
 
     all_detections = []
     failures = 0
-    for path in paths:
+    for path in setup.paths:
         try:
-            spec = batch.load_spectrogram(path, config)
+            spec = batch.load_spectrogram(path, setup.config)
             detections = detect_windowed(
                 spec.values,
-                model,
+                setup.model,
                 window_cols=args.window_cols,
                 score_min=args.score_min,
                 mean=args.mean,
                 std=args.std,
             )
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
-            print(f"error: failed to process {path}: {exc}", file=sys.stderr)
+            _common.report_failure(path, exc)
             failures += 1
             continue
 

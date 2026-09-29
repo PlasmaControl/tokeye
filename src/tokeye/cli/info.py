@@ -8,7 +8,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from tokeye._version import __version__
-from tokeye.cli import _common
+from tokeye.cli import _common, _options
 
 if TYPE_CHECKING:
     import argparse
@@ -24,6 +24,7 @@ EXTRAS = {
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "info",
+        parents=[_options.VERBOSE],
         help="Show versions, the device auto picks, extras and cached models.",
         description=(
             "Print what tokeye sees on this machine. Paste the output into bug reports."

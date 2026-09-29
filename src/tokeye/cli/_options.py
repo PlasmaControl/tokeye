@@ -17,6 +17,10 @@ import sys
 from tokeye.config import DEFAULT_MODEL, SpectrogramConfig
 
 _FIELDS = dataclasses.fields(SpectrogramConfig)
+# CLI-only notes appended to a field's generated help.
+_HELP_NOTES = {
+    "window": "; checked before any input is read, even when every input is 2D",
+}
 # The floor is tokeye.inference.MIN_TILE; importing it would import torch.
 TILE_HELP = (
     "tile side in pixels for long inputs: auto (untiled up to 2^21 pixels), "
@@ -27,6 +31,20 @@ TILE_HELP = (
 
 def _flag(name: str) -> str:
     return "--" + name.replace("_", "-")
+
+
+# -v/--verbose, a parent of the top-level parser and of every subcommand.
+# SUPPRESS: an absent flag sets nothing, so `tokeye -v run` and `tokeye run -v`
+# both work and neither position overrides the other; read it with
+# getattr(args, "verbose", False).
+VERBOSE = argparse.ArgumentParser(add_help=False)
+VERBOSE.add_argument(
+    "-v",
+    "--verbose",
+    action="store_true",
+    default=argparse.SUPPRESS,
+    help="show debug logs on stderr, including tracebacks",
+)
 
 
 def positive_float(text: str) -> float:
@@ -49,7 +67,8 @@ def add_spectrogram_options(parser: argparse.ArgumentParser) -> None:
     """
     group = parser.add_argument_group("spectrogram options")
     for field in _FIELDS:
-        help_text = f"{field.metadata['help']} (default: {field.default})"
+        note = _HELP_NOTES.get(field.name, "")
+        help_text = f"{field.metadata['help']}{note} (default: {field.default})"
         if isinstance(field.default, bool):
             group.add_argument(
                 _flag(field.name),
@@ -75,8 +94,8 @@ def config_from_args(args: argparse.Namespace) -> SpectrogramConfig:
     Raises
     ------
     ValueError
-        Out-of-range values (e.g. ``--clip-low 99 --clip-high 1``) or
-        ``--keep-dc`` combined with ``--clip-dc``.
+        Out-of-range values (e.g. ``--clip-low 99 --clip-high 1``), an empty
+        ``--window``, or ``--keep-dc`` combined with ``--clip-dc``.
     """
     changes = {
         field.name: getattr(args, field.name)

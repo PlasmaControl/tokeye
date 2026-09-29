@@ -48,6 +48,10 @@ class _StubRCNN(nn.Module):
         ]
 
 
+def _must_not_load(*args, **kwargs):
+    pytest.fail("the model was loaded")
+
+
 @pytest.fixture
 def elm_spectrogram(tmp_path):
     """A 2D input with full-column bursts at columns 10-12 and 30-32."""
@@ -194,11 +198,26 @@ class TestElmspec:
         assert (out / "shot_elm_preview.png").exists()
         assert len(_read_csv(out / "elm_summary.csv")) == 1
 
-    def test_rejects_an_instance_model(self, elm_spectrogram, capsys):
-        exit_code = main(["elmspec", str(elm_spectrogram), "--model", "ae_tf_maskrcnn"])
+    def test_rejects_an_instance_model(
+        self, elm_spectrogram, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr("tokeye.hub.load_model", _must_not_load)
+        out = tmp_path / "out"
+
+        exit_code = main(
+            [
+                "elmspec",
+                str(elm_spectrogram),
+                "--model",
+                "ae_tf_maskrcnn",
+                "--output-dir",
+                str(out),
+            ]
+        )
 
         assert exit_code == 2
         assert "tokeye alfvenspec" in capsys.readouterr().err
+        assert not out.exists()
 
 
 class TestAlfvenspec:
@@ -251,8 +270,23 @@ class TestAlfvenspec:
         assert not (out / "shot_ae_instances.npy").exists()
         assert (out / "ae_detections.csv").exists()
 
-    def test_rejects_a_segmentation_model(self, elm_spectrogram, capsys):
-        exit_code = main(["alfvenspec", str(elm_spectrogram), "--model", "big_tf_unet"])
+    def test_rejects_a_segmentation_model(
+        self, elm_spectrogram, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr("tokeye.hub.load_model", _must_not_load)
+        out = tmp_path / "out"
+
+        exit_code = main(
+            [
+                "alfvenspec",
+                str(elm_spectrogram),
+                "--model",
+                "big_tf_unet",
+                "--output-dir",
+                str(out),
+            ]
+        )
 
         assert exit_code == 2
         assert "tokeye run" in capsys.readouterr().err
+        assert not out.exists()

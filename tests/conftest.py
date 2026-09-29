@@ -1,4 +1,4 @@
-"""Suite-wide fixtures, collection guards and the xdist thread cap.
+"""Suite-wide fixtures, collection guards and the torch thread cap.
 
 Tests stay offline by default: the hub is mocked everywhere except in tests
 marked ``weights``, which need the real ``big_tf_unet`` weights already in the
@@ -48,17 +48,27 @@ def real_weights() -> Path:
     return Path(cached)
 
 
+SERIAL_MAX_THREADS = 8
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    """Give each xdist worker its share of the torch threads.
+    """Cap torch's thread pool: a share per xdist worker, at most 8 serially.
 
     Under ``pytest -n 8`` every worker's thread pool otherwise spans all the
     machine's cores, and torch-heavy tests running side by side thrash (on a
-    40-core node the suite took 5.5 minutes instead of 30 seconds). Serial
-    runs keep every thread.
+    40-core node the suite took 5.5 minutes instead of 30 seconds). The
+    tests' tensors are small, so a serial run gains nothing from more than
+    a few threads either: on that node, all 40 made it several times slower
+    than a cap. The xdist controller runs no tests, so it skips the torch
+    import.
     """
-    if "PYTEST_XDIST_WORKER" not in os.environ:
+    worker = "PYTEST_XDIST_WORKER" in os.environ
+    if not worker and config.getoption("numprocesses", default=None):
         return
     import torch
 
-    workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
-    torch.set_num_threads(max(1, torch.get_num_threads() // workers))
+    if worker:
+        workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+        torch.set_num_threads(max(1, torch.get_num_threads() // workers))
+    else:
+        torch.set_num_threads(min(torch.get_num_threads(), SERIAL_MAX_THREADS))

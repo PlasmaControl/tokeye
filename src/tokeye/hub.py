@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import pickle
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
+from huggingface_hub.errors import HfHubHTTPError, LocalEntryNotFoundError
 
 from .config import DEFAULT_CHANNELS, DEFAULT_MODEL
 
@@ -30,6 +32,19 @@ DEFAULT_REPO_ID = os.environ.get("TOKEYE_HF_REPO", "nc1/big_tf_unet")
 
 _PATH_SUFFIXES = {".pt", ".pt2"}
 TASKS = ("segmentation", "instance")
+_ARTICLES = {"segmentation": "a", "instance": "an"}
+DEVICE_FORMS = "cpu, cuda, cuda:N, mps or auto"
+_NO_DEVICE_HINT = "; run `tokeye info` to see what this machine has"
+_CUDA_DEVICE = re.compile(r"cuda(?::([0-9]+))?")
+_MAX_MISMATCH_TEXT = 200
+
+
+class DownloadError(OSError):
+    """Hugging Face could not be reached, and the weights are not cached.
+
+    It means what :class:`huggingface_hub.errors.LocalEntryNotFoundError`
+    means, for the network failures huggingface_hub does not map to it.
+    """
 
 
 @dataclass(frozen=True)
@@ -138,7 +153,8 @@ def require_task(source: str | Path, task: str) -> None:
         "segmentation": "use `tokeye run` (Python: tokeye.TokEye)",
     }[spec.task]
     raise ValueError(
-        f"{spec.name!r} is an {spec.task} model, but this needs a {task} model; {hint}"
+        f"{spec.name!r} is {_ARTICLES[spec.task]} {spec.task} model, but this needs "
+        f"{_ARTICLES.get(task, 'a')} {task} model; {hint}"
     )
 
 
@@ -153,22 +169,114 @@ def _mps_available() -> bool:
     return bool(backend is not None and backend.is_available())
 
 
-def resolve_device(device: str = "auto") -> str:
-    """``"auto"`` becomes ``"cuda"``, then ``"mps"``, then ``"cpu"``."""
-    if device == "auto":
+def resolve_device(device: str | torch.device = "auto") -> str:
+    """Check ``device`` and return it; ``"auto"`` picks one.
+
+    Parameters
+    ----------
+    device
+        ``"auto"`` (CUDA, then MPS, then CPU), ``"cpu"``, ``"cuda"``,
+        ``"cuda:N"`` or ``"mps"``, or a :class:`torch.device` of these.
+
+    Returns
+    -------
+    str
+        The device ``"auto"`` picks, else ``str(device)`` unchanged.
+
+    Raises
+    ------
+    ValueError
+        Any other value, or a device this machine does not have.
+    """
+    text = str(device)
+    if text == "auto":
         if torch.cuda.is_available():
             return "cuda"
         if _mps_available():
             return "mps"
         return "cpu"
-    return device
+    if text == "cpu":
+        return text
+    cuda = _CUDA_DEVICE.fullmatch(text)
+    if cuda is not None:
+        if not torch.cuda.is_available():
+            raise ValueError(f"device {text!r}: CUDA is not available{_NO_DEVICE_HINT}")
+        count = torch.cuda.device_count()
+        if cuda.group(1) is not None and int(cuda.group(1)) >= count:
+            raise ValueError(
+                f"device {text!r}: this machine has {count} CUDA device(s), "
+                f"numbered from 0{_NO_DEVICE_HINT}"
+            )
+        return text
+    if text == "mps":
+        if not _mps_available():
+            raise ValueError(f"device {text!r}: MPS is not available{_NO_DEVICE_HINT}")
+        return text
+    raise ValueError(f"unknown device {text!r}; use {DEVICE_FORMS}")
+
+
+def _network_errors() -> tuple[type[Exception], ...]:
+    """What ``hf_hub_download`` raises when the hub cannot be reached.
+
+    ``RuntimeError`` too: on huggingface_hub 1.x a refused connection to an
+    uncached file ends in "Cannot send a request, as the client has been
+    closed" (its retry reuses the session it just closed).
+    """
+    errors: list[type[Exception]] = [RuntimeError]
+    try:  # huggingface_hub >= 1 talks through httpx
+        import httpx
+
+        errors.append(httpx.HTTPError)
+    except ImportError:
+        pass
+    try:  # huggingface_hub < 1 talks through requests
+        import requests
+
+        errors.append(requests.RequestException)
+    except ImportError:
+        pass
+    return tuple(errors)
 
 
 def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Path:
-    """Download (or find in the cache) a registry model's weights."""
+    """Download (or find in the cache) a registry model's weights.
+
+    Raises
+    ------
+    ValueError
+        ``name`` is not a registry name.
+    huggingface_hub.errors.LocalEntryNotFoundError, DownloadError
+        The hub cannot be reached and the weights are not cached.
+    huggingface_hub.errors.HfHubHTTPError
+        The hub answered with an error (a missing repo, for example).
+    """
     spec = _spec(name)
-    resolved_repo_id = repo_id or spec.repo_id or DEFAULT_REPO_ID
-    return Path(hf_hub_download(resolved_repo_id, spec.filename))
+    repo = repo_id or spec.repo_id or DEFAULT_REPO_ID
+    try:
+        return Path(hf_hub_download(repo, spec.filename))
+    except (LocalEntryNotFoundError, HfHubHTTPError):
+        # First: on huggingface_hub 1.x HfHubHTTPError is an httpx.HTTPError,
+        # and on 0.x both are requests.RequestExceptions.
+        raise
+    except _network_errors() as exc:
+        raise DownloadError(
+            f"could not download {spec.filename} from {repo}: {exc}"
+        ) from exc
+
+
+def _mismatch(model: nn.Module, state_dict: Mapping) -> str:
+    """``"3 missing, 2 unexpected keys"`` (plus wrong shapes), from the keys."""
+    expected = model.state_dict()
+    shared = expected.keys() & state_dict.keys()
+    wrong_shape = sum(
+        tuple(getattr(state_dict[key], "shape", ())) != tuple(expected[key].shape)
+        for key in shared
+    )
+    text = (
+        f"{len(expected.keys() - shared)} missing, "
+        f"{len(state_dict.keys() - shared)} unexpected keys"
+    )
+    return f"{text}, {wrong_shape} of the wrong shape" if wrong_shape else text
 
 
 def _build_from_state_dict(state_dict: Mapping, device: str) -> nn.Module:
@@ -176,48 +284,94 @@ def _build_from_state_dict(state_dict: Mapping, device: str) -> nn.Module:
     for spec in MODEL_REGISTRY.values():
         try:
             model = spec.builder()
+        except ImportError as exc:
+            text = str(exc)
+            mismatches.append(
+                text if text.startswith(spec.name) else f"{spec.name}: {text}"
+            )
+            continue
+        try:
             model.load_state_dict(state_dict, strict=True)
-        except (RuntimeError, ImportError) as exc:
-            mismatches.append(f"{spec.name}: {exc}")
+        except RuntimeError as exc:
+            logger.debug("state dict does not fit %s: %s", spec.name, exc)
+            mismatches.append(f"{spec.name}: {_mismatch(model, state_dict)}")
             continue
         return model.to(device).eval()
 
-    details = "\n".join(mismatches)
-    raise ValueError(
+    message = (
         "State dict does not match any known TokEye architecture "
-        f"({', '.join(sorted(MODEL_REGISTRY))}).\n{details}"
+        f"({', '.join(sorted(MODEL_REGISTRY))}). {'; '.join(mismatches)}"
     )
+    if len(message) > _MAX_MISMATCH_TEXT:
+        message = message[: _MAX_MISMATCH_TEXT - 1] + "\u2026"
+    raise ValueError(message)
 
 
 def _load_from_registry(name: str, device: str) -> nn.Module:
     spec = MODEL_REGISTRY[name]
     path = download_model(name)
-    state_dict = torch.load(path, map_location=device, weights_only=True)
+    try:
+        state_dict = torch.load(path, map_location=device, weights_only=True)
+    except Exception as exc:
+        logger.debug("cannot read the cached weights %s: %s", path, exc)
+        # The resolved blob: deleting only the snapshot symlink would let
+        # hf_hub_download re-link the same corrupt blob without downloading.
+        raise ValueError(
+            f"cached weights for {name!r} at {path.resolve()} are not readable "
+            f"({type(exc).__name__}); delete that file and run "
+            f"`tokeye download {name}`"
+        ) from exc
     model = spec.builder()
     model.load_state_dict(state_dict)
     return model.to(device).eval()
 
 
-def _load_pt2(path: Path, device: str) -> nn.Module:
-    module = torch.export.load(str(path)).module()
-    return module.to(device)
+def _unreadable(name: str, exc: Exception) -> ValueError:
+    return ValueError(
+        f"{name}: not a readable checkpoint ({type(exc).__name__}: {exc})"
+    )
 
 
-def _load_pt(path: Path, device: str) -> nn.Module:
+def _load_pt2(path: Path, name: str, device: str) -> nn.Module:
+    try:
+        program = torch.export.load(str(path))
+    except OSError:
+        raise
+    except Exception as exc:
+        raise _unreadable(name, exc) from exc
+    return program.module().to(device)
+
+
+def _load_legacy_module(path: Path, name: str, device: str) -> nn.Module:
+    """Unpickle a checkpoint saved as a full module (not a state dict).
+
+    Only ever done for local files: the registry path always loads with
+    ``weights_only=True``.
+    """
+    try:
+        model = torch.load(path, map_location=device, weights_only=False)
+    except OSError:
+        raise
+    except Exception as exc:
+        raise _unreadable(name, exc) from exc
+    # Logged only once the load worked, so an unreadable file is one error.
+    logger.warning(
+        "%s could not be loaded safely (weights_only=True), so the full file "
+        "was unpickled. Only load local files you trust this way.",
+        name,
+    )
+    return model.to(device).eval()
+
+
+def _load_pt(path: Path, name: str, device: str) -> nn.Module:
     try:
         loaded = torch.load(path, map_location=device, weights_only=True)
     except pickle.UnpicklingError:
-        # Legacy checkpoint pickled as a full module (not just a state dict).
-        # Only ever done for local files: the registry/download path above
-        # always loads with weights_only=True.
-        logger.warning(
-            "%s could not be loaded safely (weights_only=True); falling back "
-            "to unpickling the full file. Only do this for local files you "
-            "trust.",
-            path,
-        )
-        model = torch.load(path, map_location=device, weights_only=False)
-        return model.to(device).eval()
+        return _load_legacy_module(path, name, device)
+    except OSError:
+        raise
+    except Exception as exc:
+        raise _unreadable(name, exc) from exc
 
     if isinstance(loaded, Mapping):
         return _build_from_state_dict(loaded, device)
@@ -234,7 +388,21 @@ def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.M
         A registry name (see :data:`MODEL_REGISTRY`) or a path to a ``.pt``
         state dict / legacy pickled module, or a ``.pt2`` exported program.
     device
-        ``"auto"`` (CUDA, then MPS, then CPU) or any torch device string.
+        ``"auto"`` (CUDA, then MPS, then CPU), ``"cpu"``, ``"cuda"``,
+        ``"cuda:N"`` or ``"mps"`` (see :func:`resolve_device`).
+
+    Raises
+    ------
+    ValueError
+        An unknown or unavailable device, an unknown registry name, an
+        unreadable checkpoint, or a state dict that fits no registered
+        architecture.
+    FileNotFoundError
+        ``source`` looks like a ``.pt``/``.pt2`` path that does not exist.
+    huggingface_hub.errors.LocalEntryNotFoundError, DownloadError
+        The hub cannot be reached and the weights are not cached.
+    huggingface_hub.errors.HfHubHTTPError
+        The hub answered with an error.
     """
     resolved_device = resolve_device(device)
     name = str(source)
@@ -251,8 +419,8 @@ def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.M
         )
 
     if path.suffix == ".pt2":
-        return _load_pt2(path, resolved_device)
+        return _load_pt2(path, name, resolved_device)
     if path.suffix == ".pt":
-        return _load_pt(path, resolved_device)
+        return _load_pt(path, name, resolved_device)
 
     raise ValueError(f"Unsupported model file suffix: {path.suffix!r}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -121,8 +122,9 @@ def test_load_model_nonexistent_path_raises_file_not_found():
 
 
 def test_missing_local_path_error_keeps_the_given_spelling():
-    with pytest.raises(FileNotFoundError, match="nope/missing.pt"):
-        load_model("nope/missing.pt")
+    # Path() would normalize the "./" away.
+    with pytest.raises(FileNotFoundError, match=re.escape("./nope/missing.pt")):
+        load_model("./nope/missing.pt")
 
 
 def test_specs_carry_task_channels_and_size():

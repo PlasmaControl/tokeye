@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tokeye.cli import _common
+from tokeye.cli import _common, _options
 
 if TYPE_CHECKING:
     import argparse
@@ -26,6 +26,7 @@ MISSING_EXTRA = (
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "app",
+        parents=[_options.VERBOSE],
         help="Launch the TokEye web app in your browser.",
         description=(
             "Serve the app on http://HOST:PORT (the next free port if PORT is "

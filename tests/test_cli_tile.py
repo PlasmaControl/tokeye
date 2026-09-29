@@ -15,8 +15,9 @@ COMMANDS = ["run", "elmspec"]
 
 
 def _must_not_run(*args, **kwargs):
-    # AssertionError, because the CLI handlers catch ValueError and OSError.
-    raise AssertionError("called too early")
+    # pytest.fail raises a BaseException, which the CLI's `except Exception`
+    # catch-alls let through.
+    pytest.fail("called too early")
 
 
 @pytest.fixture

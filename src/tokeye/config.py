@@ -79,9 +79,11 @@ class SpectrogramConfig:
             value = getattr(self, name)
             if not isinstance(value, bool):
                 raise TypeError(f"{name} must be True or False, got {value!r}")
-        if not isinstance(self.window, str) or not self.window:
-            raise TypeError(f"window must be a non-empty string, got {self.window!r}")
+        if not isinstance(self.window, str):
+            raise TypeError(f"window must be a string, got {self.window!r}")
 
+        if not self.window:
+            raise ValueError("window must be a non-empty string, got ''")
         if self.n_fft < 2:
             raise ValueError(f"n_fft must be >= 2, got {self.n_fft}")
         if self.hop < 1:

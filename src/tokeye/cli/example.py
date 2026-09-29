@@ -23,7 +23,9 @@ def default_output(fs: float) -> str:
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "example", help="Write a synthetic example signal to a .npy file."
+        "example",
+        parents=[_options.VERBOSE],
+        help="Write a synthetic example signal to a .npy file.",
     )
     parser.add_argument(
         "--output",

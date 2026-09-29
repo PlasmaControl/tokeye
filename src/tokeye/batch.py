@@ -10,6 +10,7 @@ import glob
 import json
 import logging
 import os
+import sys
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from .preprocess import Spectrogram, prepare
 from .result import Segmentation
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     import torch.nn as nn
 
@@ -217,6 +218,90 @@ def _write_atomic(path: Path, text: str) -> None:
         raise
 
 
+def process_files(
+    paths: Sequence[Path],
+    model: nn.Module,
+    config: SpectrogramConfig | Mapping[str, Any] | None,
+    out_dir: Path,
+    *,
+    save_png: bool = True,
+    threshold: float = 0.5,
+    fs: float | None = None,
+    fmt: str = "npy",
+    tile: int | str | None = "auto",
+    model_name: str = hub.DEFAULT_MODEL,
+    channels: tuple[str, ...] | None = None,
+    on_error: Callable[[Path, Exception], None] | None = None,
+) -> int:
+    """Segment each path with a loaded ``model``: the loop of :func:`run_batch`.
+
+    Each path goes through :func:`process_file` into ``out_dir``, which must
+    exist, under a progress bar. One input that fails does not stop the
+    others.
+
+    Parameters
+    ----------
+    paths
+        Input files, e.g. from :func:`collect_inputs`.
+    model
+        A loaded segmentation model (:func:`tokeye.hub.load_model`).
+    config
+        Preprocessing settings (defaults when ``None``). A ``dict`` is
+        deprecated and warns once per call.
+    out_dir
+        Existing directory for the outputs.
+    save_png, threshold, fs, fmt, tile, model_name, channels
+        As for :func:`process_file`.
+    on_error
+        Called as ``on_error(path, exc)`` for each input that fails. Without
+        it, each failure is logged at ERROR (its traceback at DEBUG) on the
+        ``tokeye.batch`` logger.
+
+    Returns
+    -------
+    int
+        The number of inputs that failed.
+
+    Raises
+    ------
+    ValueError
+        ``fmt`` is not ``"npy"`` or ``"npz"``, or ``tile`` is below 512.
+    TypeError
+        ``tile`` is not ``"auto"``, ``None`` or an int.
+    """
+    _check_fmt(fmt)
+    check_tile(tile)
+    cfg = _coerce_config(config)
+    failures = 0
+    for path in tqdm(paths, desc="tokeye run"):
+        try:
+            process_file(
+                path,
+                model,
+                cfg,
+                out_dir,
+                save_png=save_png,
+                threshold=threshold,
+                fs=fs,
+                fmt=fmt,
+                model_name=model_name,
+                channels=channels,
+                tile=tile,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
+            failures += 1
+            # Clear the progress bar first, or the line is glued onto it.
+            with tqdm.external_write_mode(file=sys.stderr):
+                if on_error is not None:
+                    on_error(path, exc)
+                else:
+                    logger.error(
+                        "Failed to process %s: %s: %s", path, type(exc).__name__, exc
+                    )
+                    logger.debug("traceback for %s", path, exc_info=exc)
+    return failures
+
+
 def run_batch(
     inputs: list[str],
     model: str | Path = hub.DEFAULT_MODEL,
@@ -256,12 +341,15 @@ def run_batch(
     Returns
     -------
     int
-        The number of inputs that failed (each is logged).
+        The number of inputs that failed (each is logged, see
+        :func:`process_files`).
 
     Raises
     ------
     ValueError
-        Bad settings, an instance model, or no inputs found.
+        Bad settings, an instance model, no inputs found, an unknown or
+        unavailable ``device``, or a model that cannot be loaded (see
+        :func:`tokeye.hub.load_model`, which also lists its other errors).
     TypeError
         ``tile`` is not ``"auto"``, ``None`` or an int.
     """
@@ -283,29 +371,20 @@ def run_batch(
     hub.require_task(model, "segmentation")
     paths = collect_inputs(inputs)
     loaded_model = hub.load_model(model, device)
-    channels = hub.channels_for(model)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    failures = 0
-    for path in tqdm(paths, desc="tokeye run"):
-        try:
-            process_file(
-                path,
-                loaded_model,
-                cfg,
-                out_dir,
-                save_png=save_png,
-                threshold=threshold,
-                fs=fs,
-                fmt=fmt,
-                model_name=str(model),
-                channels=channels,
-                tile=tile,
-            )
-        except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
-            logger.error("Failed to process %s: %s", path, exc)
-            failures += 1
-
-    return failures
+    return process_files(
+        paths,
+        loaded_model,
+        cfg,
+        out_dir,
+        save_png=save_png,
+        threshold=threshold,
+        fs=fs,
+        fmt=fmt,
+        tile=tile,
+        model_name=str(model),
+        channels=hub.channels_for(model),
+    )

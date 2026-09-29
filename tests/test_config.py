@@ -52,7 +52,7 @@ def test_numpy_scalars_are_coerced_to_python_types():
         ({"n_fft": True}, TypeError),
         ({"clip_dc": 1}, TypeError),
         ({"log": "yes"}, TypeError),
-        ({"window": ""}, TypeError),
+        ({"window": ""}, ValueError),
         ({"clip_low": "1"}, TypeError),
     ],
 )

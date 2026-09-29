@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tokeye.cli import _common, _options
@@ -14,6 +13,7 @@ if TYPE_CHECKING:
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "run",
+        parents=[_options.VERBOSE],
         help="Segment one or more inputs (files, directories or globs).",
         description=(
             "Segment each input and write <stem>_mask.npy (or <stem>_tokeye.npz "
@@ -50,35 +50,23 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from huggingface_hub.errors import HfHubHTTPError
-
     from tokeye import batch
 
-    try:
-        config = _options.config_from_args(args)
-    except ValueError as exc:
-        return _common.error(str(exc))
-
-    try:
-        failures = batch.run_batch(
-            args.inputs,
-            model=args.model,
-            out_dir=Path(args.output_dir),
-            config=config,
-            save_png=args.png,
-            threshold=args.threshold,
-            device=args.device,
-            fs=args.fs,
-            fmt=args.fmt,
-            tile=args.tile,
-        )
-    except ValueError as exc:
-        hint = _common.NO_INPUT_HINT if "No input files found" in str(exc) else ""
-        return _common.error(f"{exc}{hint}")
-    except (FileNotFoundError, ImportError) as exc:
-        return _common.error(str(exc))
-    except (HfHubHTTPError, OSError) as exc:
-        _common.print_hub_error(args.model, exc)
+    setup = _common.setup_or_report(args, "segmentation")
+    if setup is None:
         return _common.EXIT_USAGE
-
+    failures = batch.process_files(
+        setup.paths,
+        setup.model,
+        setup.config,
+        setup.out_dir,
+        save_png=args.png,
+        threshold=args.threshold,
+        fs=args.fs,
+        fmt=args.fmt,
+        tile=args.tile,
+        model_name=str(args.model),
+        channels=setup.channels,
+        on_error=_common.report_failure,
+    )
     return _common.EXIT_FAILED if failures else _common.EXIT_OK

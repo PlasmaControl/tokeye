@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tokeye.cli import _common
+from tokeye.cli import _common, _options
 from tokeye.config import DEFAULT_MODEL
 
 if TYPE_CHECKING:
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "download",
+        parents=[_options.VERBOSE],
         help="Download model weights into the Hugging Face cache.",
         description=(
             "Download model weights ahead of time, e.g. on an HPC login node "
@@ -30,17 +31,15 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from huggingface_hub.errors import HfHubHTTPError
-
     from tokeye import hub
 
+    verbose = getattr(args, "verbose", False)
     for name in args.models or [DEFAULT_MODEL]:
         try:
-            path = hub.download_model(name)
-        except ValueError as exc:
-            return _common.error(str(exc))
-        except (HfHubHTTPError, OSError) as exc:
-            _common.print_hub_error(name, exc)
-            return _common.EXIT_USAGE
+            with _common.quiet_hub_logs(verbose):
+                path = hub.download_model(name)
+        except Exception as exc:  # noqa: BLE001 - report_model_error maps every type
+            # One line, then stop: exit 2 at the first failure.
+            return _common.report_model_error(name, exc, download=True)
         print(path)
     return _common.EXIT_OK

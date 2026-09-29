@@ -122,7 +122,7 @@ For each input file, `tokeye run` writes:
 - `<stem>_params.json` — the model, version, device, input, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled).
 - With `--format npz`, `<stem>_tokeye.npz` (mask + spectrogram + axes, loadable with `tokeye.Segmentation.load`) replaces the `.npy` mask.
 
-Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs), 130 = interrupted.
+Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs, model cannot be loaded), 130 = interrupted. Errors are one line; add `-v` for details.
 
 Flags:
 | Flag | Default | Description |
@@ -139,12 +139,12 @@ Flags:
 | `--log` / `--no-log` | off | Apply `log1p` to 2D spectrogram inputs stored in linear scale (1D signals are always log-scaled during the STFT). |
 | `--threshold` | `0.5` | Mask threshold used only for the preview PNG overlay. |
 | `--png` / `--no-png` | on | Write preview PNGs. |
-| `--device` | `auto` | `cpu`, `cuda`, `mps`, or `auto`. |
+| `--device` | `auto` | `cpu`, `cuda`, `cuda:N`, `mps`, or `auto` (an unavailable device is an error; see `tokeye info`). |
 | `--tile` | `auto` | Tile side for long inputs: `auto` (untiled up to 2^21 pixels), `none`, or an int ≥ 512. For `big_tf_unet`, tiled output matches untiled output to float32 rounding. |
 
 The defaults (`n_fft=1024`, `hop=128`) match the released model's training configuration. A larger hop (e.g. `--hop 256`) halves the columns for faster, lighter runs at some fidelity cost.
 
-On HPC clusters where compute nodes have no internet access, pre-fetch the weights on the login node, then run the batch job on the compute node:
+On HPC clusters where compute nodes have no internet access, pre-fetch the weights on the login node, then run the batch job on the compute node. Without cached weights, the CLI says so in one line and exits 2.
 
 ```bash
 tokeye download big_tf_unet   # on the login node; prints the cached path

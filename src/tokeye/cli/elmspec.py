@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tokeye.cli import _common, _options
@@ -15,6 +14,7 @@ if TYPE_CHECKING:
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "elmspec",
+        parents=[_options.VERBOSE],
         help="Detect ELM events (transient-channel intervals, count, frequency).",
         description=(
             "Segment each input, then turn broadband stripes in the transient "
@@ -85,7 +85,7 @@ def _transient(seg):
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from tokeye import batch, hub
+    from tokeye import batch
     from tokeye._plotting import save_preview
     from tokeye.config import resolve_channels
     from tokeye.elmspec import (
@@ -96,33 +96,22 @@ def _handle(args: argparse.Namespace) -> int:
         write_event_rows,
         write_summary_csv,
     )
-    from tokeye.inference import check_tile, infer
+    from tokeye.inference import infer
     from tokeye.result import Segmentation
 
-    try:
-        config = _options.config_from_args(args)
-        check_tile(args.tile)
-    except ValueError as exc:
-        return _common.error(str(exc))
-    paths = _common.collect_inputs_or_report(args.inputs)
-    if paths is None:
+    setup = _common.setup_or_report(args, "segmentation")
+    if setup is None:
         return _common.EXIT_USAGE
-    model = _common.load_model_or_report(args.model, args.device, "segmentation")
-    if model is None:
-        return _common.EXIT_USAGE
-    channels = hub.channels_for(args.model)
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    config, out_dir = setup.config, setup.out_dir
 
     rows = []
     summaries = []
     failures = 0
-    for path in paths:
+    for path in setup.paths:
         try:
             spec = batch.load_spectrogram(path, config, fs=args.fs)
-            mask = infer(model, spec.values, tile=args.tile)
-            names = resolve_channels(channels, mask.shape[0])
+            mask = infer(setup.model, spec.values, tile=args.tile)
+            names = resolve_channels(setup.channels, mask.shape[0])
             seg = Segmentation(mask, spec, names, str(args.model))
             events = extract_elm_events(
                 _transient(seg),
@@ -132,7 +121,7 @@ def _handle(args: argparse.Namespace) -> int:
                 min_duration_cols=args.min_duration_cols,
             )
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
-            print(f"error: failed to process {path}: {exc}", file=sys.stderr)
+            _common.report_failure(path, exc)
             failures += 1
             continue
 

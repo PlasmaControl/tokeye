@@ -4,11 +4,10 @@ import sys
 import types
 from pathlib import Path
 
-import huggingface_hub
 import numpy as np
 import pytest
 import torch.nn as nn
-from huggingface_hub.errors import RepositoryNotFoundError
+from cli_helpers import repository_not_found_error
 
 import tokeye
 from tokeye import SpectrogramConfig
@@ -16,27 +15,6 @@ from tokeye.cli import build_parser, main
 from tokeye.cli._options import config_from_args
 from tokeye.cli.example import default_output
 from tokeye.io import fs_from_name, load_signal
-
-
-def _repository_not_found_error() -> RepositoryNotFoundError:
-    """Build a real RepositoryNotFoundError the way huggingface_hub does.
-
-    ``HfHubHTTPError`` needs a ``response``: an ``httpx.Response`` on
-    huggingface_hub >= 1.0, a ``requests.Response`` before that (the floor
-    of the supported range).
-    """
-    url = "https://huggingface.co/does/not/exist"
-    if int(huggingface_hub.__version__.split(".")[0]) >= 1:
-        import httpx
-
-        response = httpx.Response(404, request=httpx.Request("GET", url))
-    else:
-        import requests
-
-        response = requests.Response()
-        response.status_code = 404
-        response.url = url
-    return RepositoryNotFoundError("Repository Not Found", response=response)
 
 
 @pytest.fixture
@@ -268,13 +246,16 @@ class TestMain:
         assert exit_code == 2
         assert "contradict" in capsys.readouterr().err
 
-    def test_ctrl_c_returns_130(self, spectrogram_npy, monkeypatch, capsys):
+    def test_ctrl_c_returns_130(
+        self, stub_model, spectrogram_npy, tmp_path, monkeypatch, capsys
+    ):
         def interrupted(*args, **kwargs):
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("tokeye.batch.run_batch", interrupted)
+        monkeypatch.setattr("tokeye.batch.process_files", interrupted)
+        argv = ["run", str(spectrogram_npy), "--output-dir", str(tmp_path / "out")]
 
-        assert main(["run", str(spectrogram_npy)]) == 130
+        assert main(argv) == 130
         assert "interrupted" in capsys.readouterr().err
 
     def test_example_writes_file_and_returns_zero(self, tmp_path, capsys):
@@ -325,7 +306,7 @@ class TestMain:
 
     def test_download_hub_error_returns_two_clean_error(self, monkeypatch, capsys):
         def fake_download_model(name, repo_id=None):
-            raise _repository_not_found_error()
+            raise repository_not_found_error()
 
         monkeypatch.setattr("tokeye.hub.download_model", fake_download_model)
 
@@ -343,7 +324,7 @@ class TestMain:
         input_path = spectrogram_npy
 
         def fake_load_model(source, device="auto"):
-            raise _repository_not_found_error()
+            raise repository_not_found_error()
 
         monkeypatch.setattr("tokeye.hub.load_model", fake_load_model)
 

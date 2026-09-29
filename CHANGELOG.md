@@ -48,6 +48,10 @@ and a golden test now pins its output.
   `Segmentation.save()`.
 - Extras `ae` (torchvision, for `ae_tf_maskrcnn`), `hdf5` (h5py) and `all`;
   `app` now also installs soundfile. `tokeye.__version__` and `py.typed`.
+- `-v`/`--verbose` on every subcommand (before or after it) shows debug logs,
+  including the tracebacks of per-input failures.
+- `tokeye.batch.process_files`: the per-file loop of `run_batch`, for callers
+  that already hold a loaded model.
 
 ### Changed
 
@@ -73,6 +77,11 @@ and a golden test now pins its output.
 - Passing an instance model (`ae_tf_maskrcnn`) where a segmentation model is
   needed (or the reverse) fails early with a pointer to the right command.
 - Standardization uses float64 statistics over the whole input, then float32.
+- An unknown or unavailable device (`--device`, or `device=` in Python) is a
+  `ValueError` that lists the accepted forms (`cpu`, `cuda`, `cuda:N`, `mps`,
+  `auto`) or points to `tokeye info`; in the CLI it is one line and exit 2.
+- An empty `window` is a `ValueError` (was a `TypeError`), and `--window` is
+  checked before the model loads, even when every input is 2D.
 - `tokeye app` opens a browser automatically in a local (non-SSH) session
   (0.12.0 opened one only with `--open`); `--no-browser` turns it off.
 - The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
@@ -95,6 +104,15 @@ and a golden test now pins its output.
   and `tokeye.training` is no longer shipped in the wheel or sdist.
 - `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (replaced by
   `<stem>_ae_instances.npy`).
+
+### Fixed
+
+- Model-load failures (offline without cached weights, unreadable or truncated
+  checkpoints, hub errors) are one `error:` line with exit 2, never a
+  traceback.
+- The Hugging Face message appears only for hub errors; an unreachable hub
+  without cached weights says so and points to `tokeye download`.
+- Per-input errors name the exception type.
 
 ## [0.12.0] - 2026-07-08
 
