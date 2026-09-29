@@ -87,7 +87,8 @@ constraint-dependencies = [
 # Keep torch/torchvision/torchaudio on ONE index. Mixing a +cuXXX torch with a
 # plain-PyPI torchaudio gives an import-time ABI error
 # (libtorchaudio.so: undefined symbol ...c10_cuda_check_implementation...).
-# "auto" detects the local driver, so CPU boxes and CI resolve correctly too.
+# "auto" detects the local driver. `uv pip`, `uvx` and `uv tool install` honour
+# it; `uv sync` and `uv lock` do not, which is why CI installs with `uv pip`.
 torch-backend = "auto"
 
 [tool.uv.build-backend]

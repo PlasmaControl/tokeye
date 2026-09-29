@@ -1,0 +1,8 @@
+# Oldest supported versions of tokeye's core dependencies (the floors in
+# pyproject.toml). The CI floor job installs exactly these and runs the suite.
+numpy==1.26.0
+scipy==1.12.0
+matplotlib==3.8.0
+torch==2.4.0
+huggingface-hub==0.30.0
+tqdm==4.66.0

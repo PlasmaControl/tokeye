@@ -1,0 +1,108 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0.0 on.
+
+## [1.0.0] — unreleased
+
+The first stable release: laptop-friendly inference with the default
+`big_tf_unet` model on Linux, macOS and Windows. Pre-1.0 spellings keep working
+and warn (a `DeprecationWarning`, or a `warning:` line on stderr for the
+`--keep-dc` flag); they are removed in 2.0. The default model is unchanged,
+and a golden test now pins its output.
+
+### Added
+
+- `TokEye.segment()` returns a `Segmentation`: the mask plus the spectrogram,
+  frequency/time axes (in Hz and seconds when the sampling rate `fs` is known),
+  channel access by name (`seg["coherent"]`), `save()`/`load()` as a
+  `tokeye-analysis/v1` `.npz` bundle, and `plot()`.
+- `tokeye.SpectrogramConfig`, the single, validated source of preprocessing
+  defaults (`n_fft=1024`, `hop=128`, ...). `TokEye(config=...)` and
+  `run_batch(config=...)` accept it; the CLI builds its flags from it.
+- Input formats: `.npy`, `.npz`, `.wav`, `.flac`, `.ogg`, `.csv`, `.txt`,
+  `.mat` and `.h5`, with the sampling rate read from the file (or a `_sr<fs>`
+  filename suffix) when recorded.
+- Tiled inference: long inputs run in overlapping tiles, bounding peak memory
+  (`TokEye(tile=...)`); inputs up to 2^21 pixels run untiled.
+- Apple-silicon GPUs: `device="auto"` tries CUDA, then MPS, then CPU, and an
+  op MPS cannot run falls back to CPU with one warning.
+- `tokeye info` reports versions, the device `auto` picks, installed extras
+  and cached models.
+- `tokeye run --format npz` writes the `Segmentation` bundle; every run also
+  writes `<stem>_params.json` recording the model, version, device, input, `fs`
+  and preprocessing settings. `--fs` sets the sampling rate.
+- `tokeye elmspec --dt` sets the column spacing, and each input keeps its own
+  timebase.
+- `tokeye alfvenspec` writes `<stem>_ae_instances.npy` — an `(H, W)` label map
+  where `i + 1` marks detection `i` — for windowed inputs too.
+- `tokeye app --host/--workspace/--no-browser`. The app binds to `127.0.0.1`
+  and opens a browser automatically in a local (non-SSH) session.
+- `tokeye.export`: the `.npz` export helpers shared by the app and
+  `Segmentation.save()`.
+- Extras `ae` (torchvision, for `ae_tf_maskrcnn`), `hdf5` (h5py) and `all`;
+  `app` now also installs soundfile. `tokeye.__version__` and `py.typed`.
+
+### Changed
+
+- The default STFT hop is 128 samples (was 256), the released model's training
+  recipe. A 1D input now gives twice as many time columns; pass `hop=256`
+  (`--hop 256`) to reproduce 0.12.0 spectrograms.
+- Python 3.11 or newer (was 3.13).
+- Core dependencies are only numpy, scipy, matplotlib, torch, huggingface-hub
+  and tqdm, with tested minimum versions. torchvision moved to the `ae` extra
+  (loading `ae_tf_maskrcnn` without it says so); torchinfo, omegaconf,
+  pydantic and pyyaml are no longer installed.
+- CLI exit codes: 0 = every input succeeded, 1 = at least one failed,
+  2 = usage or configuration error, 130 = interrupted (was the failure count).
+- `tokeye --version` prints `tokeye <version>`.
+- CLI boolean flags come in pairs: `--png/--no-png`, `--clip-dc/--no-clip-dc`,
+  `--log/--no-log`, `--masks/--no-masks`. `tokeye elmspec` writes previews with
+  `--png` as before.
+- `tokeye example` names its output `tokeye_example_sr<fs>.npy`, so the rate
+  travels with the file.
+- Passing an instance model (`ae_tf_maskrcnn`) where a segmentation model is
+  needed (or the reverse) fails early with a pointer to the right command.
+- Standardization uses float64 statistics over the whole input, then float32.
+- The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
+  download from Annotate, and moves to the next free port when 7860 is busy.
+
+### Deprecated
+
+- `run_batch(stft_kwargs=..., log=...)`: use `config=SpectrogramConfig(...)`.
+- Passing a `dict` of STFT settings to `process_file`.
+- `--keep-dc`: use `--no-clip-dc`.
+
+### Removed
+
+- The `modesearch` placeholder subcommand and package.
+- The vendored `modespec` and `eigspec` modules, their subcommands and the
+  `eigspec` extra.
+- The abandoned `big_tf_unet_2` training pipeline (tagged `big-tf-unet-2-final`),
+  the unused `ae_tf_boxrcnn` model, `tokeye.extra`, and other dead code.
+- The `train` extra: training runs from a clone with `uv sync --group train`,
+  and `tokeye.training` is no longer shipped in the wheel or sdist.
+- `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (replaced by
+  `<stem>_ae_instances.npy`).
+
+## [0.12.0] — 2026-07-08
+
+Mode-analysis suite: `tokeye elmspec`, `tokeye alfvenspec` (with the
+`ae_tf_maskrcnn` model), the vendored `modespec` and `eigspec`, and a
+`modesearch` placeholder. gradio moved to the `app` extra.
+
+## [0.11.0] — 2026-07-04
+
+The `TokEye` Python API class (`from tokeye import TokEye`) and its `log`
+option for linear-scale spectrograms.
+
+## [0.10.0] — 2026-07-04
+
+The `tokeye` CLI with headless batch inference, weights downloaded from Hugging
+Face on first use, and guided onboarding in the app.
+
+[1.0.0]: https://github.com/PlasmaControl/tokeye/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.12.0
+[0.11.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.11.0
+[0.10.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.10.0

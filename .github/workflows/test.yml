@@ -1,0 +1,144 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # CI runners have no GPU: `uv pip` resolves the CPU torch wheels (~200 MB,
+  # not ~2.5 GB of CUDA libraries).
+  UV_TORCH_BACKEND: cpu
+  PYTHONUTF8: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: ruff check
+        run: uvx ruff@0.14.14 check .
+      - name: ruff format --check
+        run: uvx ruff@0.14.14 format --check src tests
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: macos-14, python: "3.12" }
+          - { os: windows-latest, python: "3.12" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Hugging Face cache (weights for the golden tests)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-${{ runner.os }}-big_tf_unet_251210
+      - name: Install
+        # uv pip, not uv sync: uv sync ignores UV_TORCH_BACKEND (CPU wheels).
+        # The repo's [tool.uv] torch pins apply here, as in a dev checkout.
+        run: |
+          uv venv
+          uv pip install -e ".[all]" --group dev
+      - name: Fetch the default weights
+        run: uv run --no-sync tokeye download
+      - name: pytest
+        run: uv run --no-sync pytest -n auto
+
+  smoke:
+    # A scientist's laptop: the built wheel in a clean venv with CPU torch,
+    # then the quickstart commands.
+    name: laptop smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: uv build
+      - name: Install the wheel into a clean venv
+        # --no-config: resolve like a user would, without the repo's
+        # [tool.uv] torch pins.
+        run: |
+          uv venv --no-project .smoke
+          uv pip install --no-config --python .smoke dist/*.whl
+      - name: Quickstart
+        working-directory: ${{ runner.temp }}
+        run: |
+          run() { uv run --no-project --python "$GITHUB_WORKSPACE/.smoke" "$@"; }
+          run tokeye --version
+          run tokeye info
+          run tokeye example --duration 0.5
+          run tokeye run tokeye_example_sr200000.npy --device cpu
+          test -f tokeye_output/tokeye_example_sr200000_mask.npy
+          test -f tokeye_output/tokeye_example_sr200000_params.json
+          run python -c "from tokeye import TokEye; import numpy as np; print(TokEye(device='cpu')(np.load('tokeye_example_sr200000.npy')).shape)"
+          # The wheel must not ship the research code (source-exclude).
+          run python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('tokeye.training') is not None)"
+      - name: uvx one-liner
+        # uvx honours UV_TORCH_BACKEND, so Linux gets CPU torch here too.
+        run: uvx --no-config --from "$(ls dist/*.whl)" tokeye --version
+
+  floor:
+    # The oldest supported Python and dependency versions (pyproject floors).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: Hugging Face cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-${{ runner.os }}-big_tf_unet_251210
+      - name: Install the wheel at the dependency floors
+        # --no-config: the repo's [tool.uv] pin (torch==2.9.1) would otherwise
+        # conflict with the floor constraint (torch==2.4.0).
+        run: |
+          uv build --wheel
+          uv venv --no-project .floor
+          uv pip install --no-config --python .floor \
+            -c .github/floor-constraints.txt dist/*.whl "pytest>=9" pytest-xdist
+      - name: pytest (against the installed wheel)
+        run: |
+          .floor/bin/tokeye download
+          .floor/bin/python -m pytest -n auto -p no:cacheprovider
+
+  large-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked files larger than 2 MB
+        run: |
+          limit=$((2 * 1024 * 1024))
+          big=$(git ls-tree -r -l HEAD | awk -v lim="$limit" '$4 > lim {printf "  %.1f MB  %s\n", $4/1048576, $5}')
+          if [ -n "$big" ]; then
+            echo "::error::Files larger than 2 MB are not allowed (host them on Hugging Face or a Release):"
+            echo "$big"
+            exit 1
+          fi
+          echo "OK: no tracked file exceeds 2 MB."

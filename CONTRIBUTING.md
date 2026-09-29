@@ -3,8 +3,9 @@
 ## Development setup
 
 ```bash
-uv sync --dev              # dev tools: ruff, pytest, pre-commit
-uv run pre-commit install  # enable the git hooks (large-file guard)
+uv sync --dev --extra all  # dev tools (ruff, pytest, pre-commit) + every extra
+uv run pre-commit install  # enable the git hooks (large-file guard, ruff)
+uv run tokeye download     # weights for the golden tests (offline otherwise)
 ```
 
 ## Large files / data — keep them out of git
@@ -17,9 +18,9 @@ GIF had to be purged from history.
 Two safeguards are in place:
 
 - A **pre-commit hook** (`check-added-large-files`) blocks staging any file over
-  **10 MB** locally — run `uv run pre-commit install` so it's active.
-- **CI** re-checks it on every PR to `main` (`large-files` job); the build fails if
-  any tracked file exceeds 10 MB, so the guard holds even if someone skips the hook.
+  **2 MB** locally — run `uv run pre-commit install` so it's active.
+- **CI** re-checks it on every push and PR (`large-files` job); the build fails if
+  any tracked file exceeds 2 MB, so the guard holds even if someone skips the hook.
 
 Large assets (demos, datasets, weights) belong in **external hosting** — Hugging
 Face, a GitHub Release, or Git LFS — not in the repo. Demo media should be a small
@@ -47,5 +48,12 @@ Or simply re-clone. `main` was not rewritten, so main-based work is unaffected.
 
 ```bash
 uv run ruff check .
-uv run pytest
+uv run ruff format --check src tests
+uv run pytest -n auto
 ```
+
+The suite is offline: the hub is mocked, and tests marked `weights` (the golden
+numbers) run only when the default weights are cached. CI (`.github/workflows/test.yml`)
+also runs the suite on macOS and Windows, a laptop smoke test of the built wheel,
+and a job at the oldest supported dependency versions
+(`.github/floor-constraints.txt`).
