@@ -1,45 +1,49 @@
 """Headless batch inference: run TokEye over a list of files with no GUI.
 
-Never imports gradio, so this module (and anything that imports only this
-module) is safe to run on HPC login/compute nodes and in CI. ``matplotlib``
-is switched to the non-interactive ``Agg`` backend before ``pyplot`` is
-imported, so this stays headless-safe even without a display.
+Never imports gradio or ``matplotlib.pyplot`` (previews are drawn on a bare
+``Figure``), so this module is safe on HPC login/compute nodes and in CI.
 """
 
 from __future__ import annotations
 
 import glob
+import json
 import logging
+import warnings
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-import matplotlib as mpl
 import numpy as np
 from tqdm.auto import tqdm
 
 from . import hub
-from .inference import model_infer, signal_to_spectrogram
-from .transforms import (
-    DEFAULT_CLIP_DC,
-    DEFAULT_CLIP_HIGH,
-    DEFAULT_CLIP_LOW,
-    DEFAULT_HOP,
-    DEFAULT_N_FFT,
-    log_scale,
-)
+from ._plotting import overlay_rgba, save_preview
+from ._version import __version__
+from .config import DEFAULT_CHANNELS, SpectrogramConfig, resolve_channels
+from .inference import _device_of, infer
+from .io import DIRECTORY_SUFFIXES, load_signal
+from .preprocess import Spectrogram, prepare
+from .result import Segmentation
 
-mpl.use("Agg")  # Must precede the pyplot import below (headless HPC safety).
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
-import matplotlib.pyplot as plt  # noqa: E402
+    import torch.nn as nn
 
 logger = logging.getLogger(__name__)
+
+FORMATS = ("npy", "npz")
 
 
 def collect_inputs(inputs: list[str]) -> list[Path]:
     """Expand a list of files/directories/glob patterns into concrete paths.
 
     Each item is resolved as: an existing file (kept as-is), an existing
-    directory (its ``*.npy`` files, sorted), or otherwise a glob pattern
-    (matches, sorted). Duplicates are dropped, preserving first-seen order.
+    directory (its files with a suffix in
+    :data:`tokeye.io.DIRECTORY_SUFFIXES`, sorted), or otherwise a glob
+    pattern (matches, sorted). Duplicates are dropped, preserving
+    first-seen order.
     """
     collected: list[Path] = []
     for item in inputs:
@@ -47,7 +51,11 @@ def collect_inputs(inputs: list[str]) -> list[Path]:
         if path.is_file():
             found = [path]
         elif path.is_dir():
-            found = sorted(path.glob("*.npy"))
+            found = sorted(
+                p
+                for p in path.iterdir()
+                if p.is_file() and p.suffix.lower() in DIRECTORY_SUFFIXES
+            )
         else:
             # glob.glob (not Path.glob) so absolute patterns keep working:
             # Path(".").glob() rejects non-relative patterns outright.
@@ -67,19 +75,26 @@ def collect_inputs(inputs: list[str]) -> list[Path]:
     return result
 
 
-def load_input(path: Path, stft_kwargs: dict, log: bool = False) -> np.ndarray:
-    """Load a ``.npy`` file as a spectrogram, computing one if it's a signal.
+def load_spectrogram(
+    path: str | Path,
+    config: SpectrogramConfig | Mapping[str, Any] | None = None,
+    *,
+    fs: float | None = None,
+) -> Spectrogram:
+    """Read ``path`` with :func:`tokeye.io.load_signal` and :func:`prepare` it.
 
-    ``log`` applies ``log1p`` to 2D (precomputed) spectrograms stored in
-    linear scale; 1D signals are always log-scaled as part of the STFT.
+    An explicit ``fs`` wins over one found in the file.
     """
-    arr = np.load(path)
-    if arr.ndim == 1:
-        return signal_to_spectrogram(arr, **stft_kwargs)
-    if arr.ndim == 2:
-        arr = arr.astype(float)
-        return log_scale(arr) if log else arr
-    raise ValueError(f"expected 1D signal or 2D spectrogram, got ndim={arr.ndim}")
+    data, file_fs = load_signal(path)
+    return prepare(data, config, fs=fs if fs is not None else file_fs)
+
+
+def load_input(path: Path, stft_kwargs: dict, log: bool = False) -> np.ndarray:
+    """Pre-1.0 helper: the float32 spectrogram for ``path``.
+
+    ``stft_kwargs`` are :class:`SpectrogramConfig` fields.
+    """
+    return load_spectrogram(path, {**stft_kwargs, "log": log}).values
 
 
 def save_overlay_png(
@@ -92,42 +107,86 @@ def save_overlay_png(
     """Save a grayscale spectrogram with a semi-transparent mask overlay.
 
     Coherent activity (``mask[0]``) is tinted green, transient activity
-    (``mask[1]``) is tinted red, both thresholded at ``threshold``.
+    (``mask[1]``) red, both thresholded at ``threshold``.
     """
-    height, width = spectrogram.shape
-    overlay = np.zeros((height, width, 4), dtype=np.float32)
-    overlay[mask[0] >= threshold] = (0.0, 1.0, 0.0, 0.4)
-    overlay[mask[1] >= threshold] = (1.0, 0.0, 0.0, 0.4)
+    from matplotlib.figure import Figure
 
-    fig, ax = plt.subplots()
+    fig = Figure()
+    ax = fig.add_subplot()
     ax.imshow(spectrogram, cmap="gray", origin="lower", aspect="auto")
-    ax.imshow(overlay, origin="lower", aspect="auto")
+    ax.imshow(overlay_rgba(mask, threshold), origin="lower", aspect="auto")
     fig.tight_layout()
     fig.savefig(out_path, dpi=dpi)
-    plt.close(fig)
+
+
+def _coerce_config(config: Any) -> SpectrogramConfig:
+    if isinstance(config, dict):
+        warnings.warn(
+            "passing a dict of STFT kwargs is deprecated; pass a "
+            "tokeye.SpectrogramConfig (removed in 2.0)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return SpectrogramConfig.coerce(config)
 
 
 def process_file(
     path: Path,
-    model,
-    stft_kwargs: dict,
+    model: nn.Module,
+    config: SpectrogramConfig | dict | None,
     out_dir: Path,
     save_png: bool = True,
     threshold: float = 0.5,
-    log: bool = False,
+    log: bool | None = None,
+    *,
+    fs: float | None = None,
+    fmt: str = "npy",
+    model_name: str = hub.DEFAULT_MODEL,
+    channels: tuple[str, ...] | None = None,
 ) -> Path:
-    """Run inference on a single input file and write its outputs to disk."""
-    spectrogram = load_input(path, stft_kwargs, log=log)
-    mask = model_infer(spectrogram, model)
+    """Segment one input file and write its outputs to ``out_dir``.
 
-    mask_path = out_dir / f"{path.stem}_mask.npy"
-    np.save(mask_path, mask.astype(np.float32))
+    Writes ``<stem>_mask.npy`` (float32 ``(C, H, W)``) or, with
+    ``fmt="npz"``, ``<stem>_tokeye.npz`` (a :class:`Segmentation` bundle);
+    ``<stem>_preview.png`` unless ``save_png`` is off; and
+    ``<stem>_params.json`` recording how the output was made. Returns the
+    mask (or bundle) path.
+    """
+    path = Path(path)
+    cfg = _coerce_config(config)
+    if log is not None:
+        cfg = cfg.replace(log=log)
+    spec = load_spectrogram(path, cfg, fs=fs)
+    mask = infer(model, spec.values)
+    names = resolve_channels(channels or DEFAULT_CHANNELS, mask.shape[0])
+    seg = Segmentation(mask, spec, names, model_name)
+
+    if fmt == "npz":
+        output = seg.save(out_dir / f"{path.stem}_tokeye.npz")
+    else:
+        output = out_dir / f"{path.stem}_mask.npy"
+        np.save(output, mask)
 
     if save_png:
-        preview_path = out_dir / f"{path.stem}_preview.png"
-        save_overlay_png(spectrogram, mask, preview_path, threshold=threshold)
+        save_preview(seg, out_dir / f"{path.stem}_preview.png", threshold=threshold)
 
-    return mask_path
+    params = {
+        "tokeye_version": __version__,
+        "model": model_name,
+        "device": str(_device_of(model)),
+        "input": str(path),
+        "kind": spec.kind,
+        "fs": spec.fs,
+        "config": cfg.to_dict(),
+        "mask_shape": list(mask.shape),
+        "channels": list(names),
+        "threshold": threshold,
+        "output": output.name,
+        "created_utc": datetime.now(UTC).isoformat(),
+    }
+    params_path = out_dir / f"{path.stem}_params.json"
+    params_path.write_text(json.dumps(params, indent=2) + "\n", encoding="utf-8")
+    return output
 
 
 def run_batch(
@@ -138,26 +197,59 @@ def run_batch(
     save_png: bool = True,
     threshold: float = 0.5,
     device: str = "auto",
-    log: bool = False,
+    log: bool | None = None,
+    *,
+    config: SpectrogramConfig | None = None,
+    fs: float | None = None,
+    fmt: str = "npy",
 ) -> int:
-    """Run inference over ``inputs``, writing masks (and previews) to ``out_dir``.
+    """Segment every input, writing outputs to ``out_dir``.
 
-    Returns the number of files that failed to process.
+    Parameters
+    ----------
+    inputs
+        Files, directories or glob patterns (see :func:`collect_inputs`).
+    model, device
+        Passed to :func:`tokeye.hub.load_model`; must be a segmentation
+        model.
+    config
+        Preprocessing settings (defaults when omitted).
+    fs
+        Sampling rate for every input (else read per file, if recorded).
+    fmt
+        ``"npy"`` (mask only) or ``"npz"`` (full bundle).
+    stft_kwargs, log
+        Deprecated spellings of ``config``.
+
+    Returns
+    -------
+    int
+        The number of inputs that failed (each is logged).
+
+    Raises
+    ------
+    ValueError
+        Bad settings, an instance model, or no inputs found.
     """
-    paths = collect_inputs(inputs)
-    resolved_stft_kwargs = (
-        stft_kwargs
-        if stft_kwargs is not None
-        else {
-            "n_fft": DEFAULT_N_FFT,
-            "hop": DEFAULT_HOP,
-            "clip_dc": DEFAULT_CLIP_DC,
-            "clip_low": DEFAULT_CLIP_LOW,
-            "clip_high": DEFAULT_CLIP_HIGH,
-        }
-    )
+    if stft_kwargs is not None or log is not None:
+        warnings.warn(
+            "run_batch(stft_kwargs=..., log=...) is deprecated; pass "
+            "config=tokeye.SpectrogramConfig(...) (removed in 2.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if stft_kwargs is not None and config is not None:
+        raise ValueError("pass either config or stft_kwargs, not both")
+    if fmt not in FORMATS:
+        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+    cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
+    if log is not None:
+        cfg = cfg.replace(log=log)
 
+    hub.require_task(model, "segmentation")
+    paths = collect_inputs(inputs)
     loaded_model = hub.load_model(model, device)
+    channels = hub.channels_for(model)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -168,14 +260,17 @@ def run_batch(
             process_file(
                 path,
                 loaded_model,
-                resolved_stft_kwargs,
+                cfg,
                 out_dir,
                 save_png=save_png,
                 threshold=threshold,
-                log=log,
+                fs=fs,
+                fmt=fmt,
+                model_name=str(model),
+                channels=channels,
             )
-        except Exception:
-            logger.error("Failed to process %s", path, exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
+            logger.error("Failed to process %s: %s", path, exc)
             failures += 1
 
     return failures

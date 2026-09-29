@@ -18,12 +18,14 @@ import sys
 
 
 def test_batch_import_does_not_pull_in_gradio():
+    code = (
+        "import tokeye.batch, sys; "
+        "assert 'gradio' not in sys.modules; "
+        "assert 'matplotlib.pyplot' not in sys.modules; "
+        "print('ok')"
+    )
     result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import tokeye.batch, sys; assert 'gradio' not in sys.modules; print('ok')",
-        ],
+        [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         check=False,

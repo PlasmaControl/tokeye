@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 import torch.nn as nn
 
-from tokeye import batch
+from tokeye import SpectrogramConfig, batch
+from tokeye.result import Segmentation
 
 
 @pytest.fixture
@@ -35,14 +38,17 @@ class TestCollectInputs:
     def test_single_file(self, signal_npy):
         assert batch.collect_inputs([str(signal_npy)]) == [signal_npy]
 
-    def test_directory_finds_only_npy_sorted(self, tmp_path):
+    def test_directory_finds_signal_files_sorted(self, tmp_path):
         (tmp_path / "b.npy").touch()
         (tmp_path / "a.npy").touch()
+        (tmp_path / "c.wav").touch()
         (tmp_path / "ignore.txt").touch()
+        (tmp_path / "notes.csv").touch()
+        (tmp_path / "subdir.npy").mkdir()
 
         result = batch.collect_inputs([str(tmp_path)])
 
-        assert result == [tmp_path / "a.npy", tmp_path / "b.npy"]
+        assert result == [tmp_path / "a.npy", tmp_path / "b.npy", tmp_path / "c.wav"]
 
     def test_glob_pattern(self, tmp_path):
         (tmp_path / "x1.npy").touch()
@@ -101,6 +107,25 @@ class TestLoadInput:
             batch.load_input(path, {}, log=True)
 
 
+class TestLoadSpectrogram:
+    def test_fs_from_filename(self, tmp_path):
+        path = tmp_path / "shot_sr2000.npy"
+        np.save(path, np.random.default_rng(0).normal(size=4096))
+
+        spec = batch.load_spectrogram(path, SpectrogramConfig(n_fft=256, hop=64))
+
+        assert spec.kind == "stft"
+        assert spec.fs == 2000.0
+
+    def test_explicit_fs_wins(self, tmp_path):
+        path = tmp_path / "shot_sr2000.npy"
+        np.save(path, np.random.default_rng(0).normal(size=4096))
+
+        spec = batch.load_spectrogram(path, {"n_fft": 256, "hop": 64}, fs=500.0)
+
+        assert spec.fs == 500.0
+
+
 class TestRunBatch:
     def test_on_1d_signal_writes_mask_and_preview(
         self, stub_model, signal_npy, tmp_path
@@ -109,7 +134,7 @@ class TestRunBatch:
         failures = batch.run_batch(
             [str(signal_npy)],
             out_dir=out_dir,
-            stft_kwargs={"n_fft": 256, "hop": 64},
+            config=SpectrogramConfig(n_fft=256, hop=64),
         )
 
         assert failures == 0
@@ -190,3 +215,89 @@ class TestRunBatch:
         assert (out_dir / "first_mask.npy").exists()
         assert (out_dir / "second_mask.npy").exists()
         assert calls == [(batch.hub.DEFAULT_MODEL, "cpu")]
+
+    def test_params_json_records_provenance(self, stub_model, signal_npy, tmp_path):
+        out_dir = tmp_path / "out"
+        cfg = SpectrogramConfig(n_fft=256, hop=64)
+        batch.run_batch([str(signal_npy)], out_dir=out_dir, config=cfg, fs=1000.0)
+
+        params = json.loads((out_dir / "signal_params.json").read_text("utf-8"))
+
+        assert params["model"] == batch.hub.DEFAULT_MODEL
+        assert params["device"] == "cpu"
+        assert params["kind"] == "stft"
+        assert params["fs"] == 1000.0
+        assert params["config"] == cfg.to_dict()
+        assert params["channels"] == ["coherent", "transient"]
+        assert params["output"] == "signal_mask.npy"
+        assert params["mask_shape"][0] == 2
+        assert {"tokeye_version", "input", "threshold", "created_utc"} <= set(params)
+
+    def test_npz_format_writes_a_loadable_bundle(
+        self, stub_model, signal_npy, tmp_path
+    ):
+        out_dir = tmp_path / "out"
+        failures = batch.run_batch(
+            [str(signal_npy)],
+            out_dir=out_dir,
+            config=SpectrogramConfig(n_fft=256, hop=64),
+            fs=1000.0,
+            fmt="npz",
+        )
+
+        assert failures == 0
+        assert not (out_dir / "signal_mask.npy").exists()
+        seg = Segmentation.load(out_dir / "signal_tokeye.npz")
+        assert seg.mask.shape[0] == 2
+        assert seg.fs == 1000.0
+        assert seg.spectrogram.config == SpectrogramConfig(n_fft=256, hop=64)
+
+    def test_bad_format_raises_before_loading(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tokeye.hub.load_model", pytest.fail)
+        with pytest.raises(ValueError, match="fmt must be one of"):
+            batch.run_batch([str(tmp_path)], out_dir=tmp_path, fmt="csv")
+
+    def test_instance_model_is_rejected_before_loading(
+        self, spectrogram_npy, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("tokeye.hub.load_model", pytest.fail)
+        with pytest.raises(ValueError, match="alfvenspec"):
+            batch.run_batch(
+                [str(spectrogram_npy)], model="ae_tf_maskrcnn", out_dir=tmp_path
+            )
+
+
+class TestDeprecations:
+    def test_stft_kwargs_warns_and_still_works(self, stub_model, signal_npy, tmp_path):
+        out_dir = tmp_path / "out"
+        with pytest.warns(DeprecationWarning, match="config="):
+            failures = batch.run_batch(
+                [str(signal_npy)], out_dir=out_dir, stft_kwargs={"n_fft": 256}
+            )
+
+        assert failures == 0
+        params = json.loads((out_dir / "signal_params.json").read_text("utf-8"))
+        assert params["config"]["n_fft"] == 256
+
+    def test_log_kwarg_warns(self, stub_model, spectrogram_npy, tmp_path):
+        with pytest.warns(DeprecationWarning):
+            batch.run_batch([str(spectrogram_npy)], out_dir=tmp_path, log=False)
+
+    def test_config_and_stft_kwargs_together_raise(self, tmp_path):
+        with (
+            pytest.warns(DeprecationWarning),
+            pytest.raises(ValueError, match="not both"),
+        ):
+            batch.run_batch(
+                [str(tmp_path)],
+                config=SpectrogramConfig(),
+                stft_kwargs={"n_fft": 256},
+            )
+
+    def test_process_file_dict_config_warns(
+        self, stub_model, spectrogram_npy, tmp_path
+    ):
+        with pytest.warns(DeprecationWarning, match="SpectrogramConfig"):
+            batch.process_file(spectrogram_npy, stub_model, {"hop": 64}, tmp_path)
+
+        assert (tmp_path / "spectrogram_mask.npy").exists()
