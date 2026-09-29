@@ -78,7 +78,7 @@ seg["coherent"], seg.freqs, seg.times   # Hz and seconds when fs is known
 seg.save("shot.npz")                    # reload with tokeye.Segmentation.load
 ```
 
-Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. Standardization happens internally, and long inputs run in tiles so memory stays bounded.
+Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. Standardization happens internally, and long inputs run in tiles so memory stays bounded; tiled output matches an untiled run to float32 rounding.
 
 If your 2D spectrogram is stored in **linear scale** (raw STFT magnitude/power), pass `log=True` so TokEye applies `log1p` first since the model expects log-scaled input:
 
@@ -119,7 +119,7 @@ tokeye run "files/*.npy" --output-dir results
 For each input file, `tokeye run` writes:
 - `<stem>_mask.npy` — float32 array, shape `(2, H, W)`, sigmoid scores per pixel (channel 0 = coherent, channel 1 = transient).
 - `<stem>_preview.png` — a grayscale spectrogram with the mask overlaid (green = coherent, red = transient), unless `--no-png` is passed.
-- `<stem>_params.json` — the model, version, device, input, `fs` and preprocessing settings used.
+- `<stem>_params.json` — the model, version, device, input, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled).
 - With `--format npz`, `<stem>_tokeye.npz` (mask + spectrogram + axes, loadable with `tokeye.Segmentation.load`) replaces the `.npy` mask.
 
 Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs), 130 = interrupted.
@@ -140,6 +140,7 @@ Flags:
 | `--threshold` | `0.5` | Mask threshold used only for the preview PNG overlay. |
 | `--png` / `--no-png` | on | Write preview PNGs. |
 | `--device` | `auto` | `cpu`, `cuda`, `mps`, or `auto`. |
+| `--tile` | `auto` | Tile side for long inputs: `auto` (untiled up to 2^21 pixels), `none`, or an int ≥ 512. Tiled output matches untiled output to float32 rounding. |
 
 The defaults (`n_fft=1024`, `hop=128`) match the released model's training configuration. A larger hop (e.g. `--hop 256`) halves the columns for faster, lighter runs at some fidelity cost.
 
