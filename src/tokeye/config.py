@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+DEFAULT_MODEL = "big_tf_unet"
 DEFAULT_CHANNELS: tuple[str, ...] = ("coherent", "transient")
 
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING
+
+from tokeye.cli import _common
+from tokeye.config import DEFAULT_MODEL
 
 if TYPE_CHECKING:
     import argparse
@@ -11,14 +13,18 @@ if TYPE_CHECKING:
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "download", help="Download one or more model checkpoints."
+        "download",
+        help="Download model weights into the Hugging Face cache.",
+        description=(
+            "Download model weights ahead of time, e.g. on an HPC login node "
+            "before running on an offline compute node."
+        ),
     )
     parser.add_argument(
         "models",
         nargs="*",
-        default=None,
         metavar="MODEL",
-        help="Model registry name(s) to download (default: big_tf_unet).",
+        help=f"model registry name(s) (default: {DEFAULT_MODEL})",
     )
     parser.set_defaults(handler=_handle)
 
@@ -26,18 +32,15 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
 def _handle(args: argparse.Namespace) -> int:
     from huggingface_hub.errors import HfHubHTTPError
 
-    from tokeye.cli._errors import print_hub_error
-    from tokeye.hub import DEFAULT_MODEL, download_model
+    from tokeye import hub
 
-    names = args.models or [DEFAULT_MODEL]
-    for name in names:
+    for name in args.models or [DEFAULT_MODEL]:
         try:
-            path = download_model(name)
+            path = hub.download_model(name)
         except ValueError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+            return _common.error(str(exc))
         except (HfHubHTTPError, OSError) as exc:
-            print_hub_error(name, exc)
-            return 2
+            _common.print_hub_error(name, exc)
+            return _common.EXIT_USAGE
         print(path)
-    return 0
+    return _common.EXIT_OK

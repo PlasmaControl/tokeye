@@ -6,12 +6,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tokeye.transforms import (
-    DEFAULT_CLIP_HIGH,
-    DEFAULT_CLIP_LOW,
-    DEFAULT_HOP,
-    DEFAULT_N_FFT,
-)
+from tokeye.config import DEFAULT_CONFIG
+
+DEFAULT_CLIP_HIGH = DEFAULT_CONFIG.clip_high
+DEFAULT_CLIP_LOW = DEFAULT_CONFIG.clip_low
+DEFAULT_HOP = DEFAULT_CONFIG.hop
+DEFAULT_N_FFT = DEFAULT_CONFIG.n_fft
 
 if TYPE_CHECKING:
     import argparse
@@ -104,7 +104,7 @@ def _handle(args: argparse.Namespace) -> int:
     from huggingface_hub.errors import HfHubHTTPError
 
     from tokeye import batch
-    from tokeye.cli._errors import print_hub_error
+    from tokeye.cli._common import print_hub_error
     from tokeye.elmspec import (
         extract_elm_events,
         summarize,

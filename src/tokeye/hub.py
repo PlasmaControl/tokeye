@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import torch
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
-from .config import DEFAULT_CHANNELS
+from .config import DEFAULT_CHANNELS, DEFAULT_MODEL
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_REPO_ID = os.environ.get("TOKEYE_HF_REPO", "nc1/big_tf_unet")
-DEFAULT_MODEL = "big_tf_unet"
 
 _PATH_SUFFIXES = {".pt", ".pt2"}
 TASKS = ("segmentation", "instance")

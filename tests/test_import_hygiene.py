@@ -16,6 +16,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 
 def test_batch_import_does_not_pull_in_gradio():
     code = (
@@ -53,20 +55,38 @@ def test_package_import_does_not_pull_in_torch():
     assert result.stdout.strip()
 
 
-def test_cli_import_does_not_pull_in_gradio_or_torch():
+HEAVY = ("torch", "gradio", "scipy")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["run"],
+        ["download"],
+        ["example"],
+        ["elmspec"],
+        ["alfvenspec"],
+        ["app"],
+    ],
+    ids=lambda argv: " ".join(argv) or "tokeye",
+)
+def test_cli_help_does_not_pull_in_heavy_modules(argv):
+    """``tokeye [COMMAND] --help`` must stay instant on a laptop."""
+    code = (
+        "import sys\n"
+        "from tokeye.cli import main\n"
+        "try:\n"
+        f"    main({[*argv, '--help']!r})\n"
+        "except SystemExit as exc:\n"
+        "    assert exc.code == 0, exc.code\n"
+        f"bad = [m for m in {HEAVY!r} if m in sys.modules]\n"
+        "assert not bad, bad\n"
+        "print('ok')\n"
+    )
     result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import tokeye.cli, sys; "
-            "assert 'gradio' not in sys.modules; "
-            "assert 'torch' not in sys.modules; "
-            "print('ok')",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
 
     assert result.returncode == 0, result.stderr
-    assert "ok" in result.stdout
+    assert result.stdout.strip().endswith("ok")
