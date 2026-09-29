@@ -101,20 +101,24 @@ def add_model_options(
 
 
 def add_output_options(
-    parser: argparse.ArgumentParser, default_dir: str, png_default: bool
+    parser: argparse.ArgumentParser,
+    default_dir: str,
+    png_default: bool | None = None,
 ) -> None:
-    """``--output-dir`` and ``--png/--no-png`` (stored as ``args.png``)."""
+    """``--output-dir``, plus ``--png/--no-png`` (``args.png``) unless
+    ``png_default`` is ``None``."""
     parser.add_argument(
         "--output-dir",
         default=default_dir,
         help="directory to write outputs to (default: %(default)s)",
     )
-    parser.add_argument(
-        "--png",
-        action=argparse.BooleanOptionalAction,
-        default=png_default,
-        help="write a mask-overlay preview PNG per input",
-    )
+    if png_default is not None:
+        parser.add_argument(
+            "--png",
+            action=argparse.BooleanOptionalAction,
+            default=png_default,
+            help="write a mask-overlay preview PNG per input",
+        )
 
 
 def add_fs_option(parser: argparse.ArgumentParser) -> None:
