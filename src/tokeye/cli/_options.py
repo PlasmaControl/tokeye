@@ -101,6 +101,13 @@ def positive_int(text: str) -> int:
     return value
 
 
+def nonempty_str(text: str) -> str:
+    """argparse ``type=`` for a string that is not empty or only whitespace."""
+    if not text.strip():
+        raise argparse.ArgumentTypeError(f"must be a non-empty string, got {text!r}")
+    return text
+
+
 def add_spectrogram_options(parser: argparse.ArgumentParser) -> None:
     """Add one flag per :class:`SpectrogramConfig` field.
 
@@ -199,6 +206,22 @@ def add_fs_option(parser: argparse.ArgumentParser) -> None:
         help=(
             "sampling rate [Hz] for every input; enables physical time and "
             "frequency axes (default: read from the file when recorded)"
+        ),
+    )
+
+
+def add_key_option(parser: argparse.ArgumentParser) -> None:
+    """``--key``: the array to read from each container input."""
+    parser.add_argument(
+        "--key",
+        type=nonempty_str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "array to read from .npz/.mat/.h5 inputs: an entry name, or an "
+            "HDF5 dataset path or its trailing path components, such as "
+            "tree/pointname/data (default: the one named data, signal, x, "
+            "spectrogram, values or y, else the only numeric one)"
         ),
     )
 

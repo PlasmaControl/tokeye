@@ -31,6 +31,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     _options.add_tile_option(parser)
     _options.add_output_options(parser, default_dir="tokeye_output", png_default=True)
     _options.add_fs_option(parser)
+    _options.add_key_option(parser)
     parser.add_argument(
         "--format",
         dest="fmt",
@@ -67,6 +68,7 @@ def _handle(args: argparse.Namespace) -> int:
         tile=args.tile,
         model_name=str(args.model),
         channels=setup.channels,
+        key=args.key,
         on_error=_common.report_failure,
     )
     return _common.EXIT_FAILED if failures else _common.EXIT_OK

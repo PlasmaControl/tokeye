@@ -112,14 +112,14 @@ For headless / scripted use (no browser needed), run inference directly. For exa
 tokeye run "files/*.npy" --output-dir results
 ```
 
-`INPUT` arguments can be files (`.npy`, `.npz`, `.wav`, `.flac`, `.ogg`, `.csv`, `.txt`, `.mat`, `.h5`), directories (every supported file inside except `.csv`/`.txt`), or quoted glob patterns. Glob patterns match supported files only. Outputs are named after each input's file stem, so inputs that share a stem, ignoring case (`shot.npy` and `shot.wav`, or `Shot.npy` and `shot.npy`), are rejected; run them into separate `--output-dir`s. The sampling rate is read from the file when it records one (or from a `_sr<fs>` filename suffix); `--fs` sets it explicitly. Each input is interpreted by its shape:
+`INPUT` arguments can be files (`.npy`, `.npz`, `.wav`, `.flac`, `.ogg`, `.csv`, `.txt`, `.mat`, `.h5`), directories (every supported file inside except `.csv`/`.txt`), or quoted glob patterns. Glob patterns match supported files only. Outputs are named after each input's file stem, so inputs that share a stem, ignoring case (`shot.npy` and `shot.wav`, or `Shot.npy` and `shot.npy`), are rejected; run them into separate `--output-dir`s. The sampling rate is read from the file when it records one (or from a `_sr<fs>` filename suffix); `--fs` sets it explicitly. In `.npz`, `.mat` and `.h5`/`.hdf5` files, TokEye reads the array named `data`, `signal`, `x`, `spectrogram`, `values` or `y`, or else the only numeric array. When several qualify, it stops and lists them; `--key NAME` picks one. A suffix of whole HDF5 path components, such as `tree/pointname/data`, selects the same array in every file. Quote the key in the shell when it contains a backslash. A 2-column `.csv`/`.txt` is read as (time, value), with time in seconds unless its header says `ms` or `us`. Each input is interpreted by its shape:
 - **1D array** — a raw time series. TokEye computes its STFT spectrogram using the flags below before running inference.
 - **2D array** — a precomputed spectrogram, fed to the model directly.
 
 For each input file, `tokeye run` writes:
 - `<stem>_mask.npy` — float32 array, shape `(2, H, W)`, sigmoid scores per pixel (channel 0 = coherent, channel 1 = transient).
 - `<stem>_preview.png` — a grayscale spectrogram with the mask overlaid (green = coherent, red = transient), unless `--no-png` is passed.
-- `<stem>_params.json` — the model, version, device, input, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled).
+- `<stem>_params.json` — the model, version, device, input, `key`, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled).
 - With `--format npz`, `<stem>_tokeye.npz` (mask + spectrogram + axes, loadable with `tokeye.Segmentation.load`) replaces the `.npy` mask.
 
 Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs, model cannot be loaded), 130 = interrupted. Errors are one line; add `-v` for details.
@@ -131,6 +131,7 @@ Flags:
 | `--output-dir` | `tokeye_output` | Directory for masks and previews. |
 | `--format` | `npy` | `npy` (mask only) or `npz` (full bundle). |
 | `--fs` | from the file | Sampling rate in Hz for every input. |
+| `--key` | the signal array | Array to read from `.npz`/`.mat`/`.h5` inputs: an entry name, or an HDF5 dataset path or its trailing path components (`tree/pointname/data`). Without it, the one named `data`, `signal`, `x`, `spectrogram`, `values` or `y`, else the only numeric one; several candidates are an error that lists them. |
 | `--n-fft` | `1024` | STFT window size (1D inputs only). |
 | `--hop` | `128` | STFT hop size (1D inputs only). |
 | `--window` | `hann` | STFT window. |
@@ -159,6 +160,8 @@ Beyond segmentation, `tokeye` bundles the analyses DIII-D researchers usually re
 | --- | --- |
 | `tokeye elmspec INPUTS...` | ELM detection from the segmentation model's transient channel: per-event time intervals plus per-shot count, ELM frequency (with `--fs` or `--dt`), and duty cycle, written to `elm_events.csv` / `elm_summary.csv`. |
 | `tokeye alfvenspec INPUTS...` | Alfvén-eigenmode detection with the `ae_tf_maskrcnn` instance model (needs `tokeye[ae]`): per-detection boxes/scores (`ae_detections.csv`) and a per-input instance map (`<stem>_ae_instances.npy`, `i + 1` = detection `i`). Wide spectrograms are processed in training-width windows automatically. |
+
+`elmspec` and `alfvenspec` take `--key` as `tokeye run` does.
 
 ## Web app guide
 

@@ -50,7 +50,7 @@ class TestNumpy:
 
     def test_npz_ambiguous_arrays_raise(self, tmp_path):
         np.savez(tmp_path / "x.npz", a=SIG, b=SIG)
-        with pytest.raises(ValueError, match=r"cannot tell.*\['a', 'b'\]"):
+        with pytest.raises(ValueError, match=r"2 candidates: a, b\."):
             load_signal(tmp_path / "x.npz")
 
 

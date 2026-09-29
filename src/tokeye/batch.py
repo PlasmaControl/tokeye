@@ -24,7 +24,13 @@ from ._plotting import overlay_rgba, save_preview
 from ._version import __version__
 from .config import DEFAULT_CHANNELS, SpectrogramConfig, resolve_channels
 from .inference import _device_of, _plan_tiles, check_tile, infer
-from .io import DIRECTORY_SUFFIXES, SIGNAL_SUFFIXES, load_signal
+from .io import (
+    CONTAINER_SUFFIXES,
+    DIRECTORY_SUFFIXES,
+    SIGNAL_SUFFIXES,
+    _check_key,
+    load_signal,
+)
 from .preprocess import Spectrogram, _check_fs, prepare
 from .result import Segmentation
 
@@ -151,17 +157,52 @@ def check_unique_stems(paths: Sequence[Path]) -> None:
         )
 
 
+def check_key_inputs(paths: Sequence[str | Path], key: str | None) -> None:
+    """Reject a ``key`` that some inputs cannot use.
+
+    ``key=`` selects an array inside a container, so every input must be a
+    ``.npz``, ``.mat``, ``.h5`` or ``.hdf5`` file. Nothing is read.
+
+    Parameters
+    ----------
+    paths
+        The inputs, e.g. from :func:`collect_inputs`.
+    key
+        The array to read from each input; ``None`` checks nothing.
+
+    Raises
+    ------
+    TypeError
+        ``key`` is not a string.
+    ValueError
+        ``key`` is empty, or some inputs are not containers. The one-line
+        message names them as given, in input order (the first 5, then a
+        count).
+    """
+    if key is None:
+        return
+    _check_key(key)
+    bad = [str(p) for p in paths if Path(p).suffix.lower() not in CONTAINER_SUFFIXES]
+    if bad:
+        raise ValueError(
+            "key= (--key) applies only to .npz, .mat, .h5 and .hdf5 inputs, "
+            f"not: {_join_limited(bad, sep=', ')}"
+        )
+
+
 def load_spectrogram(
     path: str | Path,
     config: SpectrogramConfig | Mapping[str, Any] | None = None,
     *,
     fs: float | None = None,
+    key: str | None = None,
 ) -> Spectrogram:
     """Read ``path`` with :func:`tokeye.io.load_signal` and :func:`prepare` it.
 
-    An explicit ``fs`` wins over one found in the file.
+    An explicit ``fs`` wins over one found in the file. ``key`` selects the
+    array in a container (see :func:`tokeye.io.load_signal`).
     """
-    data, file_fs = load_signal(path)
+    data, file_fs = load_signal(path, key=key)
     return prepare(data, config, fs=fs if fs is not None else file_fs)
 
 
@@ -225,6 +266,7 @@ def process_file(
     model_name: str = hub.DEFAULT_MODEL,
     channels: tuple[str, ...] | None = None,
     tile: int | str | None = "auto",
+    key: str | None = None,
 ) -> Path:
     """Segment one input file and write its outputs to ``out_dir``.
 
@@ -234,9 +276,10 @@ def process_file(
     ``<stem>_params.json`` recording how the output was made. Returns the
     mask (or bundle) path.
 
-    ``tile`` is passed to :func:`tokeye.inference.infer`. ``params.json`` is
-    removed before the first write and written last, so it only ever sits
-    beside a complete set of outputs.
+    ``tile`` is passed to :func:`tokeye.inference.infer`, and ``key`` to
+    :func:`tokeye.io.load_signal`. ``params.json`` is removed before the
+    first write and written last, so it only ever sits beside a complete set
+    of outputs.
     """
     _check_fmt(fmt)
     check_tile(tile)
@@ -244,7 +287,7 @@ def process_file(
     cfg = _coerce_config(config)
     if log is not None:
         cfg = cfg.replace(log=log)
-    spec = load_spectrogram(path, cfg, fs=fs)
+    spec = load_spectrogram(path, cfg, fs=fs, key=key)
     mask = infer(model, spec.values, tile=tile)
     plan = _plan_tiles(spec.values.shape, tile)  # the plan infer just used
     names = resolve_channels(channels or DEFAULT_CHANNELS, mask.shape[0])
@@ -266,6 +309,7 @@ def process_file(
         "model": model_name,
         "device": str(_device_of(model)),
         "input": str(path),
+        "key": key,
         "kind": spec.kind,
         "fs": spec.fs,
         "config": cfg.to_dict(),
@@ -305,6 +349,7 @@ def process_files(
     tile: int | str | None = "auto",
     model_name: str = hub.DEFAULT_MODEL,
     channels: tuple[str, ...] | None = None,
+    key: str | None = None,
     on_error: Callable[[Path, Exception], None] | None = None,
 ) -> int:
     """Segment each path with a loaded ``model``: the loop of :func:`run_batch`.
@@ -325,7 +370,7 @@ def process_files(
         deprecated and warns once per call.
     out_dir
         Existing directory for the outputs.
-    save_png, threshold, fs, fmt, tile, model_name, channels
+    save_png, threshold, fs, fmt, tile, model_name, channels, key
         As for :func:`process_file`.
     on_error
         Called as ``on_error(path, exc)`` for each input that fails. Without
@@ -364,6 +409,7 @@ def process_files(
                 model_name=model_name,
                 channels=channels,
                 tile=tile,
+                key=key,
             )
         except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
             failures += 1
@@ -393,6 +439,7 @@ def run_batch(
     fs: float | None = None,
     fmt: str = "npy",
     tile: int | str | None = "auto",
+    key: str | None = None,
 ) -> int:
     """Segment every input, writing outputs to ``out_dir``.
 
@@ -412,6 +459,11 @@ def run_batch(
     tile
         ``"auto"`` (default), ``None`` or an int >= 512; passed to
         :func:`tokeye.inference.infer`.
+    key
+        The array to read from each input, which must then be a ``.npz``,
+        ``.mat``, ``.h5`` or ``.hdf5`` file (see
+        :func:`tokeye.io.load_signal`); by default each file's own signal
+        array.
     stft_kwargs, log
         Deprecated spellings of ``config``.
 
@@ -424,14 +476,16 @@ def run_batch(
     Raises
     ------
     ValueError
-        Bad settings, an ``fs`` that is not finite and positive, an instance
-        model, no inputs found, inputs that share a stem (checked before the
-        model loads; see :func:`check_unique_stems`), an unknown or
-        unavailable ``device``, or a model that cannot be loaded (see
-        :func:`tokeye.hub.load_model`, which also lists its other errors).
+        Bad settings, an ``fs`` that is not finite and positive, an empty
+        ``key``, an instance model, no inputs found, inputs that share a
+        stem, or a ``key`` with inputs that are not containers (both
+        checked before the model loads; see :func:`check_unique_stems` and
+        :func:`check_key_inputs`), an unknown or unavailable ``device``, or
+        a model that cannot be loaded (see :func:`tokeye.hub.load_model`,
+        which also lists its other errors).
     TypeError
-        ``fs`` is not a number, or ``tile`` is not ``"auto"``, ``None`` or an
-        int.
+        ``fs`` or ``key`` is of the wrong type, or ``tile`` is not
+        ``"auto"``, ``None`` or an int.
     """
     if stft_kwargs is not None or log is not None:
         warnings.warn(
@@ -444,6 +498,8 @@ def run_batch(
         raise ValueError("pass either config or stft_kwargs, not both")
     _check_fmt(fmt)
     _check_fs(fs)
+    if key is not None:
+        _check_key(key)
     check_tile(tile)
     cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
     if log is not None:
@@ -452,6 +508,7 @@ def run_batch(
     hub.require_task(model, "segmentation")
     paths = collect_inputs(inputs)
     check_unique_stems(paths)
+    check_key_inputs(paths, key)
     loaded_model = hub.load_model(model, device)
 
     out_dir = Path(out_dir)
@@ -469,4 +526,5 @@ def run_batch(
         tile=tile,
         model_name=str(model),
         channels=hub.channels_for(model),
+        key=key,
     )

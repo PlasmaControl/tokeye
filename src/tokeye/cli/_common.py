@@ -174,10 +174,11 @@ def setup_or_report(
     """The start-up checks of ``tokeye run``, ``elmspec`` and ``alfvenspec``.
 
     In order: the spectrogram flags, ``--window``, ``--device``, ``--tile``
-    (when the command has it), the inputs, with ``unique_stems`` that no
-    two share a stem (:func:`tokeye.batch.check_unique_stems`), the model
-    (which must suit ``task``), and the output directory, which only the
-    last step creates.
+    (when the command has it), the inputs (with ``unique_stems``, that no
+    two share a stem, :func:`tokeye.batch.check_unique_stems`; with
+    ``--key``, that each is a container,
+    :func:`tokeye.batch.check_key_inputs`), the model (which must suit
+    ``task``), and the output directory, which only the last step creates.
 
     Parameters
     ----------
@@ -243,6 +244,12 @@ def _setup(args: argparse.Namespace, task: str, *, unique_stems: bool) -> Setup 
         try:
             batch.check_unique_stems(paths)
         except ValueError as exc:  # no NO_INPUT_HINT: there are inputs
+            error(str(exc))
+            return None
+    if getattr(args, "key", None) is not None:
+        try:
+            batch.check_key_inputs(paths, args.key)
+        except (ValueError, TypeError) as exc:
             error(str(exc))
             return None
     try:

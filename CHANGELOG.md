@@ -52,6 +52,11 @@ and a golden test now pins its output.
   including the tracebacks of per-input failures.
 - `tokeye.batch.process_files`: the per-file loop of `run_batch`, for callers
   that already hold a loaded model.
+- `key=` (in `load_signal`, `load_spectrogram`, `process_file`,
+  `process_files` and `run_batch`) and `--key` (in `run`, `elmspec` and
+  `alfvenspec`) select the array in `.npz`/`.mat`/`.h5`/`.hdf5` inputs. The
+  key is an entry name, or an HDF5 dataset path or a suffix of whole path
+  components; `<stem>_params.json` records it.
 
 ### Changed
 
@@ -88,6 +93,10 @@ and a golden test now pins its output.
 - `detect_windowed(window_cols=…)` rejects 1–31; `run_batch` rejects
   colliding stems and a non-finite or non-positive `fs` before loading the
   model.
+- A container with several candidate arrays now raises and lists them.
+  Before, it silently took the first `data`/`signal`/`x`/… name: for example,
+  `np.savez(f, x=t, y=v)` returned the time vector, and an HDF5 file with
+  many datasets named `data` returned an arbitrary one.
 - `tokeye app` opens a browser automatically in a local (non-SSH) session
   (0.12.0 opened one only with `--open`); `--no-browser` turns it off.
 - The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
@@ -126,6 +135,15 @@ and a golden test now pins its output.
 - Glob patterns match only supported files.
 - Unreadable text tables and empty or non-numeric arrays get an error naming
   the file.
+- 2D arrays from MATLAB v7.3 `.mat` files keep MATLAB's orientation; they
+  used to come back transposed. The missing-h5py hint names MATLAB v7.3.
+- `fs` fields match case-insensitively (`Fs`).
+- `.npz` inputs read only the selected entry, and an object-array entry no
+  longer makes the file unreadable.
+- Empty HDF5 datasets no longer crash the loader.
+- A 2-column table without a strictly increasing first column raises,
+  instead of becoming a 2-column spectrogram, and a time column headed `ms`
+  or `us` is converted to seconds.
 
 ## [0.12.0] - 2026-07-08
 

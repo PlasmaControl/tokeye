@@ -32,6 +32,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     _options.add_tile_option(parser)
     _options.add_output_options(parser, default_dir="tokeye_elms", png_default=False)
     _options.add_fs_option(parser)
+    _options.add_key_option(parser)
     parser.add_argument(
         "--dt",
         type=_options.positive_float,
@@ -109,7 +110,7 @@ def _handle(args: argparse.Namespace) -> int:
     failures = 0
     for path in setup.paths:
         try:
-            spec = batch.load_spectrogram(path, config, fs=args.fs)
+            spec = batch.load_spectrogram(path, config, fs=args.fs, key=args.key)
             mask = infer(setup.model, spec.values, tile=args.tile)
             names = resolve_channels(setup.channels, mask.shape[0])
             seg = Segmentation(mask, spec, names, str(args.model))

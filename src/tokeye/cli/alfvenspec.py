@@ -44,6 +44,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     )
     _options.add_model_options(parser, default="ae_tf_maskrcnn")
     _options.add_output_options(parser, default_dir="tokeye_ae")
+    _options.add_key_option(parser)
     parser.add_argument(
         "--score-min",
         type=_options.unit_float,
@@ -98,7 +99,7 @@ def _handle(args: argparse.Namespace) -> int:
     failures = 0
     for path in setup.paths:
         try:
-            spec = batch.load_spectrogram(path, setup.config)
+            spec = batch.load_spectrogram(path, setup.config, key=args.key)
             detections = detect_windowed(
                 spec.values,
                 setup.model,
