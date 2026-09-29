@@ -6,3 +6,10 @@ matplotlib==3.8.0
 torch==2.4.0
 huggingface-hub==0.30.0
 tqdm==4.66.0
+
+# Transitive caps. Everything else resolves to its newest release, so cap what
+# is too new for the floors above:
+# matplotlib 3.8.0 calls pyparsing's camelCase names (parseString, resetCache,
+# enablePackrat). pyparsing 3.3 deprecates them (100 warnings per floor run),
+# and a release that removes them would break `import matplotlib` here.
+pyparsing<3.3

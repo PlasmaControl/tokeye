@@ -76,9 +76,9 @@ testpaths = [
 package = true
 # The DIII-D/Princeton GPU partitions are V100 (sm_70), which PyTorch 2.11
 # dropped from its CUDA wheels. Constraints bind only this repo's own
-# environments (uv sync / uv lock), never users installing tokeye. They are
-# exact because uv.lock is untracked, so a range would let the torch family
-# drift apart between machines.
+# environments (uv sync/lock/run, and uv pip inside this checkout), never users
+# installing tokeye. They are exact because uv.lock is untracked, so a range
+# would let the torch family drift apart between machines.
 constraint-dependencies = [
     "torch==2.9.1",
     "torchvision==0.24.1",  # the torchvision built against torch 2.9.1
@@ -87,8 +87,9 @@ constraint-dependencies = [
 # Keep torch/torchvision/torchaudio on ONE index. Mixing a +cuXXX torch with a
 # plain-PyPI torchaudio gives an import-time ABI error
 # (libtorchaudio.so: undefined symbol ...c10_cuda_check_implementation...).
-# "auto" detects the local driver. `uv pip`, `uvx` and `uv tool install` honour
-# it; `uv sync` and `uv lock` do not, which is why CI installs with `uv pip`.
+# "auto" detects the local driver. Only `uv pip` reads this key: `uvx` and
+# `uv tool install` take just the --torch-backend flag or UV_TORCH_BACKEND, and
+# `uv sync`/`uv lock` support neither, which is why CI installs with `uv pip`.
 torch-backend = "auto"
 
 [tool.uv.build-backend]
@@ -109,6 +110,9 @@ dev = [
     # legacy training/eval code; upgrading is its own piece of work.
     "ruff>=0.14.5,<0.15",
     "pre-commit",
+    # Train-only otherwise; tests/test_ablation_orchestrator_paths.py needs it
+    # (conftest.py skips that file without it), so CI installs it here.
+    "omegaconf",
 ]
 train = [
     "ipykernel",

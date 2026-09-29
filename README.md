@@ -21,7 +21,7 @@ Expected processing time:
 ## Quickstart
 
 ```bash
-pip install 'tokeye[app]'   # web app + CLI   (or: uv tool install 'tokeye[app]')
+pip install "tokeye[app]"   # web app + CLI   (or: uv tool install "tokeye[app]")
 tokeye app                  # opens web app on http://localhost:7860
 ```
 
@@ -30,7 +30,7 @@ tokeye app                  # opens web app on http://localhost:7860
 - Runs on Linux, macOS (Apple silicon) and Windows with Python >= 3.11; a laptop CPU is enough. `uvx`/`uv tool install` fetch a compatible Python automatically.
 - Something off? `tokeye info` shows the versions, the device TokEye will use, and which models are cached.
 
-Zero-install trial: `uvx 'tokeye[app]' app` runs the app without installing anything into your environment (on Linux without a GPU, add `--torch-backend=cpu`; see below).
+Zero-install trial: `uvx "tokeye[app]" app` runs the app without installing anything into your environment (on Linux without a GPU, add `--torch-backend=cpu`; see below).
 
 ### Install variants
 
@@ -39,10 +39,10 @@ Heavy dependencies are split into extras so you download only what you use:
 | Install | What you get |
 | --- | --- |
 | `pip install tokeye` | Python API + CLI (`tokeye run`, `tokeye elmspec`). Smallest core install. |
-| `pip install 'tokeye[app]'` | + the Gradio web app (`tokeye app`) and `.flac`/`.ogg` input. |
-| `pip install 'tokeye[ae]'` | + torchvision, for the `ae_tf_maskrcnn` model (`tokeye alfvenspec`). |
-| `pip install 'tokeye[hdf5]'` | + `.h5` and MATLAB v7.3 `.mat` input. |
-| `pip install 'tokeye[all]'` | All of the above. |
+| `pip install "tokeye[app]"` | + the Gradio web app (`tokeye app`) and `.flac`/`.ogg` input. |
+| `pip install "tokeye[ae]"` | + torchvision, for the `ae_tf_maskrcnn` model (`tokeye alfvenspec`). |
+| `pip install "tokeye[hdf5]"` | + `.h5` and MATLAB v7.3 `.mat` input. |
+| `pip install "tokeye[all]"` | All of the above. |
 
 Training is research code that runs from a clone (`uv sync --group train`); it is not part of the installed package.
 
@@ -51,12 +51,12 @@ Training is research code that runs from a clone (`uv sync --group train`); it i
 ```bash
 # pip: install CPU torch first, then tokeye
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install 'tokeye[app]'
+pip install "tokeye[app]"
 
 # uv
-uv pip install 'tokeye[app]' --torch-backend=cpu
-uv tool install 'tokeye[app]' --torch-backend=cpu
-uvx --torch-backend=cpu 'tokeye[app]' app
+uv pip install "tokeye[app]" --torch-backend=cpu
+uv tool install "tokeye[app]" --torch-backend=cpu
+uvx --torch-backend=cpu "tokeye[app]" app
 ```
 
 ## Python API
@@ -99,7 +99,9 @@ eye = TokEye(
 )
 
 from tokeye import SpectrogramConfig
-eye = TokEye(config=SpectrogramConfig(n_fft=512, hop=64))  # the same, as one object
+config = SpectrogramConfig(n_fft=1024, hop=128, clip_dc=True,
+                           clip_low=1.0, clip_high=99.0, log=False)
+eye = TokEye(config=config)  # the same settings, as one object
 ```
 
 ## Batch processing (CLI)
@@ -192,11 +194,11 @@ With more data, comes better models. Please contribute to the project!
 ```bash
 git clone git@github.com:PlasmaControl/TokEye.git
 cd TokEye
-uv sync                # core deps (default GPU/CUDA PyTorch on Linux)
-uv sync --extra all    # + every extra (web app, ae model, HDF5)
-uv sync --dev          # + pytest, ruff, etc.
-uv sync --group train  # + training deps (lightning, h5py, etc.)
+uv sync --dev --extra all                # dev tools (pytest, ruff, etc.) + every extra (web app, ae model, HDF5)
+uv sync --dev --extra all --group train  # the same + training deps (lightning, h5py, etc.)
 ```
+
+Each `uv sync` makes `.venv` match its flags exactly, removing any extra or group you leave out, so name everything you need in one command. PyTorch comes as the default build (GPU/CUDA on Linux).
 
 Additionally, run these the first time
 ```bash

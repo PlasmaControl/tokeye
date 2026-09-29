@@ -4,9 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0.0 on.
 
-## [1.0.0] — unreleased
+## [Unreleased]
 
-The first stable release: laptop-friendly inference with the default
+The first stable release (1.0.0): laptop-friendly inference with the default
 `big_tf_unet` model on Linux, macOS and Windows. Pre-1.0 spellings keep working
 and warn (a `DeprecationWarning`, or a `warning:` line on stderr for the
 `--keep-dc` flag); they are removed in 2.0. The default model is unchanged,
@@ -37,8 +37,8 @@ and a golden test now pins its output.
   timebase.
 - `tokeye alfvenspec` writes `<stem>_ae_instances.npy` — an `(H, W)` label map
   where `i + 1` marks detection `i` — for windowed inputs too.
-- `tokeye app --host/--workspace/--no-browser`. The app binds to `127.0.0.1`
-  and opens a browser automatically in a local (non-SSH) session.
+- `tokeye app --host/--workspace/--no-browser`; `--host` defaults to
+  `127.0.0.1`.
 - `tokeye.export`: the `.npz` export helpers shared by the app and
   `Segmentation.save()`.
 - Extras `ae` (torchvision, for `ae_tf_maskrcnn`), `hdf5` (h5py) and `all`;
@@ -62,9 +62,14 @@ and a golden test now pins its output.
   `--png` as before.
 - `tokeye example` names its output `tokeye_example_sr<fs>.npy`, so the rate
   travels with the file.
+- A directory input (`tokeye run`, `elmspec`, `alfvenspec`, `run_batch`)
+  takes every supported file in it except `.csv` and `.txt`, which you pass
+  by name (was `*.npy` only).
 - Passing an instance model (`ae_tf_maskrcnn`) where a segmentation model is
   needed (or the reverse) fails early with a pointer to the right command.
 - Standardization uses float64 statistics over the whole input, then float32.
+- `tokeye app` opens a browser automatically in a local (non-SSH) session
+  (0.12.0 opened one only with `--open`); `--no-browser` turns it off.
 - The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
   download from Annotate, and moves to the next free port when 7860 is busy.
 
@@ -86,23 +91,23 @@ and a golden test now pins its output.
 - `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (replaced by
   `<stem>_ae_instances.npy`).
 
-## [0.12.0] — 2026-07-08
+## [0.12.0] - 2026-07-08
 
 Mode-analysis suite: `tokeye elmspec`, `tokeye alfvenspec` (with the
 `ae_tf_maskrcnn` model), the vendored `modespec` and `eigspec`, and a
 `modesearch` placeholder. gradio moved to the `app` extra.
 
-## [0.11.0] — 2026-07-04
+## [0.11.0] - 2026-07-04
 
 The `TokEye` Python API class (`from tokeye import TokEye`) and its `log`
 option for linear-scale spectrograms.
 
-## [0.10.0] — 2026-07-04
+## [0.10.0] - 2026-07-04
 
 The `tokeye` CLI with headless batch inference, weights downloaded from Hugging
 Face on first use, and guided onboarding in the app.
 
-[1.0.0]: https://github.com/PlasmaControl/tokeye/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/PlasmaControl/tokeye/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.12.0
 [0.11.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.11.0
 [0.10.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.10.0

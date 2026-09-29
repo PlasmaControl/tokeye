@@ -19,8 +19,11 @@ Two safeguards are in place:
 
 - A **pre-commit hook** (`check-added-large-files`) blocks staging any file over
   **2 MB** locally — run `uv run pre-commit install` so it's active.
-- **CI** re-checks it on every push and PR (`large-files` job); the build fails if
-  any tracked file exceeds 2 MB, so the guard holds even if someone skips the hook.
+- **CI** re-checks every pull request and every push to `main` or a `v*` tag
+  (`large-files` job). The build fails if any commit in the range adds a file over
+  2 MB, even one that a later commit deletes (it would stay in the history), so
+  the guard holds even if someone skips the hook. To check a branch before you
+  push it: `bash .github/scripts/large-files.sh origin/main..`
 
 Large assets (demos, datasets, weights) belong in **external hosting** — Hugging
 Face, a GitHub Release, or Git LFS — not in the repo. Demo media should be a small
