@@ -66,7 +66,7 @@ def _handle(args: argparse.Namespace) -> int:
         fs=args.fs,
         fmt=args.fmt,
         tile=args.tile,
-        model_name=str(args.model),
+        model_name=args.model,
         channels=setup.channels,
         key=args.key,
         on_error=_common.report_failure,

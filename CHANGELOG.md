@@ -17,7 +17,10 @@ and a golden test now pins its output.
 - `TokEye.segment()` returns a `Segmentation`: the mask plus the spectrogram,
   frequency/time axes (in Hz and seconds when the sampling rate `fs` is known),
   channel access by name (`seg["coherent"]`), `save()`/`load()` as a
-  `tokeye-analysis/v1` `.npz` bundle, and `plot()`.
+  `tokeye-analysis/v1` `.npz` bundle, and `plot()`. It records the weights
+  used (`weights`: repo, file name, revision and sha256 for registry models;
+  file name and sha256 for local checkpoints) and names a local checkpoint by
+  its file name only.
 - `tokeye.SpectrogramConfig`, the single, validated source of preprocessing
   defaults (`n_fft=1024`, `hop=128`, ...). `TokEye(config=...)` and
   `run_batch(config=...)` accept it; the CLI builds its flags from it.
@@ -37,7 +40,10 @@ and a golden test now pins its output.
   and cached models.
 - `tokeye run --format npz` writes the `Segmentation` bundle; every run also
   writes `<stem>_params.json` recording the model, version, device, input, `fs`
-  and preprocessing settings. `--fs` sets the sampling rate.
+  and preprocessing settings, and the weights used (`weights`: repo, file
+  name, revision and sha256 for registry models; file name and sha256 for
+  local checkpoints). A local checkpoint is named by its file name only.
+  `--fs` sets the sampling rate.
 - `tokeye elmspec --dt` sets the column spacing, and each input keeps its own
   timebase.
 - `tokeye alfvenspec` writes `<stem>_ae_instances.npy` — an `(H, W)` label map

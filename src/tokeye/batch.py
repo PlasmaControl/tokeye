@@ -300,7 +300,7 @@ def process_file(
     *,
     fs: float | None = None,
     fmt: str = "npy",
-    model_name: str = hub.DEFAULT_MODEL,
+    model_name: str | Path | None = None,
     channels: tuple[str, ...] | None = None,
     tile: int | str | None = "auto",
     key: str | None = None,
@@ -318,6 +318,13 @@ def process_file(
     first write and written last, so it only ever sits beside a complete set
     of outputs. A ``dict`` ``config`` is deprecated; an ``fs`` key in it
     moves to ``fs`` (``ValueError`` when ``fs`` is given too).
+
+    ``model_name`` is the registry name or checkpoint path ``model`` was
+    loaded from. ``params.json`` (and the ``fmt="npz"`` bundle) then record
+    ``model`` as :func:`tokeye.hub.model_label` of it (a file name, never a
+    local path) and ``weights`` as :func:`tokeye.hub.weights_info` of it,
+    hashed after inference. Without it they record ``"model": "unknown"``
+    and ``"weights": null``.
     """
     _check_fmt(fmt)
     check_tile(tile)
@@ -329,7 +336,11 @@ def process_file(
     mask = infer(model, spec.values, tile=tile)
     plan = _plan_tiles(spec.values.shape, tile)  # the plan infer just used
     names = resolve_channels(channels or DEFAULT_CHANNELS, mask.shape[0])
-    seg = Segmentation(mask, spec, names, model_name)
+    if model_name is None:
+        label, weights = "unknown", None
+    else:
+        label, weights = hub.model_label(model_name), hub.weights_info(model_name)
+    seg = Segmentation(mask, spec, names, label, weights)
 
     params_path = out_dir / f"{path.stem}_params.json"
     params_path.unlink(missing_ok=True)
@@ -344,7 +355,8 @@ def process_file(
 
     params = {
         "tokeye_version": __version__,
-        "model": model_name,
+        "model": label,
+        "weights": weights,
         "device": str(_device_of(model)),
         "input": str(path),
         "key": key,
@@ -385,7 +397,7 @@ def process_files(
     fs: float | None = None,
     fmt: str = "npy",
     tile: int | str | None = "auto",
-    model_name: str = hub.DEFAULT_MODEL,
+    model_name: str | Path | None = None,
     channels: tuple[str, ...] | None = None,
     key: str | None = None,
     on_error: Callable[[Path, Exception], None] | None = None,
@@ -409,8 +421,14 @@ def process_files(
         ``fs``.
     out_dir
         Existing directory for the outputs.
-    save_png, threshold, fs, fmt, tile, model_name, channels, key
+    save_png, threshold, fs, fmt, tile, channels, key
         As for :func:`process_file`.
+    model_name
+        The registry name or checkpoint path ``model`` was loaded from, as
+        for :func:`process_file`: each ``params.json`` records its label
+        (:func:`tokeye.hub.model_label`) and weights
+        (:func:`tokeye.hub.weights_info`). Without it they record
+        ``"model": "unknown"`` and ``"weights": null``.
     on_error
         Called as ``on_error(path, exc)`` for each input that fails. Without
         it, each failure is logged at ERROR (its traceback at DEBUG) on the
@@ -568,7 +586,7 @@ def run_batch(
         fs=fs,
         fmt=fmt,
         tile=tile,
-        model_name=str(model),
+        model_name=model,
         channels=hub.channels_for(model),
         key=key,
     )

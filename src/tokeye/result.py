@@ -6,6 +6,7 @@ import dataclasses
 import json
 import math
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,13 +47,19 @@ class Segmentation:
     channels
         One name per mask channel.
     model
-        Registry name or path of the model that produced the mask.
+        Registry name or file name of the model that produced the mask.
+    weights
+        Which weights produced it (see :func:`tokeye.hub.weights_info`):
+        ``repo``, ``filename``, ``revision`` and ``sha256`` for a registry
+        model, ``name`` and ``sha256`` for a local checkpoint; ``None`` when
+        unknown. A mapping is stored as a plain ``dict``.
     """
 
     mask: np.ndarray
     spectrogram: Spectrogram
     channels: tuple[str, ...] = DEFAULT_CHANNELS
     model: str = "big_tf_unet"
+    weights: Mapping[str, str | None] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.spectrogram, Spectrogram):
@@ -60,6 +67,13 @@ class Segmentation:
                 "spectrogram must be a tokeye Spectrogram, got "
                 f"{type(self.spectrogram).__name__}"
             )
+        if self.weights is not None:
+            if not isinstance(self.weights, Mapping):
+                raise TypeError(
+                    "weights must be a mapping or None, got "
+                    f"{type(self.weights).__name__}"
+                )
+            object.__setattr__(self, "weights", dict(self.weights))
         mask = np.asarray(self.mask, dtype=np.float32)
         if mask.ndim != 3 or mask.shape[1:] != self.spectrogram.shape:
             raise ValueError(
@@ -138,6 +152,7 @@ class Segmentation:
         params = {
             "config": spec.config.to_dict(),
             "model": self.model,
+            "weights": self.weights,
             "tokeye_version": __version__,
             "kind": spec.kind,
             "fs": spec.fs,
@@ -171,8 +186,10 @@ class Segmentation:
         Bundles written by the app (flat ``n_fft``/``hop``/... params, no
         axes) load too; missing settings fall back to the defaults, silently.
         A recorded value that is invalid (an unknown or out-of-range setting,
-        a bad ``fs``, ``kind``, channel list or stored axis) is not used: it
-        falls back to its default with a ``UserWarning`` naming the file.
+        a bad ``fs``, ``kind``, channel list, weights record or stored axis)
+        is not used: it falls back to its default with a ``UserWarning``
+        naming the file. Bundles without a weights record load with
+        ``weights=None``.
 
         Bundles do not record their STFT framing, so their stored axes
         (``time_ms``/``freq_khz``) are the only record of it: with a valid
@@ -252,7 +269,17 @@ class Segmentation:
             )
             channels = default_channels
         model = params.get("model") or "unknown"
-        return cls(mask, spectrogram, tuple(channels), str(model))
+        weights = params.get("weights")
+        if weights is not None and not _is_weights_record(weights):
+            _warn_ignored(
+                path,
+                "weights",
+                weights,
+                "not a mapping of strings to strings or null",
+                "None",
+            )
+            weights = None
+        return cls(mask, spectrogram, tuple(channels), str(model), weights)
 
     def plot(
         self, ax: Axes | None = None, *, threshold: float = 0.5, alpha: float = 0.4
@@ -284,6 +311,14 @@ def _warn_ignored(
         f"{path}: ignoring {name}={shown} ({reason}); using {fallback}",
         UserWarning,
         stacklevel=_user_stacklevel(),
+    )
+
+
+def _is_weights_record(value: Any) -> bool:
+    """Whether ``value`` is a dict of strings to strings or ``None``."""
+    return isinstance(value, dict) and all(
+        isinstance(key, str) and (item is None or isinstance(item, str))
+        for key, item in value.items()
     )
 
 

@@ -6,10 +6,13 @@ torchvision is only needed for ``ae_tf_maskrcnn`` (the ``ae`` extra).
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import logging
 import os
 import pickle
 import re
+import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +40,7 @@ DEVICE_FORMS = "cpu, cuda, cuda:N, mps or auto"
 _NO_DEVICE_HINT = "; run `tokeye info` to see what this machine has"
 _CUDA_DEVICE = re.compile(r"cuda(?::([0-9]+))?")
 _MAX_MISMATCH_TEXT = 200
+_HASH_CHUNK = 1 << 20
 
 
 class DownloadError(OSError):
@@ -76,7 +80,12 @@ def _build_ae_tf_maskrcnn() -> nn.Module:
     try:
         from .models.ae_tf_maskrcnn.config_ae_tf_maskrcnn import AETFMaskConfig
         from .models.ae_tf_maskrcnn.model_ae_tf_maskrcnn import AETFMaskModel
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
+        # Only a missing torchvision gets the hint: an incompatible one, a
+        # broken import inside tokeye or another missing module propagates.
+        missing = exc.name or ""
+        if missing != "torchvision" and not missing.startswith("torchvision."):
+            raise
         raise ImportError(
             "ae_tf_maskrcnn needs torchvision: pip install 'tokeye[ae]'"
         ) from exc
@@ -115,7 +124,12 @@ def _spec(name: str) -> ModelSpec:
 
 
 def repo_for(name: str) -> str:
-    """Hugging Face repo a model name resolves to (for error messages)."""
+    """The Hugging Face repo a registry name downloads from and is cached under.
+
+    That is the spec's ``repo_id``, else :data:`DEFAULT_REPO_ID` (the
+    ``TOKEYE_HF_REPO`` environment variable, read at import, else
+    ``nc1/big_tf_unet``). An unknown name gets :data:`DEFAULT_REPO_ID`.
+    """
     spec = MODEL_REGISTRY.get(str(name))
     if spec is not None and spec.repo_id is not None:
         return spec.repo_id
@@ -137,6 +151,101 @@ def cached_path(name: str) -> Path | None:
 def is_cached(name: str) -> bool:
     """Whether a registry model's weights are already downloaded."""
     return cached_path(name) is not None
+
+
+def model_label(source: str | Path) -> str:
+    """The name results record for a model: never a local path.
+
+    Parameters
+    ----------
+    source
+        A registry name or the path of a local checkpoint.
+
+    Returns
+    -------
+    str
+        A registry name unchanged, otherwise ``Path(source).name`` (the
+        file name, without the directories that lead to it).
+    """
+    name = str(source)
+    return name if name in MODEL_REGISTRY else Path(source).name
+
+
+@functools.lru_cache(maxsize=64)
+def _sha256_file(path: str, mtime_ns: int, size: int) -> str:
+    """Hex SHA-256 of ``path``; cached per ``(path, mtime_ns, size)``."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_digest(path: Path) -> str | None:
+    """The SHA-256 of the file ``path`` leads to, or ``None`` if unreadable."""
+    try:
+        resolved = path.resolve()
+        st = resolved.stat()
+        return _sha256_file(str(resolved), st.st_mtime_ns, st.st_size)
+    except OSError as exc:
+        logger.debug("cannot hash %s: %s", path, exc)
+        return None
+
+
+def weights_info(source: str | Path) -> dict[str, str | None] | None:
+    """Which weights a model source stands for, as results record them.
+
+    Parameters
+    ----------
+    source
+        A registry name, the path of a local checkpoint, or anything else
+        (a caller's free-form model name).
+
+    Returns
+    -------
+    dict or None
+        For a registry name, ``{"repo", "filename", "revision", "sha256"}``:
+        the Hugging Face repo (:func:`repo_for`) and file name, the cached
+        snapshot's revision and the file's SHA-256 (both ``None`` when the
+        weights are not cached). For a local file, ``{"name", "sha256"}``:
+        its file name only, never its directories. ``None`` for anything
+        else (a directory, a missing path, a free-form name).
+
+    Notes
+    -----
+    It never raises for a file that cannot be read: an ``OSError`` while
+    hashing gives ``"sha256": None`` (logged at DEBUG). Digests are cached
+    per path, modification time and size, so a batch hashes each checkpoint
+    once.
+    """
+    name = str(source)
+    spec = MODEL_REGISTRY.get(name)
+    if spec is not None:
+        try:
+            path = cached_path(name)
+        except (OSError, ValueError) as exc:
+            logger.debug("cannot look up the cached weights of %s: %s", name, exc)
+            path = None
+        revision = sha256 = None
+        if path is not None:
+            # The snapshot entry, not the blob it links to, names the revision.
+            if path.parent.parent.name == "snapshots":
+                revision = path.parent.name
+            sha256 = _file_digest(path)
+        return {
+            "repo": repo_for(name),
+            "filename": spec.filename,
+            "revision": revision,
+            "sha256": sha256,
+        }
+    path = Path(source)
+    try:
+        is_file = path.is_file()
+    except OSError:
+        is_file = False
+    if not is_file:
+        return None
+    return {"name": path.name, "sha256": _file_digest(path)}
 
 
 def require_task(source: str | Path, task: str) -> None:
@@ -251,7 +360,7 @@ def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Pat
         The hub answered with an error (a missing repo, for example).
     """
     spec = _spec(name)
-    repo = repo_id or spec.repo_id or DEFAULT_REPO_ID
+    repo = repo_id or repo_for(name)
     try:
         return Path(hf_hub_download(repo, spec.filename))
     except (LocalEntryNotFoundError, HfHubHTTPError):
@@ -281,14 +390,16 @@ def _mismatch(model: nn.Module, state_dict: Mapping) -> str:
 
 def _build_from_state_dict(state_dict: Mapping, device: str) -> nn.Module:
     mismatches: list[str] = []
+    unbuildable: list[str] = []
     for spec in MODEL_REGISTRY.values():
         try:
             model = spec.builder()
-        except ImportError as exc:
-            text = str(exc)
-            mismatches.append(
-                text if text.startswith(spec.name) else f"{spec.name}: {text}"
-            )
+        except Exception as exc:  # noqa: BLE001 - a builder failure is no mismatch
+            logger.debug("cannot build %s", spec.name, exc_info=exc)
+            text = f"{spec.name}: {exc}"
+            if exc.__cause__ is not None:
+                text += f" ({exc.__cause__})"
+            unbuildable.append(text)
             continue
         try:
             model.load_state_dict(state_dict, strict=True)
@@ -298,12 +409,18 @@ def _build_from_state_dict(state_dict: Mapping, device: str) -> nn.Module:
             continue
         return model.to(device).eval()
 
+    # The cap is for the key-count summaries; why a model could not be built
+    # (an install hint, say) is kept whole.
     message = (
         "State dict does not match any known TokEye architecture "
-        f"({', '.join(sorted(MODEL_REGISTRY))}). {'; '.join(mismatches)}"
+        f"({', '.join(sorted(MODEL_REGISTRY))})."
     )
-    if len(message) > _MAX_MISMATCH_TEXT:
-        message = message[: _MAX_MISMATCH_TEXT - 1] + "\u2026"
+    if mismatches:
+        message = f"{message} {'; '.join(mismatches)}"
+        if len(message) > _MAX_MISMATCH_TEXT:
+            message = message[: _MAX_MISMATCH_TEXT - 1] + "\u2026"
+    if unbuildable:
+        message = f"{message}{';' if mismatches else ''} {'; '.join(unbuildable)}"
     raise ValueError(message)
 
 
@@ -363,7 +480,46 @@ def _load_legacy_module(path: Path, name: str, device: str) -> nn.Module:
     return model.to(device).eval()
 
 
+def _is_torchscript(path: Path) -> bool:
+    """Whether ``path`` is a TorchScript archive (``torch.jit.save``).
+
+    As torch itself decides: a zip file with a ``<top>/constants.pkl``
+    member, ``<top>`` being the archive's own top-level directory, which
+    ``torch.save`` never writes. A zip whose directory cannot be read is not.
+    """
+    try:
+        if not zipfile.is_zipfile(path):
+            return False
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return False
+    for member in names:
+        parts = member.split("/")
+        if len(parts) == 2 and parts[1] == "constants.pkl":
+            return True
+    return False
+
+
+def _load_torchscript(path: Path, name: str, device: str) -> nn.Module:
+    try:
+        model = torch.jit.load(str(path), map_location=device)
+    except OSError:
+        raise
+    except Exception as exc:
+        raise _unreadable(name, exc) from exc
+    # Logged only once the load worked, so an unreadable file is one error.
+    logger.warning(
+        "%s: loaded a TorchScript archive with torch.jit.load; only load files "
+        "you trust.",
+        name,
+    )
+    return model.eval()
+
+
 def _load_pt(path: Path, name: str, device: str) -> nn.Module:
+    if _is_torchscript(path):
+        return _load_torchscript(path, name, device)
     try:
         loaded = torch.load(path, map_location=device, weights_only=True)
     except pickle.UnpicklingError:
@@ -385,8 +541,10 @@ def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.M
     Parameters
     ----------
     source
-        A registry name (see :data:`MODEL_REGISTRY`) or a path to a ``.pt``
-        state dict / legacy pickled module, or a ``.pt2`` exported program.
+        A registry name (see :data:`MODEL_REGISTRY`) or a path to a local
+        file: a ``.pt`` state dict; a legacy pickled module; a TorchScript
+        archive (``torch.jit.save``), used as saved: trace in eval mode;
+        segmentation models only; or a ``.pt2`` exported program.
     device
         ``"auto"`` (CUDA, then MPS, then CPU), ``"cpu"``, ``"cuda"``,
         ``"cuda:N"`` or ``"mps"`` (see :func:`resolve_device`).

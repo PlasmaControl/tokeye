@@ -564,6 +564,7 @@ def test_process_files_matches_run_batch(stub_model, batch_inputs, tmp_path):
         stub_model,
         config,
         via_process_files,
+        model_name=batch.hub.DEFAULT_MODEL,
         channels=("coherent", "transient"),
     )
 

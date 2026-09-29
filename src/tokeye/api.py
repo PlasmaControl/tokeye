@@ -53,6 +53,18 @@ class TokEye:
     tile
         ``"auto"`` (default), ``None`` or an int >= 512; passed to
         :func:`tokeye.inference.infer`.
+
+    Attributes
+    ----------
+    model_name
+        The model's label in results: the registry name, or a local
+        checkpoint's file name without its directories
+        (:func:`tokeye.hub.model_label`).
+    weights
+        Which weights were loaded (:func:`tokeye.hub.weights_info`): repo,
+        file name, revision and sha256 for a registry model; file name and
+        sha256 for a local checkpoint. Every :meth:`segment` result
+        records it.
     """
 
     def __init__(
@@ -86,9 +98,10 @@ class TokEye:
         self.tile = tile
 
         hub.require_task(model, "segmentation")
-        self.model_name = str(model)
+        self.model_name = hub.model_label(model)
         self.channels = hub.channels_for(model)
         self.model = hub.load_model(model, device)
+        self.weights = hub.weights_info(model)
 
     @property
     def log(self) -> bool:
@@ -154,7 +167,7 @@ class TokEye:
         spec = self._prepare(data, fs=fs, reference=reference, log=log)
         mask = infer(self.model, spec.values, tile=self.tile)
         channels = resolve_channels(self.channels, mask.shape[0])
-        return Segmentation(mask, spec, channels, self.model_name)
+        return Segmentation(mask, spec, channels, self.model_name, self.weights)
 
     def predict(self, data: Any, log: bool | None = None) -> np.ndarray:
         """Run inference; returns a float32 mask of shape ``(C, H, W)``.
