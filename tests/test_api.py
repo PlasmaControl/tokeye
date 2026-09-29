@@ -185,10 +185,10 @@ class TestSegment:
         )
         assert seg.spectrogram.kind == "cross"
 
-    def test_spectrogram_is_float32(self, eye):
+    def test_spectrogram_is_float64(self, eye):
         assert (
             eye.spectrogram(np.random.default_rng(0).random((16, 16))).dtype
-            == np.float32
+            == np.float64
         )
 
     def test_nan_input_is_rejected(self, eye):
@@ -199,5 +199,5 @@ class TestSegment:
         monkeypatch.setattr("tokeye.hub.load_model", lambda s, d="auto": _OneChannel())
         eye = TokEye("custom.pt")
         spec = np.random.default_rng(0).random((32, 32))
-        assert eye.predict(spec).shape == (1, 32, 32)
+        assert eye.predict(spec).shape == (32, 32)
         assert eye.segment(spec).channels == ("channel_0",)

@@ -31,7 +31,7 @@ from .io import (
     _check_key,
     load_signal,
 )
-from .preprocess import Spectrogram, _check_fs, prepare
+from .preprocess import Spectrogram, _check_fs, _values64, prepare
 from .result import Segmentation
 
 if TYPE_CHECKING:
@@ -207,11 +207,44 @@ def load_spectrogram(
 
 
 def load_input(path: Path, stft_kwargs: dict, log: bool = False) -> np.ndarray:
-    """Pre-1.0 helper: the float32 spectrogram for ``path``.
+    """Pre-1.0 helper: the float64 spectrogram for ``path``.
 
-    ``stft_kwargs`` are :class:`SpectrogramConfig` fields.
+    ``stft_kwargs`` are :class:`SpectrogramConfig` fields; an ``fs`` key is
+    checked and otherwise ignored (it only labels axes, and this returns
+    none). The model sees these values cast to float32; use
+    :func:`load_spectrogram` for that float32 input together with its axes.
     """
-    return load_spectrogram(path, {**stft_kwargs, "log": log}).values
+    data, _ = load_signal(path)
+    cfg, fs = _split_fs({**stft_kwargs, "log": log}, None)
+    _check_fs(fs)
+    return _values64(data, cfg)[0]
+
+
+def _split_fs(
+    settings: Mapping[str, Any], fs: float | None
+) -> tuple[SpectrogramConfig, float | None]:
+    """A pre-1.0 STFT settings dict as a config, and the ``fs`` to use.
+
+    0.12.0's ``compute_stft`` took ``fs``, so its settings dicts could hold
+    one; it moves to ``fs=``. ``"fs": None`` counts as absent, and the
+    caller's dict is never changed. Other keys go through
+    :meth:`SpectrogramConfig.from_dict`, so an unknown one still raises.
+
+    Raises
+    ------
+    ValueError
+        ``fs`` is both in ``settings`` and given as ``fs`` (not ``None``).
+    """
+    settings = dict(settings)
+    dict_fs = settings.pop("fs", None)
+    if dict_fs is not None:
+        if fs is not None:
+            raise ValueError(
+                "fs given twice: in the STFT settings dict and as fs=; "
+                "pass it once, as fs="
+            )
+        fs = dict_fs
+    return SpectrogramConfig.from_dict(settings), fs
 
 
 def save_overlay_png(
@@ -241,7 +274,10 @@ def _check_fmt(fmt: str) -> None:
         raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
 
 
-def _coerce_config(config: Any) -> SpectrogramConfig:
+def _coerce_config(
+    config: Any, fs: float | None
+) -> tuple[SpectrogramConfig, float | None]:
+    """``config`` as a config, and the ``fs`` to use (see :func:`_split_fs`)."""
     if isinstance(config, dict):
         warnings.warn(
             "passing a dict of STFT kwargs is deprecated; pass a "
@@ -249,7 +285,8 @@ def _coerce_config(config: Any) -> SpectrogramConfig:
             DeprecationWarning,
             stacklevel=3,
         )
-    return SpectrogramConfig.coerce(config)
+        return _split_fs(config, fs)
+    return SpectrogramConfig.coerce(config), fs
 
 
 def process_file(
@@ -279,12 +316,13 @@ def process_file(
     ``tile`` is passed to :func:`tokeye.inference.infer`, and ``key`` to
     :func:`tokeye.io.load_signal`. ``params.json`` is removed before the
     first write and written last, so it only ever sits beside a complete set
-    of outputs.
+    of outputs. A ``dict`` ``config`` is deprecated; an ``fs`` key in it
+    moves to ``fs`` (``ValueError`` when ``fs`` is given too).
     """
     _check_fmt(fmt)
     check_tile(tile)
     path, out_dir = Path(path), Path(out_dir)
-    cfg = _coerce_config(config)
+    cfg, fs = _coerce_config(config, fs)
     if log is not None:
         cfg = cfg.replace(log=log)
     spec = load_spectrogram(path, cfg, fs=fs, key=key)
@@ -367,7 +405,8 @@ def process_files(
         A loaded segmentation model (:func:`tokeye.hub.load_model`).
     config
         Preprocessing settings (defaults when ``None``). A ``dict`` is
-        deprecated and warns once per call.
+        deprecated and warns once per call; an ``fs`` key in it moves to
+        ``fs``.
     out_dir
         Existing directory for the outputs.
     save_png, threshold, fs, fmt, tile, model_name, channels, key
@@ -392,8 +431,8 @@ def process_files(
     """
     _check_fmt(fmt)
     check_tile(tile)
+    cfg, fs = _coerce_config(config, fs)
     check_unique_stems(paths)
-    cfg = _coerce_config(config)
     failures = 0
     for path in tqdm(paths, desc="tokeye run"):
         try:
@@ -465,7 +504,8 @@ def run_batch(
         :func:`tokeye.io.load_signal`); by default each file's own signal
         array.
     stft_kwargs, log
-        Deprecated spellings of ``config``.
+        Deprecated spellings of ``config``. An ``fs`` key in
+        ``stft_kwargs`` moves to ``fs``.
 
     Returns
     -------
@@ -476,8 +516,9 @@ def run_batch(
     Raises
     ------
     ValueError
-        Bad settings, an ``fs`` that is not finite and positive, an empty
-        ``key``, an instance model, no inputs found, inputs that share a
+        Bad settings, an ``fs`` that is not finite and positive (or given
+        both in ``stft_kwargs`` and as ``fs``), an empty ``key``, an
+        instance model, no inputs found, inputs that share a
         stem, or a ``key`` with inputs that are not containers (both
         checked before the model loads; see :func:`check_unique_stems` and
         :func:`check_key_inputs`), an unknown or unavailable ``device``, or
@@ -497,13 +538,16 @@ def run_batch(
     if stft_kwargs is not None and config is not None:
         raise ValueError("pass either config or stft_kwargs, not both")
     _check_fmt(fmt)
-    _check_fs(fs)
     if key is not None:
         _check_key(key)
     check_tile(tile)
-    cfg = SpectrogramConfig.coerce(config if stft_kwargs is None else stft_kwargs)
+    if stft_kwargs is None:
+        cfg = SpectrogramConfig.coerce(config)
+    else:
+        cfg, fs = _split_fs(stft_kwargs, fs)
     if log is not None:
         cfg = cfg.replace(log=log)
+    _check_fs(fs)
 
     hub.require_task(model, "segmentation")
     paths = collect_inputs(inputs)

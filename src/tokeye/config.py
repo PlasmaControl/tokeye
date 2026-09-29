@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import dataclasses
 import numbers
+import sys
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +27,18 @@ def resolve_channels(preferred: tuple[str, ...], n: int) -> tuple[str, ...]:
     if len(preferred) == n:
         return tuple(preferred)
     return tuple(f"channel_{i}" for i in range(n))
+
+
+def _user_stacklevel() -> int:
+    """``stacklevel``, for a ``warnings.warn()`` in the calling function, that
+    names the first frame outside tokeye."""
+    frame, level = sys._getframe(1), 1
+    while (
+        frame is not None
+        and frame.f_globals.get("__name__", "").partition(".")[0] == "tokeye"
+    ):
+        frame, level = frame.f_back, level + 1
+    return level
 
 
 _INT_FIELDS = ("n_fft", "hop")
@@ -51,6 +65,9 @@ class SpectrogramConfig:
     log
         Apply ``log1p`` to 2D inputs stored in linear scale. 1D inputs
         are always log-scaled by the STFT, so this only affects 2D input.
+
+    ``clip_dc`` and ``log`` take ``True`` or ``False`` (NumPy booleans too);
+    the integers ``0`` and ``1`` still work, with a ``DeprecationWarning``.
     """
 
     n_fft: int = field(default=1024, metadata={"help": "STFT window length [samples]"})
@@ -77,7 +94,22 @@ class SpectrogramConfig:
             object.__setattr__(self, name, float(value))
         for name in _BOOL_FIELDS:
             value = getattr(self, name)
-            if not isinstance(value, bool):
+            if isinstance(value, bool):
+                continue
+            # Without numpy imported, the value cannot be a NumPy bool (and
+            # importing it here would load numpy with this module).
+            np_mod = sys.modules.get("numpy")
+            if np_mod is not None and isinstance(value, np_mod.bool_):
+                object.__setattr__(self, name, bool(value))
+            elif isinstance(value, numbers.Integral) and value in (0, 1):
+                warnings.warn(
+                    f"{name}={value!r}: pass True or False (integers are "
+                    "deprecated and rejected in 2.0)",
+                    DeprecationWarning,
+                    stacklevel=_user_stacklevel(),
+                )
+                object.__setattr__(self, name, bool(value))
+            else:
                 raise TypeError(f"{name} must be True or False, got {value!r}")
         if not isinstance(self.window, str):
             raise TypeError(f"window must be a string, got {self.window!r}")
@@ -102,10 +134,16 @@ class SpectrogramConfig:
     def from_dict(cls, data: Mapping[str, Any]) -> SpectrogramConfig:
         """Build from a mapping; unknown keys raise ``ValueError``."""
         valid = [f.name for f in dataclasses.fields(cls)]
-        unknown = sorted(set(data) - set(valid))
+        unknown = sorted(set(data) - set(valid), key=repr)
         if unknown:
+            hint = ""
+            if "fs" in unknown:
+                hint = (
+                    " (the sampling rate is not a preprocessing setting; "
+                    "pass fs= separately)"
+                )
             raise ValueError(
-                f"unknown SpectrogramConfig field(s) {unknown}; valid: {valid}"
+                f"unknown SpectrogramConfig field(s) {unknown}; valid: {valid}{hint}"
             )
         return cls(**dict(data))
 

@@ -50,7 +50,7 @@ def test_numpy_scalars_are_coerced_to_python_types():
         ({"clip_low": -1.0}, ValueError),
         ({"n_fft": 1024.0}, TypeError),
         ({"n_fft": True}, TypeError),
-        ({"clip_dc": 1}, TypeError),
+        ({"clip_dc": 2}, TypeError),
         ({"log": "yes"}, TypeError),
         ({"window": ""}, ValueError),
         ({"clip_low": "1"}, TypeError),

@@ -68,6 +68,8 @@ and a golden test now pins its output.
   and tqdm, with tested minimum versions. torchvision moved to the `ae` extra
   (loading `ae_tf_maskrcnn` without it says so); torchinfo, omegaconf,
   pydantic and pyyaml are no longer installed.
+- `<stem>_mask.npy` is always `(C, H, W)`, also for a one-channel model
+  (0.12.0 wrote `(H, W)`).
 - CLI exit codes: 0 = every input succeeded, 1 = at least one failed,
   2 = usage or configuration error, 130 = interrupted (was the failure count).
 - `tokeye --version` prints `tokeye <version>`.
@@ -105,8 +107,13 @@ and a golden test now pins its output.
 ### Deprecated
 
 - `run_batch(stft_kwargs=..., log=...)`: use `config=SpectrogramConfig(...)`.
-- Passing a `dict` of STFT settings to `process_file`.
+  An `fs` key in `stft_kwargs` moves to `fs=`.
+- Passing a `dict` of STFT settings to `process_file` (or `process_files`).
+  An `fs` key in the dict moves to `fs=`.
 - `--keep-dc`: use `--no-clip-dc`.
+- Integers `0`/`1` for `clip_dc` and `log`: pass `True`/`False`.
+- `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (per-detection soft masks,
+  written only for unwindowed inputs): use `<stem>_ae_instances.npy`.
 
 ### Removed
 
@@ -117,8 +124,6 @@ and a golden test now pins its output.
   the unused `ae_tf_boxrcnn` model, `tokeye.extra`, and other dead code.
 - The `train` extra: training runs from a clone with `uv sync --group train`,
   and `tokeye.training` is no longer shipped in the wheel or sdist.
-- `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (replaced by
-  `<stem>_ae_instances.npy`).
 
 ### Fixed
 

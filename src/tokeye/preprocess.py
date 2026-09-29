@@ -92,6 +92,22 @@ def prepare(
     """
     cfg = SpectrogramConfig.coerce(config)
     fs = _check_fs(fs)
+    values64, kind, n_samples = _values64(data, cfg, reference)
+    # Always C-ordered (a plain astype keeps an F-ordered input's layout).
+    values = np.ascontiguousarray(values64, dtype=np.float32)
+    freqs, times = _axes(values.shape, kind, cfg, fs, n_samples)
+    return Spectrogram(values, freqs, times, kind, cfg, fs)
+
+
+def _values64(
+    data: Any, cfg: SpectrogramConfig, reference: Any = None
+) -> tuple[np.ndarray, str, int | None]:
+    """:func:`prepare`'s validation and values, in float64.
+
+    Returns ``(values, kind, n_samples)``. It makes no copy of its own, so
+    a 2D float64 input with ``cfg.log`` off comes back as the caller's own
+    array; a caller that hands the values out must copy them.
+    """
     arr = _as_real_array(data, "data")
     n_samples: int | None = None
 
@@ -120,10 +136,7 @@ def prepare(
             "expected a 1D signal or a 2D spectrogram, got "
             f"ndim={arr.ndim} (shape {arr.shape})"
         )
-
-    values = np.ascontiguousarray(values, dtype=np.float32)
-    freqs, times = _axes(values.shape, kind, cfg, fs, n_samples)
-    return Spectrogram(values, freqs, times, kind, cfg, fs)
+    return values, kind, n_samples
 
 
 def _as_real_array(data: Any, name: str) -> np.ndarray:

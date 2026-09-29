@@ -15,17 +15,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from . import hub
 from .config import SpectrogramConfig, resolve_channels
 from .inference import check_tile, infer
-from .preprocess import Spectrogram, _check_fs, prepare
+from .preprocess import Spectrogram, _check_fs, _values64, prepare
 from .result import Segmentation
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
-
-    import numpy as np
 
 
 class TokEye:
@@ -111,13 +111,19 @@ class TokEye:
         return prepare(data, cfg, fs=self.fs if fs is None else fs, reference=reference)
 
     def spectrogram(self, data: Any, log: bool | None = None) -> np.ndarray:
-        """The ``(H, W)`` float32 spectrogram the model will see.
+        """The ``(H, W)`` float64 spectrogram the model will see (pre-1.0).
 
         1D input goes through the STFT (which log-scales internally); 2D
         input is used as-is, ``log1p``-scaled first when ``log`` is on.
-        ``log=None`` defers to the instance setting.
+        ``log=None`` defers to the instance setting. The result is always a
+        new array. The model sees these values cast to float32; use
+        :meth:`segment` for that float32 input together with its axes.
         """
-        return self._prepare(data, log=log).values
+        cfg = self.config if log is None else self.config.replace(log=log)
+        values = _values64(data, cfg)[0]
+        if np.shares_memory(values, data):  # 2D float64 input, log off
+            values = values.copy()
+        return values
 
     def segment(
         self,
@@ -155,9 +161,12 @@ class TokEye:
 
         For ``big_tf_unet``, channel 0 = coherent and channel 1 =
         transient activity, both sigmoid scores in ``[0, 1]``.
-        Standardization is applied internally.
+        Standardization is applied internally. A one-channel model gives
+        ``(H, W)``, as before 1.0; :meth:`segment` always gives
+        ``(C, H, W)``.
         """
-        return self.segment(data, log=log).mask
+        mask = self.segment(data, log=log).mask
+        return mask[0] if mask.shape[0] == 1 else mask
 
     def __call__(self, data: Any, log: bool | None = None) -> np.ndarray:
         return self.predict(data, log=log)

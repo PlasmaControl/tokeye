@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from tokeye.cli import _common, _options
 
@@ -33,7 +34,9 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
             "Run the ae_tf_maskrcnn instance model (needs the 'ae' extra: "
             "pip install 'tokeye[ae]'). Writes ae_detections.csv and, unless "
             "--no-masks, <stem>_ae_instances.npy: an (H, W) int32 map where "
-            "i + 1 marks detection i of that input."
+            "i + 1 marks detection i of that input. Unwindowed inputs with "
+            "detections also get <stem>_ae_masks.npy, the per-detection soft "
+            "masks (deprecated; no longer written from 2.0)."
         ),
     )
     parser.add_argument(
@@ -78,7 +81,11 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "--masks",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="write <stem>_ae_instances.npy per input (default: on)",
+        help=(
+            "write <stem>_ae_instances.npy per input, and the deprecated "
+            "<stem>_ae_masks.npy for unwindowed inputs with detections "
+            "(default: on)"
+        ),
     )
     _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
@@ -95,8 +102,11 @@ def _handle(args: argparse.Namespace) -> int:
         return _common.EXIT_USAGE
     out_dir = setup.out_dir
 
+    # Only what the CSV needs: an input's instance map and masks stack are
+    # dropped once its files are written.
     all_detections = []
     failures = 0
+    wrote_masks = False
     for path in setup.paths:
         try:
             spec = batch.load_spectrogram(path, setup.config, key=args.key)
@@ -108,19 +118,32 @@ def _handle(args: argparse.Namespace) -> int:
                 mean=args.mean,
                 std=args.std,
             )
+            masks = detections["masks"]  # None when the input was windowed
+            has_masks = args.masks and masks is not None and len(masks) > 0
+            if args.masks:
+                np.save(
+                    out_dir / f"{path.stem}_ae_instances.npy",
+                    detections["instance_map"],
+                )
+            if has_masks:
+                np.save(out_dir / f"{path.stem}_ae_masks.npy", masks)
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
             _common.report_failure(path, exc)
             failures += 1
             continue
 
-        all_detections.append((str(path), detections))
-        print(f"{path}: {len(detections['boxes'])} detection(s)")
-        if args.masks:
-            np.save(
-                out_dir / f"{path.stem}_ae_instances.npy", detections["instance_map"]
-            )
+        wrote_masks = wrote_masks or has_masks
+        kept = {key: detections[key] for key in ("boxes", "labels", "scores")}
+        all_detections.append((str(path), kept))
+        print(f"{path}: {len(kept['boxes'])} detection(s)")
 
     detections_csv = out_dir / "ae_detections.csv"
     write_detections_csv(detections_csv, all_detections)
     print(detections_csv)
+    if wrote_masks:
+        print(
+            "note: <stem>_ae_masks.npy (per-detection soft masks) is deprecated "
+            "and is no longer written from 2.0; use <stem>_ae_instances.npy",
+            file=sys.stderr,
+        )
     return _common.EXIT_FAILED if failures else _common.EXIT_OK

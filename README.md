@@ -78,7 +78,7 @@ seg["coherent"], seg.freqs, seg.times   # Hz and seconds when fs is known
 seg.save("shot.npz")                    # reload with tokeye.Segmentation.load
 ```
 
-Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. Standardization happens internally, and long inputs run in tiles so memory stays bounded. With `big_tf_unet`, tiled output matches an untiled run to float32 rounding; other models may differ slightly, and TokEye warns when it can tell.
+Input is auto-detected by shape: a 1D array is treated as a raw time series (TokEye computes the spectrogram), a 2D array as a ready spectrogram. `eye(...)` and `eye.predict(...)` return `(C, H, W)`, or `(H, W)` for a single-channel model (as before 1.0); `eye.segment(...).mask` is always `(C, H, W)`. Standardization happens internally, and long inputs run in tiles so memory stays bounded. With `big_tf_unet`, tiled output matches an untiled run to float32 rounding; other models may differ slightly, and TokEye warns when it can tell.
 
 If your 2D spectrogram is stored in **linear scale** (raw STFT magnitude/power), pass `log=True` so TokEye applies `log1p` first since the model expects log-scaled input:
 
@@ -159,7 +159,7 @@ Beyond segmentation, `tokeye` bundles the analyses DIII-D researchers usually re
 | Command | What it does |
 | --- | --- |
 | `tokeye elmspec INPUTS...` | ELM detection from the segmentation model's transient channel: per-event time intervals plus per-shot count, ELM frequency (with `--fs` or `--dt`), and duty cycle, written to `elm_events.csv` / `elm_summary.csv`. |
-| `tokeye alfvenspec INPUTS...` | Alfvén-eigenmode detection with the `ae_tf_maskrcnn` instance model (needs `tokeye[ae]`): per-detection boxes/scores (`ae_detections.csv`) and a per-input instance map (`<stem>_ae_instances.npy`, `i + 1` = detection `i`). Wide spectrograms are processed in training-width windows automatically. |
+| `tokeye alfvenspec INPUTS...` | Alfvén-eigenmode detection with the `ae_tf_maskrcnn` instance model (needs `tokeye[ae]`): per-detection boxes/scores (`ae_detections.csv`) and a per-input instance map (`<stem>_ae_instances.npy`, `i + 1` = detection `i`). Wide spectrograms are processed in training-width windows automatically. Unwindowed inputs also get the deprecated `<stem>_ae_masks.npy` (per-detection soft masks), no longer written from 2.0. |
 
 `elmspec` and `alfvenspec` take `--key` as `tokeye run` does.
 

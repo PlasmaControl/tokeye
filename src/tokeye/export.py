@@ -104,18 +104,25 @@ def analysis_bundle(
     raw: tuple[np.ndarray, np.ndarray] | None = None,
     params: dict | None = None,
     source: str = "",
+    axes: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> NpzBundle:
     """Build a ``tokeye-analysis/v1`` npz bundle (key -> array/str).
 
     ``raw``, when given, is a ``(t_ms, x)`` tuple of the raw signal trace,
-    stored as ``raw_t_ms``/``raw_x``. Axes come from :func:`stft_axes`
-    applied to ``spectrogram``'s shape; optional keys are simply omitted
-    when their inputs are unavailable (never stored as ``None``).
+    stored as ``raw_t_ms``/``raw_x``. ``axes``, when given, is the
+    ``(time_ms, freq_khz)`` pair stored as is (float64); otherwise the axes
+    come from :func:`stft_axes` applied to ``spectrogram``'s shape and
+    ``stft_meta``. Optional keys are simply omitted when their inputs are
+    unavailable (never stored as ``None``).
 
     ``spectrogram`` must be 2D ``(H, W)``; ``mask``, when given, must be
     ``(C, H, W)`` or ``(H, W)`` with the same ``H, W`` (``ValueError``
     otherwise, so a stale mask can never be saved next to a new input).
+    ``axes`` must be 1D of lengths ``W`` and ``H``, all finite, and cannot
+    be combined with ``stft_meta`` (``ValueError`` otherwise).
     """
+    if axes is not None and stft_meta is not None:
+        raise ValueError("pass axes or stft_meta, not both")
     spectrogram = np.asarray(spectrogram, dtype=np.float32)
     if spectrogram.ndim != 2:
         raise ValueError(
@@ -141,7 +148,12 @@ def analysis_bundle(
         bundle["mask"] = mask
 
     n_rows, n_cols = spectrogram.shape
-    time_ms, freq_khz = stft_axes(n_rows, n_cols, stft_meta)
+    if axes is None:
+        time_ms, freq_khz = stft_axes(n_rows, n_cols, stft_meta)
+    else:
+        time_ms, freq_khz = axes
+        time_ms = _checked_axis("time_ms", time_ms, n_cols)
+        freq_khz = _checked_axis("freq_khz", freq_khz, n_rows)
     if time_ms is not None:
         bundle["time_ms"] = time_ms
     if freq_khz is not None:
@@ -153,6 +165,19 @@ def analysis_bundle(
         bundle["raw_x"] = np.asarray(raw_x, dtype=np.float32)
 
     return bundle
+
+
+def _checked_axis(name: str, values: np.ndarray, length: int) -> np.ndarray:
+    """``values`` as a float64 axis of ``length`` finite values, else raise."""
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.shape != (length,):
+        raise ValueError(
+            f"{name} must be 1D of length {length} to match the spectrogram, "
+            f"got shape {arr.shape}"
+        )
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{name} contains non-finite values")
+    return arr
 
 
 def modespec_bundle(
