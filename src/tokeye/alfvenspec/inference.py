@@ -60,6 +60,25 @@ DEFAULT_WINDOW_COLS = 710  # training window width; full shots must be windowed
 _MIN_WINDOW_COLS = 32
 
 
+def _paint_instances(
+    target: np.ndarray,
+    masks: np.ndarray,
+    scores: np.ndarray,
+    first_id: int,
+    col_offset: int,
+) -> None:
+    """Paint soft instance ``masks`` into the integer label map ``target``.
+
+    Detection ``i`` is painted as ``first_id + i + 1`` wherever its mask is
+    >= 0.5, starting at column ``col_offset``. Lower scores are painted first
+    so the most confident detection wins where instances overlap.
+    """
+    width = masks.shape[-1]
+    region = target[:, col_offset : col_offset + width]
+    for index in np.argsort(scores, kind="stable"):
+        region[masks[index] >= 0.5] = first_id + int(index) + 1
+
+
 def detect_windowed(
     spectrogram: np.ndarray,
     model: nn.Module,
@@ -75,24 +94,36 @@ def detect_windowed(
     so a full-shot spectrogram (tens of thousands of columns) gets crushed
     horizontally and yields nothing; the model was trained on
     ~:data:`DEFAULT_WINDOW_COLS`-column views. Box x-coordinates are shifted
-    back to global columns. ``masks`` is ``None`` whenever more than one
-    window is used (per-window masks have no common global shape);
-    ``window_cols <= 0`` disables windowing.
+    back to global columns; ``window_cols <= 0`` disables windowing.
+
+    Besides ``boxes``/``labels``/``scores``, the result has ``instance_map``:
+    an ``(H, W)`` int32 map of the whole input where 0 is background and
+    ``i + 1`` marks detection ``i`` (its row in the detections CSV).
+    ``masks`` (per-detection soft masks) is ``None`` whenever more than one
+    window is used, since per-window masks have no common global shape.
     """
-    n_cols = spectrogram.shape[1]
+    n_rows, n_cols = spectrogram.shape
+    instance_map = np.zeros((n_rows, n_cols), dtype=np.int32)
     if window_cols <= 0 or n_cols <= window_cols:
-        return detect(spectrogram, model, score_min=score_min, mean=mean, std=std)
+        result = detect(spectrogram, model, score_min=score_min, mean=mean, std=std)
+        _paint_instances(instance_map, result["masks"], result["scores"], 0, 0)
+        return {**result, "instance_map": instance_map}
 
     starts = list(range(0, n_cols, window_cols))
     if len(starts) > 1 and n_cols - starts[-1] < _MIN_WINDOW_COLS:
         starts.pop()  # fold a sliver of a final window into the previous one
 
     merged: dict[str, list[np.ndarray]] = {"boxes": [], "labels": [], "scores": []}
+    n_found = 0
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else n_cols
         window = spectrogram[:, start:end]
         result = detect(window, model, score_min=score_min, mean=mean, std=std)
         result["boxes"][:, [0, 2]] += start
+        _paint_instances(
+            instance_map, result["masks"], result["scores"], n_found, start
+        )
+        n_found += len(result["scores"])
         for key in merged:
             merged[key].append(result[key])
 
@@ -101,6 +132,7 @@ def detect_windowed(
         "labels": np.concatenate(merged["labels"]),
         "scores": np.concatenate(merged["scores"]),
         "masks": None,
+        "instance_map": instance_map,
     }
 
 
@@ -111,7 +143,7 @@ def write_detections_csv(
     path: Path, per_input: list[tuple[str, dict[str, np.ndarray]]]
 ) -> None:
     """One row per detection: box corners (pixel coords), label, score."""
-    with path.open("w", newline="") as fh:
+    with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=DETECTION_FIELDS)
         writer.writeheader()
         for name, detections in per_input:

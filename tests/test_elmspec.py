@@ -3,12 +3,16 @@ from __future__ import annotations
 import csv
 
 import numpy as np
+import pytest
 
 from tokeye.elmspec import (
     ElmEvent,
     column_activity,
+    event_rows,
     extract_elm_events,
+    seconds_per_col,
     summarize,
+    write_event_rows,
     write_events_csv,
 )
 
@@ -101,3 +105,37 @@ def test_write_events_csv_without_fs_leaves_times_blank(tmp_path):
     with out.open() as fh:
         rows = list(csv.DictReader(fh))
     assert rows[0]["t_start_s"] == ""
+
+
+def test_seconds_per_col_prefers_dt():
+    assert seconds_per_col(256, 200_000.0) == 256 / 200_000.0
+    assert seconds_per_col(256, 200_000.0, dt=0.01) == 0.01
+    assert seconds_per_col(dt=0.01) == 0.01
+    assert seconds_per_col(256, None) is None
+    assert seconds_per_col() is None
+
+
+def test_seconds_per_col_rejects_non_positive_dt():
+    with pytest.raises(ValueError, match="dt must be positive"):
+        seconds_per_col(dt=0.0)
+
+
+def test_summarize_with_dt_only():
+    summary = summarize([ElmEvent(0, 1, 1.0)], n_cols=100, dt=0.001)
+    assert np.isclose(summary["elm_freq_hz"], 1 / 0.1)
+
+
+def test_event_rows_per_input_timebases(tmp_path):
+    rows = event_rows("a.npy", [ElmEvent(10, 12, 1.0)], dt=0.001)
+    rows += event_rows("b.npy", [ElmEvent(10, 12, 1.0)], hop=128, fs=1000.0)
+    rows += event_rows("c.npy", [ElmEvent(10, 12, 1.0)])
+    out = tmp_path / "elm_events.csv"
+    write_event_rows(out, rows)
+
+    with out.open(encoding="utf-8") as fh:
+        read = list(csv.DictReader(fh))
+    assert [r["input"] for r in read] == ["a.npy", "b.npy", "c.npy"]
+    assert float(read[0]["t_start_s"]) == pytest.approx(0.010)
+    assert float(read[1]["t_start_s"]) == pytest.approx(10 * 128 / 1000.0)
+    assert read[2]["t_start_s"] == ""
+    assert float(read[0]["duration_s"]) == pytest.approx(0.003)

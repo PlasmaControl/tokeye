@@ -80,16 +80,38 @@ def extract_elm_events(
     ]
 
 
-def summarize(
-    events: list[ElmEvent], n_cols: int, hop: int, fs: float | None
-) -> dict[str, float | int | None]:
-    """Per-input summary: event count, ELM frequency (needs ``fs``), duty cycle.
+def seconds_per_col(
+    hop: int | None = None, fs: float | None = None, *, dt: float | None = None
+) -> float | None:
+    """Seconds per spectrogram column: ``dt`` if given, else ``hop / fs``.
 
-    ``elm_freq_hz`` is events per second of analyzed signal; ``None`` when the
-    sampling rate is unknown (spectrogram columns have no absolute timebase).
+    ``None`` when neither is known (columns then have no absolute timebase).
+    """
+    if dt is not None:
+        if not dt > 0:
+            raise ValueError(f"dt must be positive, got {dt}")
+        return float(dt)
+    if hop and fs:
+        return hop / fs
+    return None
+
+
+def summarize(
+    events: list[ElmEvent],
+    n_cols: int,
+    hop: int | None = None,
+    fs: float | None = None,
+    *,
+    dt: float | None = None,
+) -> dict[str, float | int | None]:
+    """Per-input summary: event count, ELM frequency, duty cycle.
+
+    ``elm_freq_hz`` is events per second of analyzed signal; ``None`` when
+    the column spacing is unknown (see :func:`seconds_per_col`).
     """
     active_cols = sum(event.duration_cols for event in events)
-    total_s = n_cols * hop / fs if fs else None
+    col_s = seconds_per_col(hop, fs, dt=dt)
+    total_s = n_cols * col_s if col_s else None
     return {
         "n_events": len(events),
         "elm_freq_hz": len(events) / total_s if total_s else None,
@@ -97,8 +119,11 @@ def summarize(
     }
 
 
-def _col_to_s(col: int, hop: int, fs: float | None) -> float | str:
-    return col * hop / fs if fs else ""
+def _col_to_s(
+    col: int, hop: int | None, fs: float | None, dt: float | None = None
+) -> float | str:
+    col_s = seconds_per_col(hop, fs, dt=dt)
+    return col * col_s if col_s else ""
 
 
 EVENT_FIELDS = (
@@ -116,38 +141,68 @@ EVENT_FIELDS = (
 SUMMARY_FIELDS = ("input", "n_events", "elm_freq_hz", "duty_cycle")
 
 
+def event_rows(
+    name: str,
+    events: list[ElmEvent],
+    *,
+    hop: int | None = None,
+    fs: float | None = None,
+    dt: float | None = None,
+) -> list[dict[str, object]]:
+    """CSV rows (:data:`EVENT_FIELDS`) for one input's events.
+
+    Build rows per input when inputs have different timebases, then write
+    them all with :func:`write_event_rows`.
+    """
+    return [
+        {
+            "input": name,
+            "event": index,
+            "start_col": event.start_col,
+            "end_col": event.end_col,
+            "duration_cols": event.duration_cols,
+            "t_start_s": _col_to_s(event.start_col, hop, fs, dt),
+            "t_end_s": _col_to_s(event.end_col + 1, hop, fs, dt),
+            "duration_s": _col_to_s(event.duration_cols, hop, fs, dt),
+            "peak_activity": event.peak_activity,
+        }
+        for index, event in enumerate(events)
+    ]
+
+
+def write_event_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    """Write :func:`event_rows` output as a CSV with a header."""
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=EVENT_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def write_events_csv(
     path: Path,
     per_input: list[tuple[str, list[ElmEvent]]],
-    hop: int,
-    fs: float | None,
+    hop: int | None = None,
+    fs: float | None = None,
+    *,
+    dt: float | None = None,
 ) -> None:
-    """One row per detected event; time columns blank when ``fs`` is unknown."""
-    with path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=EVENT_FIELDS)
-        writer.writeheader()
-        for name, events in per_input:
-            for index, event in enumerate(events):
-                writer.writerow(
-                    {
-                        "input": name,
-                        "event": index,
-                        "start_col": event.start_col,
-                        "end_col": event.end_col,
-                        "duration_cols": event.duration_cols,
-                        "t_start_s": _col_to_s(event.start_col, hop, fs),
-                        "t_end_s": _col_to_s(event.end_col + 1, hop, fs),
-                        "duration_s": _col_to_s(event.duration_cols, hop, fs),
-                        "peak_activity": event.peak_activity,
-                    }
-                )
+    """One row per detected event, all inputs sharing one timebase.
+
+    Time columns are blank when the column spacing is unknown.
+    """
+    rows = [
+        row
+        for name, events in per_input
+        for row in event_rows(name, events, hop=hop, fs=fs, dt=dt)
+    ]
+    write_event_rows(path, rows)
 
 
 def write_summary_csv(
     path: Path, per_input: list[tuple[str, dict[str, float | int | None]]]
 ) -> None:
     """One row per input file with its :func:`summarize` result."""
-    with path.open("w", newline="") as fh:
+    with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=SUMMARY_FIELDS)
         writer.writeheader()
         for name, summary in per_input:

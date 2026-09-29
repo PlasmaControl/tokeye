@@ -11,8 +11,11 @@ from __future__ import annotations
 from tokeye.elmspec.events import (
     ElmEvent,
     column_activity,
+    event_rows,
     extract_elm_events,
+    seconds_per_col,
     summarize,
+    write_event_rows,
     write_events_csv,
     write_summary_csv,
 )
@@ -20,8 +23,11 @@ from tokeye.elmspec.events import (
 __all__ = [
     "ElmEvent",
     "column_activity",
+    "event_rows",
     "extract_elm_events",
+    "seconds_per_col",
     "summarize",
+    "write_event_rows",
     "write_events_csv",
     "write_summary_csv",
 ]
