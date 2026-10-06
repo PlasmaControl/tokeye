@@ -7,9 +7,11 @@ must not match ``test_app_*.py``, which ``conftest.py`` skips without gradio.
 
 from __future__ import annotations
 
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -321,6 +323,103 @@ class TestAppHandler:
             args.handler(args)
 
 
+@pytest.fixture
+def default_sigint():
+    """Python's own SIGINT handler while the test runs, restored afterwards."""
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+class TestCtrlC:
+    """gradio's launch returns normally on Ctrl-C; the app still exits 130."""
+
+    def test_ctrl_c_while_serving_exits_130(
+        self, calls, default_sigint, monkeypatch, capsys
+    ):
+        def serve(**kwargs):  # like gradio's Blocks.block_thread
+            try:
+                signal.raise_signal(signal.SIGINT)
+            except KeyboardInterrupt:
+                print("Keyboard interruption in main thread... closing server.")
+
+        monkeypatch.setattr(sys.modules["tokeye.app.__main__"], "main", serve)
+
+        exit_code = main(["app", "--no-browser"])
+
+        assert exit_code == 130
+        assert capsys.readouterr().err.splitlines()[-1] == "interrupted"
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+    def test_ctrl_c_before_serving_exits_130(
+        self, calls, default_sigint, monkeypatch, capsys
+    ):
+        def building(**kwargs):  # interrupted inside create_app, say
+            signal.raise_signal(signal.SIGINT)
+
+        monkeypatch.setattr(sys.modules["tokeye.app.__main__"], "main", building)
+
+        assert main(["app", "--no-browser"]) == 130
+        assert capsys.readouterr().err.splitlines()[-1] == "interrupted"
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+    def test_a_launch_that_returns_by_itself_exits_0(self, calls, default_sigint):
+        assert main(["app", "--no-browser"]) == 0
+        assert calls["port"] == 7860
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+    def test_the_handler_is_restored_after_a_failed_launch(
+        self, calls, default_sigint, monkeypatch
+    ):
+        def boom(**kwargs):
+            raise OSError("boom")
+
+        monkeypatch.setattr(sys.modules["tokeye.app.__main__"], "main", boom)
+
+        assert main(["app", "--no-browser"]) == 2
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+    def test_outside_the_main_thread_no_handler_is_installed(
+        self, calls, default_sigint, monkeypatch
+    ):
+        seen = []
+
+        def serve(**kwargs):
+            seen.append(signal.getsignal(signal.SIGINT))
+
+        monkeypatch.setattr(sys.modules["tokeye.app.__main__"], "main", serve)
+        results = []
+        worker = threading.Thread(
+            target=lambda: results.append(main(["app", "--no-browser"]))
+        )
+        worker.start()
+        worker.join()
+
+        assert results == [0]
+        assert seen == [signal.default_int_handler]
+
+    def test_an_ignored_sigint_stays_ignored(self, calls, default_sigint, monkeypatch):
+        seen = []
+
+        def serve(**kwargs):
+            seen.append(signal.getsignal(signal.SIGINT))
+
+        monkeypatch.setattr(sys.modules["tokeye.app.__main__"], "main", serve)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # e.g. a background job
+
+        assert main(["app", "--no-browser"]) == 0
+        assert seen == [signal.SIG_IGN]
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+
+
+MISSING_GRADIO = (
+    "error: tokeye app needs the 'app' extra (gradio): "
+    'pip install "tokeye[app]" (underlying: '
+)
+
+
 class TestImportErrors:
     @pytest.fixture
     def broken_app_import(self, monkeypatch):
@@ -353,7 +452,10 @@ class TestImportErrors:
         exit_code = main(["app"])
 
         assert exit_code == 2
-        assert 'pip install "tokeye[app]"' in capsys.readouterr().err
+        line = one_error_line(capsys.readouterr().err)
+        assert line.startswith(MISSING_GRADIO), line
+        assert "gradio" in line.removeprefix(MISSING_GRADIO)
+        assert line.endswith(")")
 
     def test_python_m_tokeye_app_without_gradio(self):
         code = (
@@ -371,5 +473,4 @@ class TestImportErrors:
         )
 
         assert result.returncode == 2, result.stderr
-        assert 'pip install "tokeye[app]"' in result.stderr
-        assert "Traceback" not in result.stderr
+        assert one_error_line(result.stderr).startswith(MISSING_GRADIO)

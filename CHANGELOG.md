@@ -59,6 +59,7 @@ golden test now pins its output.
   `app` now also installs soundfile. `tokeye.__version__` and `py.typed`.
 - `-v`/`--verbose` on every subcommand (before or after it) shows debug logs,
   including the tracebacks of per-input failures.
+- `python -m tokeye` runs the CLI, as `tokeye` does.
 - `tokeye.batch.process_files`: the per-file loop of `run_batch`, for callers
   that already hold a loaded model.
 - `key=` (in `load_signal`, `load_spectrogram`, `process_file`,
@@ -93,6 +94,16 @@ golden test now pins its output.
   (0.12.0 wrote `(H, W)`).
 - CLI exit codes: 0 = every input succeeded, 1 = at least one failed,
   2 = usage or configuration error, 130 = interrupted (was the failure count).
+- `tokeye app` exits 130 on Ctrl-C (0.12.0 exited 0), and without gradio it
+  prints one `error:` line with the install hint and exits 2 (0.12.0 printed
+  four lines and exited 1).
+- `tokeye run` ends with one line on stdout saying how many inputs it wrote,
+  where and which files (`wrote 3 inputs -> tokeye_output/ (mask, preview,
+  params)`, then `; 1 failed` when some failed). Its progress bar, and
+  `tokeye.inference.warmup`'s, show only when stderr is a terminal (not in a
+  SLURM log).
+- In the CLI, a Python warning is one `warning: <message>` line on stderr;
+  `-v` shows it in Python's full form.
 - `tokeye --version` prints `tokeye <version>`.
 - CLI boolean flags come in pairs: `--png/--no-png`, `--clip-dc/--no-clip-dc`,
   `--log/--no-log`, `--masks/--no-masks`. `tokeye elmspec` writes previews with

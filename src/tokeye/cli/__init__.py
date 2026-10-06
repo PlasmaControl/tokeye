@@ -10,8 +10,9 @@ Each subcommand lives in its own module under ``tokeye.cli`` and exposes
 
 Exit codes: 0 = every input succeeded, 1 = at least one input failed,
 2 = usage or configuration error, 130 = interrupted. Errors are one
-``error:`` line on stderr; ``-v`` (before or after the subcommand) adds the
-debug logs and tracebacks.
+``error:`` line on stderr, and Python warnings one ``warning:`` line; ``-v``
+(before or after the subcommand) adds the debug logs and tracebacks and
+shows warnings in full.
 """
 
 from __future__ import annotations
@@ -67,7 +68,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help(sys.stderr)
         return EXIT_USAGE
 
-    with _common.verbose_logging(getattr(args, "verbose", False)):
+    verbose = getattr(args, "verbose", False)
+    with _common.verbose_logging(verbose), _common.one_line_warnings(verbose):
         try:
             return args.handler(args)
         except KeyboardInterrupt:

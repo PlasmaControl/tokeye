@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import sys
 
 import numpy as np
 import pytest
@@ -126,7 +128,32 @@ class TestLoadSpectrogram:
         assert spec.fs == 500.0
 
 
+class _Terminal(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
 class TestRunBatch:
+    def test_prints_nothing_off_a_terminal(
+        self, stub_model, spectrogram_npy, tmp_path, capsys
+    ):
+        """No summary line (that is the CLI's), and no progress bar when
+        stderr is not a terminal, as in a SLURM log (capsys is not one)."""
+        failures = batch.run_batch([str(spectrogram_npy)], out_dir=tmp_path / "out")
+
+        assert failures == 0
+        assert capsys.readouterr() == ("", "")
+
+    def test_a_terminal_still_gets_the_progress_bar(
+        self, stub_model, spectrogram_npy, tmp_path, monkeypatch
+    ):
+        terminal = _Terminal()
+        monkeypatch.setattr(sys, "stderr", terminal)
+
+        batch.run_batch([str(spectrogram_npy)], out_dir=tmp_path / "out")
+
+        assert "tokeye run" in terminal.getvalue()
+
     def test_on_1d_signal_writes_mask_and_preview(
         self, stub_model, signal_npy, tmp_path
     ):

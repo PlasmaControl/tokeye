@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import types
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -206,6 +209,58 @@ class TestMain:
         )
 
         assert exit_code == 1
+
+    def test_run_says_where_its_outputs_went(
+        self, stub_model, spectrogram_npy, tmp_path, capsys
+    ):
+        out_dir = tmp_path / "out"
+
+        assert main(["run", str(spectrogram_npy), "--output-dir", str(out_dir)]) == 0
+
+        captured = capsys.readouterr()
+        assert captured.out == (
+            f"wrote 1 input -> {out_dir}{os.sep} (mask, preview, params)\n"
+        )
+        assert captured.err == ""  # no progress bar: capsys is not a terminal
+
+    @pytest.mark.parametrize(
+        ("flags", "kinds"),
+        [
+            (["--no-png"], "mask, params"),
+            (["--format", "npz"], "bundle, preview, params"),
+            (["--format", "npz", "--no-png"], "bundle, params"),
+        ],
+    )
+    def test_run_summary_names_what_it_wrote(
+        self, stub_model, spectrogram_npy, tmp_path, capsys, flags, kinds
+    ):
+        second = tmp_path / "second.npy"
+        np.save(second, np.ones((64, 32), dtype=np.float32))
+        out_dir = tmp_path / "out"
+        argv = ["run", str(spectrogram_npy), str(second), "--output-dir", str(out_dir)]
+
+        assert main([*argv, *flags]) == 0
+
+        out = capsys.readouterr().out
+        assert out == f"wrote 2 inputs -> {out_dir}{os.sep} ({kinds})\n"
+
+    def test_run_summary_counts_the_failures(
+        self, stub_model, spectrogram_npy, tmp_path, capsys
+    ):
+        bad = tmp_path / "bad.npy"
+        np.save(bad, np.zeros((2, 3, 4)))
+        out_dir = tmp_path / "out"
+        argv = ["run", str(spectrogram_npy), str(bad), "--output-dir", str(out_dir)]
+
+        assert main(argv) == 1
+
+        captured = capsys.readouterr()
+        assert captured.out == (
+            f"wrote 1 input -> {out_dir}{os.sep} (mask, preview, params); 1 failed\n"
+        )
+        errors = captured.err.splitlines()
+        assert len(errors) == 1
+        assert errors[0].startswith(f"error: failed to process {bad}: ")
 
     def test_run_npz_format(self, stub_model, spectrogram_npy, tmp_path):
         out_dir = tmp_path / "out"
@@ -443,6 +498,68 @@ class TestAppCommand:
 
         assert exit_code == 2
         assert 'pip install "tokeye[app]"' in capsys.readouterr().err
+
+
+class TestWarnings:
+    """A Python warning in a CLI run is one ``warning:`` line; ``-v`` keeps
+    Python's full form (file, line number and source line)."""
+
+    # A real process: pytest records warnings, so in-process runs never print
+    # them. The handler is replaced before main() builds its parser.
+    CODE = (
+        "import sys, warnings\n"
+        "from tokeye.cli import main, run\n"
+        "def handler(args):\n"
+        "    warnings.warn('stereo.wav: averaging 2 audio channels\\nto mono')\n"
+        "    return 0\n"
+        "run._handle = handler\n"
+        "sys.exit(main(sys.argv[1:]))\n"
+    )
+
+    def _cli(self, *argv: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-c", self.CODE, *argv],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+
+    def test_a_warning_is_one_line(self):
+        result = self._cli("run", "x.npy")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == (
+            "warning: stereo.wav: averaging 2 audio channels to mono\n"
+        )
+
+    def test_verbose_keeps_the_full_form(self):
+        result = self._cli("run", "x.npy", "-v")
+
+        assert result.returncode == 0, result.stderr
+        assert "UserWarning: stereo.wav: averaging 2 audio channels" in result.stderr
+        assert "warning: stereo.wav" not in result.stderr
+
+    def test_the_format_is_restored_and_recording_still_works(self, monkeypatch):
+        formatted = []
+
+        def handler(args):
+            formatted.append(
+                warnings.formatwarning(UserWarning("a\nb"), UserWarning, "f.py", 3)
+            )
+            warnings.warn("recorded", UserWarning, stacklevel=1)
+            return 0
+
+        monkeypatch.setattr("tokeye.cli.run._handle", handler)
+        original = warnings.formatwarning
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert main(["run", "x.npy"]) == 0
+
+        assert formatted == ["warning: a b\n"]
+        assert [str(w.message) for w in caught] == ["recorded"]
+        assert warnings.formatwarning is original
 
 
 @pytest.mark.parametrize(

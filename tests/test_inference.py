@@ -65,6 +65,12 @@ def test_warmup_runs_without_error():
     warmup(model, iterations=2)  # should not raise
 
 
+def test_warmup_shows_no_progress_bar_off_a_terminal(capsys):
+    warmup(_IdentityLikeModel().eval(), iterations=2)
+
+    assert capsys.readouterr().err == ""  # capsys is not a terminal
+
+
 # ---------------------------------------------------------------------------
 # infer (1.0)
 # ---------------------------------------------------------------------------

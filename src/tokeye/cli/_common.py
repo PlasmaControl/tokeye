@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -139,6 +140,36 @@ def verbose_logging(enabled: bool) -> Iterator[None]:
     finally:
         package_logger.removeHandler(handler)
         package_logger.setLevel(level)
+
+
+@contextlib.contextmanager
+def one_line_warnings(verbose: bool) -> Iterator[None]:
+    """Without ``-v``, print each Python warning as one ``warning:`` line.
+
+    Python's form names the file, line number and source line of the code
+    that warned, which tells a CLI user nothing. Only the formatter is
+    replaced, for this call: filters and ``catch_warnings(record=True)``
+    work as before.
+    """
+    if verbose:
+        yield
+        return
+
+    def formatwarning(
+        message: Warning | str,
+        category: type[Warning],
+        filename: str,
+        lineno: int,
+        line: str | None = None,
+    ) -> str:
+        return one_line(f"warning: {message}") + "\n"
+
+    original = warnings.formatwarning
+    warnings.formatwarning = formatwarning
+    try:
+        yield
+    finally:
+        warnings.formatwarning = original
 
 
 @contextlib.contextmanager

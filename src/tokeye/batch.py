@@ -465,7 +465,8 @@ def process_files(
     cfg, fs = _coerce_config(config, fs)
     check_unique_stems(paths)
     failures = 0
-    for path in tqdm(paths, desc="tokeye run"):
+    # disable=None: no bar when stderr is not a terminal (a SLURM log, say).
+    for path in tqdm(paths, desc="tokeye run", disable=None):
         try:
             process_file(
                 path,

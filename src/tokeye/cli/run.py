@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from tokeye.cli import _common, _options
 
 if TYPE_CHECKING:
     import argparse
+    from pathlib import Path
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
@@ -71,4 +73,18 @@ def _handle(args: argparse.Namespace) -> int:
         key=args.key,
         on_error=_common.report_failure,
     )
+    written = len(setup.paths) - failures
+    print(_summary(written, failures, setup.out_dir, fmt=args.fmt, png=args.png))
     return _common.EXIT_FAILED if failures else _common.EXIT_OK
+
+
+def _summary(written: int, failed: int, out_dir: Path, *, fmt: str, png: bool) -> str:
+    """The line ``tokeye run`` ends with: how many inputs, where, which files.
+
+    For example ``wrote 3 inputs -> tokeye_output/ (mask, preview, params)``,
+    with ``; 1 failed`` appended when inputs failed.
+    """
+    kinds = ["mask" if fmt == "npy" else "bundle", *(["preview"] if png else [])]
+    inputs = "input" if written == 1 else "inputs"
+    line = f"wrote {written} {inputs} -> {out_dir}{os.sep} ({', '.join(kinds)}, params)"
+    return f"{line}; {failed} failed" if failed else line

@@ -3,23 +3,28 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import os
+import signal
 import socket
 import sys
+import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tokeye.cli import _common, _options
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7860
 PORT_ATTEMPTS = 10
 
 MISSING_EXTRA = (
-    "`tokeye app` needs the 'app' extra (gradio), which is not installed.\n"
-    "Install it with:\n"
-    '    pip install "tokeye[app]"      # or:  uv pip install "tokeye[app]"\n'
-    "(underlying import error: {exc})"
+    "tokeye app needs the 'app' extra (gradio): pip install \"tokeye[app]\" "
+    "(underlying: {exc})"
 )
 
 
@@ -193,6 +198,36 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+@contextlib.contextmanager
+def _record_ctrl_c() -> Iterator[list[int]]:
+    """Note each Ctrl-C (SIGINT) and raise ``KeyboardInterrupt`` as Python does.
+
+    gradio's ``launch`` catches the ``KeyboardInterrupt``, closes the server
+    and returns normally, so without the note a Ctrl-C would exit 0. The
+    yielded list holds the signals seen; Python's handler is put back
+    afterwards. Nothing changes when SIGINT does not raise
+    ``KeyboardInterrupt`` to begin with (ignored, or another handler) or
+    outside the main thread, where no handler can be installed.
+    """
+    seen: list[int] = []
+
+    def on_sigint(signum: int, frame: object) -> None:
+        seen.append(signum)
+        raise KeyboardInterrupt
+
+    if (
+        threading.current_thread() is not threading.main_thread()
+        or signal.getsignal(signal.SIGINT) is not signal.default_int_handler
+    ):
+        yield seen
+        return
+    signal.signal(signal.SIGINT, on_sigint)
+    try:
+        yield seen
+    finally:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+
+
 def _handle(args: argparse.Namespace) -> int:
     try:
         from tokeye.app.__main__ import main as app_main
@@ -202,8 +237,7 @@ def _handle(args: argparse.Namespace) -> int:
         name = exc.name or ""
         if name != "gradio" and not name.startswith("gradio."):
             raise
-        print(MISSING_EXTRA.format(exc=exc), file=sys.stderr)
-        return _common.EXIT_USAGE
+        return _common.error(MISSING_EXTRA.format(exc=exc))
 
     try:
         port = pick_port(args.host, args.port)
@@ -240,11 +274,16 @@ def _handle(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    try:
-        app_main(port=port, share=args.share, open_browser=open_browser, host=args.host)
-    except OSError as exc:
-        return _common.error(
-            f"could not start the app on {args.host}:{port} ({exc}); "
-            "pass another --port"
-        )
+    with _record_ctrl_c() as ctrl_c:
+        try:
+            app_main(
+                port=port, share=args.share, open_browser=open_browser, host=args.host
+            )
+        except OSError as exc:
+            return _common.error(
+                f"could not start the app on {args.host}:{port} ({exc}); "
+                "pass another --port"
+            )
+    if ctrl_c:
+        raise KeyboardInterrupt  # main() prints "interrupted" and exits 130
     return _common.EXIT_OK

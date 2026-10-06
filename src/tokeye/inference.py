@@ -336,5 +336,5 @@ def warmup(model: nn.Module, iterations: int = 10) -> None:
     device = _device_of(model)
     dummy_input = torch.randn(*WARMUP_INPUT_SHAPE, device=device, dtype=torch.float32)
     with torch.inference_mode():
-        for _ in tqdm(range(iterations)):
+        for _ in tqdm(range(iterations), disable=None):  # no bar off a terminal
             _ = model(dummy_input)

@@ -91,3 +91,46 @@ def test_cli_help_does_not_pull_in_heavy_modules(argv):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith("ok")
+
+
+def test_python_m_tokeye_help_does_not_pull_in_heavy_modules():
+    """``python -m tokeye --help`` is ``tokeye --help``, and as light."""
+    code = (
+        "import runpy, sys\n"
+        "sys.argv = ['tokeye', '--help']\n"
+        "try:\n"
+        "    runpy.run_module('tokeye', run_name='__main__', alter_sys=True)\n"
+        "except SystemExit as exc:\n"
+        "    assert exc.code == 0, exc.code\n"
+        "else:\n"
+        "    raise AssertionError('no SystemExit')\n"
+        f"bad = [m for m in {HEAVY!r} if m in sys.modules]\n"
+        "assert not bad, bad\n"
+        "print('ok')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage: tokeye" in result.stdout
+    assert result.stdout.strip().endswith("ok")
+
+
+def test_python_m_tokeye_exits_with_the_cli_code():
+    import tokeye
+
+    version = subprocess.run(
+        [sys.executable, "-m", "tokeye", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    no_command = subprocess.run(
+        [sys.executable, "-m", "tokeye"], capture_output=True, text=True, check=False
+    )
+
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.strip() == f"tokeye {tokeye.__version__}"
+    assert no_command.returncode == 2
+    assert "usage: tokeye" in no_command.stderr

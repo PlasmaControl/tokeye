@@ -106,7 +106,7 @@ eye = TokEye(config=config)  # the same settings, as one object
 
 ## Batch processing (CLI)
 
-For headless / scripted use (no browser needed), run inference directly. For example:
+For headless / scripted use (no browser needed), run inference directly (`tokeye`, or `python -m tokeye` when the script is not on your `PATH`). For example:
 
 ```bash
 tokeye run "files/*.npy" --output-dir results
@@ -122,7 +122,7 @@ For each input file, `tokeye run` writes:
 - `<stem>_params.json` — the model, version, device, input, `key`, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled), and the weights used (`weights`: repo, file name, revision and sha256 for a registry model; file name and sha256 for a local checkpoint, which `model` names by its file name only).
 - With `--format npz`, `<stem>_tokeye.npz` (mask + spectrogram + axes, loadable with `tokeye.Segmentation.load`) replaces the `.npy` mask.
 
-Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs, model cannot be loaded), 130 = interrupted. Errors are one line; add `-v` for details.
+The run ends with one line on stdout, such as `wrote 3 inputs -> tokeye_output/ (mask, preview, params)`, and shows a progress bar only on a terminal. Exit codes: 0 = every input succeeded, 1 = at least one input failed, 2 = usage or configuration error (bad flag, unknown model, no inputs, model cannot be loaded), 130 = interrupted. Errors and warnings are one line each; add `-v` for details.
 
 Flags:
 | Flag | Default | Description |
