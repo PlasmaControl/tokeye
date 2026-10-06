@@ -19,7 +19,7 @@ import numpy as np
 
 from . import hub
 from .config import SpectrogramConfig, resolve_channels
-from .inference import check_tile, infer
+from .inference import _device_of, check_tile, infer
 from .preprocess import Spectrogram, _check_fs, _values64, prepare
 from .result import Segmentation
 
@@ -102,6 +102,12 @@ class TokEye:
         self.channels = hub.channels_for(model)
         self.model = hub.load_model(model, device)
         self.weights = hub.weights_info(model)
+
+    def __repr__(self) -> str:
+        device = str(_device_of(self.model))
+        return (
+            f"TokEye(model={self.model_name!r}, device={device!r}, tile={self.tile!r})"
+        )
 
     @property
     def log(self) -> bool:

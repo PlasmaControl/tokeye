@@ -153,6 +153,54 @@ class TestSaveLoad:
         with pytest.raises(ValueError, match="not a tokeye-analysis/v1"):
             Segmentation.load(path)
 
+    def test_an_npz_without_a_schema_is_not_a_bundle(self, tmp_path):
+        path = tmp_path / "plain.npz"
+        np.savez(path, mask=np.zeros((2, 4, 4), dtype=np.float32))
+        with pytest.raises(ValueError) as info:
+            Segmentation.load(path)
+        assert str(info.value) == (
+            f"{path} is not a tokeye-analysis/v1 bundle (schema=None)"
+        )
+
+    def test_a_bare_mask_says_how_to_get_a_bundle(self, tmp_path):
+        path = tmp_path / "shot_mask.npy"  # what `tokeye run` writes by default
+        np.save(path, np.zeros((2, 4, 4), dtype=np.float32))
+
+        with pytest.raises(ValueError) as info:
+            Segmentation.load(path)
+
+        message = str(info.value)
+        assert message.startswith(f"{path} is a bare array")
+        assert "not a tokeye-analysis/v1 bundle" in message
+        assert "tokeye run --format npz" in message
+        assert "Segmentation.save" in message
+
+
+class TestRepr:
+    def test_names_the_model_mask_shape_channels_and_axes(self):
+        seg = _segmentation()
+
+        assert repr(seg) == (
+            "Segmentation(model='big_tf_unet', mask=(2, 64, 65), "
+            "channels=('coherent', 'transient'), fs=8000 Hz, "
+            "freqs=62.5 to 4000 Hz, times=0 to 0.256 s)"
+        )
+
+    def test_without_fs_the_axes_are_bins_and_frames(self):
+        text = repr(_segmentation(fs=None))
+
+        assert text.endswith("fs=None, freqs=bins 1 to 64, times=frames 0 to 64)")
+
+    def test_a_large_result_stays_short(self):
+        spec = prepare(np.ones((512, 4000)), CFG, fs=FS)
+        seg = Segmentation(np.zeros((2, 512, 4000), np.float32), spec)
+
+        text = repr(seg)
+
+        assert len(text) < 300
+        assert "mask=(2, 512, 4000)" in text
+        assert "\n" not in text
+
 
 class TestPlotting:
     def test_plot_labels_axes_in_physical_units(self):

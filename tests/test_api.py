@@ -201,3 +201,7 @@ class TestSegment:
         spec = np.random.default_rng(0).random((32, 32))
         assert eye.predict(spec).shape == (32, 32)
         assert eye.segment(spec).channels == ("channel_0",)
+
+
+def test_repr_names_the_model_device_and_tile(eye):
+    assert repr(eye) == "TokEye(model='big_tf_unet', device='cpu', tile='auto')"

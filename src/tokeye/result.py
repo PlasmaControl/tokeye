@@ -25,7 +25,7 @@ from .config import (
     _user_stacklevel,
     resolve_channels,
 )
-from .preprocess import KINDS, Spectrogram, _axes
+from .preprocess import KINDS, Spectrogram, _axes, _axes_text
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -87,6 +87,13 @@ class Segmentation:
             )
         object.__setattr__(self, "mask", mask)
         object.__setattr__(self, "channels", channels)
+
+    def __repr__(self) -> str:
+        return (
+            f"Segmentation(model={self.model!r}, mask={self.mask.shape}, "
+            f"channels={self.channels!r}, "
+            f"{_axes_text(self.fs, self.freqs, self.times)})"
+        )
 
     def __getitem__(self, name: str) -> np.ndarray:
         """The ``(H, W)`` scores of channel ``name``."""
@@ -201,9 +208,19 @@ class Segmentation:
         Raises
         ------
         ValueError
-            The file is not a ``tokeye-analysis/v1`` bundle, or has no mask.
+            The file is not a ``tokeye-analysis/v1`` bundle (a bare ``.npy``
+            mask, say: ``tokeye run --format npz`` and :meth:`save` write
+            bundles), or has no mask.
         """
-        with np.load(Path(path), allow_pickle=False) as data:
+        loaded = np.load(Path(path), allow_pickle=False)
+        if isinstance(loaded, np.ndarray):
+            raise ValueError(
+                f"{path} is a bare array (such as the mask `tokeye run` writes by "
+                f"default), not a {export.SCHEMA_ANALYSIS} bundle; "
+                "`tokeye run --format npz` or Segmentation.save() writes a bundle "
+                "that loads"
+            )
+        with loaded as data:
             files = set(data.files)
             schema = str(data["schema"]) if "schema" in files else None
             if schema != export.SCHEMA_ANALYSIS:

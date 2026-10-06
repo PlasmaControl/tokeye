@@ -74,6 +74,34 @@ class Spectrogram:
     def shape(self) -> tuple[int, int]:
         return self.values.shape
 
+    def __repr__(self) -> str:
+        return (
+            f"Spectrogram(kind={self.kind!r}, shape={np.shape(self.values)}, "
+            f"{_axes_text(self.fs, self.freqs, self.times)})"
+        )
+
+
+def _axis_span(axis: Any, unit: str | None, index: str) -> str:
+    """``"62.5 to 4000 Hz"``, or ``"bins 1 to 64"`` (``index``) without a unit."""
+    values = np.asarray(axis).ravel()
+    if values.size == 0:
+        return f"{index} (none)" if unit is None else "(none)"
+    span = f"{float(values[0]):g} to {float(values[-1]):g}"
+    return f"{index} {span}" if unit is None else f"{span} {unit}"
+
+
+def _axes_text(fs: float | None, freqs: Any, times: Any) -> str:
+    """The ``fs=..., freqs=..., times=...`` part of a repr, with units."""
+    if fs is None:
+        return (
+            f"fs=None, freqs={_axis_span(freqs, None, 'bins')}, "
+            f"times={_axis_span(times, None, 'frames')}"
+        )
+    return (
+        f"fs={float(fs):g} Hz, freqs={_axis_span(freqs, 'Hz', '')}, "
+        f"times={_axis_span(times, 's', '')}"
+    )
+
 
 def prepare(
     data: Any,

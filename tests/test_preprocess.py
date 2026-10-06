@@ -200,3 +200,39 @@ class TestOneAxisRule:
     def test_n_samples_is_the_signal_length(self, signal, kind, expected):
         data, reference = _inputs(kind, signal)
         assert prepare(data, CFG, reference=reference).n_samples == expected
+
+
+class TestRepr:
+    def test_with_fs_the_axes_are_in_hz_and_seconds(self, signal):
+        spec = prepare(signal, CFG, fs=FS)
+
+        assert repr(spec) == (
+            "Spectrogram(kind='stft', shape=(128, 65), fs=10000 Hz, "
+            "freqs=39.0625 to 5000 Hz, times=0 to 0.4096 s)"
+        )
+
+    def test_without_fs_the_axes_are_bins_and_frames(self):
+        spec = prepare(np.ones((8, 5)), CFG)
+
+        assert repr(spec) == (
+            "Spectrogram(kind='spectrogram', shape=(8, 5), fs=None, "
+            "freqs=bins 1 to 8, times=frames 0 to 4)"
+        )
+
+    def test_a_large_spectrogram_stays_short(self):
+        text = repr(prepare(np.ones((512, 4000)), CFG, fs=FS))
+
+        assert len(text) < 300
+        assert "shape=(512, 4000)" in text
+
+    def test_an_empty_axis(self):
+        spec = Spectrogram(
+            np.ones((2, 0), np.float32),
+            np.array([1.0, 2.0]),
+            np.array([]),
+            "spectrogram",
+            CFG,
+            None,
+        )
+
+        assert repr(spec).endswith("freqs=bins 1 to 2, times=frames (none))")

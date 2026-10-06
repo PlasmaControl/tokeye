@@ -18,10 +18,11 @@ golden test now pins its output.
 - `TokEye.segment()` returns a `Segmentation`: the mask plus the spectrogram,
   frequency/time axes (in Hz and seconds when the sampling rate `fs` is known),
   channel access by name (`seg["coherent"]`), `save()`/`load()` as a
-  `tokeye-analysis/v1` `.npz` bundle, and `plot()`. It records the weights
-  used (`weights`: repo, file name, revision and sha256 for registry models;
-  file name and sha256 for local checkpoints) and names a local checkpoint by
-  its file name only.
+  `tokeye-analysis/v1` `.npz` bundle (`load()` of a bare `.npy` mask is a
+  `ValueError` that says how to write a bundle), and `plot()`. It records the
+  weights used (`weights`: repo, file name, revision and sha256 for registry
+  models; file name and sha256 for local checkpoints) and names a local
+  checkpoint by its file name only.
 - `tokeye.SpectrogramConfig`, the single, validated source of preprocessing
   defaults (`n_fft=1024`, `hop=128`, ...). `TokEye(config=...)` and
   `run_batch(config=...)` accept it; the CLI builds its flags from it.
@@ -60,6 +61,9 @@ golden test now pins its output.
 - `-v`/`--verbose` on every subcommand (before or after it) shows debug logs,
   including the tracebacks of per-input failures.
 - `python -m tokeye` runs the CLI, as `tokeye` does.
+- `TokEye`, `Spectrogram` and `Segmentation` have short reprs (model, device
+  and tile; shapes, channel names, `fs` and axis ranges with units) instead
+  of dumping every array.
 - `tokeye.batch.process_files`: the per-file loop of `run_batch`, for callers
   that already hold a loaded model.
 - `key=` (in `load_signal`, `load_spectrogram`, `process_file`,
