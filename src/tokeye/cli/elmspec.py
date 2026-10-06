@@ -93,7 +93,7 @@ def _transient(seg: Segmentation) -> np.ndarray:
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from tokeye import batch
+    from tokeye import batch, hub
     from tokeye._plotting import save_preview
     from tokeye.config import resolve_channels
     from tokeye.elmspec import (
@@ -110,6 +110,7 @@ def _handle(args: argparse.Namespace) -> int:
     if setup is None:
         return _common.EXIT_USAGE
     config, out_dir = setup.config, setup.out_dir
+    label = hub.model_label(args.model)  # a file name, never a local path
 
     rows = []
     summaries = []
@@ -119,7 +120,7 @@ def _handle(args: argparse.Namespace) -> int:
             spec = batch.load_spectrogram(path, config, fs=args.fs, key=args.key)
             mask = infer(setup.model, spec.values, tile=args.tile)
             names = resolve_channels(setup.channels, mask.shape[0])
-            seg = Segmentation(mask, spec, names, str(args.model))
+            seg = Segmentation(mask, spec, names, label)
             events = extract_elm_events(
                 _transient(seg),
                 threshold=args.threshold,

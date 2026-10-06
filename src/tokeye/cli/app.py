@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import errno
 import os
 import socket
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from tokeye.cli import _common, _options
-
-if TYPE_CHECKING:
-    import argparse
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7860
@@ -24,6 +21,14 @@ MISSING_EXTRA = (
     '    pip install "tokeye[app]"      # or:  uv pip install "tokeye[app]"\n'
     "(underlying import error: {exc})"
 )
+
+
+class _GivenHost(argparse.Action):
+    """Store ``--host`` and record that it was given on the command line."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.host_given = True
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
@@ -40,6 +45,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--host",
         type=_options.nonempty_str,
+        action=_GivenHost,
         # Gradio read this variable before 1.0; a blank one counts as unset
         # (argparse runs type= on a string default).
         default=os.environ.get("GRADIO_SERVER_NAME", "").strip() or DEFAULT_HOST,
@@ -80,7 +86,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         help="directory the app reads and writes files in (created if missing; "
         "default: the current directory)",
     )
-    parser.set_defaults(handler=_handle, browser=None)
+    parser.set_defaults(handler=_handle, browser=None, host_given=False)
 
 
 def _probe(host: str, port: int) -> str:
@@ -175,6 +181,18 @@ def pick_port(host: str, first: int, attempts: int = PORT_ATTEMPTS) -> int:
     raise ValueError(f"no free port in {first}-{last} on {host}; pass another --port")
 
 
+def _is_loopback(host: str) -> bool:
+    """Whether ``host`` is ``localhost`` or a loopback address (127/8, ::1)."""
+    import ipaddress
+
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:  # a host name
+        return False
+
+
 def _handle(args: argparse.Namespace) -> int:
     try:
         from tokeye.app.__main__ import main as app_main
@@ -203,6 +221,13 @@ def _handle(args: argparse.Namespace) -> int:
     open_browser = args.browser if args.browser is not None else not remote
     if port != args.port:
         print(f"note: port {args.port} is in use; using {port}", file=sys.stderr)
+    # Without --host, a host that is not loopback came from the environment.
+    if not args.host_given and not _is_loopback(args.host):
+        print(
+            f"note: binding to {args.host} from $GRADIO_SERVER_NAME; the app is "
+            "reachable from other machines",
+            file=sys.stderr,
+        )
     if remote and not args.share:
         print(
             f"note: SSH session detected; forward the port from your laptop: "
@@ -218,5 +243,8 @@ def _handle(args: argparse.Namespace) -> int:
     try:
         app_main(port=port, share=args.share, open_browser=open_browser, host=args.host)
     except OSError as exc:
-        return _common.error(f"could not start the app on {args.host}:{port} ({exc})")
+        return _common.error(
+            f"could not start the app on {args.host}:{port} ({exc}); "
+            "pass another --port"
+        )
     return _common.EXIT_OK

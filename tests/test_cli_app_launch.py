@@ -264,6 +264,51 @@ class TestAppHandler:
         line = one_error_line(capsys.readouterr().err)
         assert "could not start the app on 127.0.0.1:7860" in line
         assert "boom second line" in line
+        assert line.endswith("; pass another --port")
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.7", "::", "box.example"])
+    def test_a_non_loopback_host_from_the_environment_is_noted(
+        self, calls, monkeypatch, capsys, host
+    ):
+        monkeypatch.setenv("GRADIO_SERVER_NAME", host)
+
+        assert main(["app", "--no-browser"]) == 0
+
+        notes = [
+            line
+            for line in capsys.readouterr().err.splitlines()
+            if "GRADIO_SERVER_NAME" in line
+        ]
+        assert notes == [
+            f"note: binding to {host} from $GRADIO_SERVER_NAME; the app is "
+            "reachable from other machines"
+        ]
+        assert calls["host"] == host
+
+    @pytest.mark.parametrize(
+        "host", ["127.0.0.1", "127.1.2.3", "::1", "localhost", "LocalHost"]
+    )
+    def test_a_loopback_host_from_the_environment_is_not_noted(
+        self, calls, monkeypatch, capsys, host
+    ):
+        monkeypatch.setenv("GRADIO_SERVER_NAME", host)
+
+        assert main(["app", "--no-browser"]) == 0
+
+        assert "GRADIO_SERVER_NAME" not in capsys.readouterr().err
+        assert calls["host"] == host
+
+    @pytest.mark.parametrize("environment", [None, "0.0.0.0"])
+    def test_an_explicit_host_is_not_noted(
+        self, calls, monkeypatch, capsys, environment
+    ):
+        if environment is not None:
+            monkeypatch.setenv("GRADIO_SERVER_NAME", environment)
+
+        assert main(["app", "--no-browser", "--host", "0.0.0.0"]) == 0
+
+        assert "GRADIO_SERVER_NAME" not in capsys.readouterr().err
+        assert calls["host"] == "0.0.0.0"
 
     def test_another_launch_exception_propagates(self, calls, monkeypatch):
         def broken(**kwargs):

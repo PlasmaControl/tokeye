@@ -152,6 +152,31 @@ class TestElmspec:
         assert float(summary[0]["elm_freq_hz"]) == pytest.approx(2 / (64 * 0.5))
         assert "note:" not in capsys.readouterr().err
 
+    def test_results_name_a_local_model_by_its_file_name(
+        self, elm_spectrogram, tmp_path, monkeypatch
+    ):
+        labels = []
+        monkeypatch.setattr(
+            "tokeye._plotting.save_preview",
+            lambda seg, path, threshold=0.5: labels.append(seg.model),
+        )
+        checkpoint = tmp_path / "private_dir" / "my_model.pt"
+
+        exit_code = main(
+            [
+                "elmspec",
+                str(elm_spectrogram),
+                "--model",
+                str(checkpoint),
+                "--png",
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+        assert exit_code == 0
+        assert labels == ["my_model.pt"]
+
     def test_png_and_failures(self, elm_spectrogram, tmp_path):
         bad = tmp_path / "bad.npy"
         np.save(bad, np.zeros((2, 3, 4)))
