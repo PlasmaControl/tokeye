@@ -347,6 +347,38 @@ def test_h5_reads_only_the_chosen_dataset(tmp_path, monkeypatch):
     assert set(reads) == {"/signal"}
 
 
+@pytest.mark.parametrize("key", ["c/other/data", "/c/other/data"])
+def test_h5_a_direct_key_never_walks_the_file(tree_h5, monkeypatch, key):
+    h5py = pytest.importorskip("h5py")
+    walks = []
+    visititems = h5py.Group.visititems
+
+    def spy(self, func):
+        walks.append(self.name)
+        return visititems(self, func)
+
+    monkeypatch.setattr(h5py.Group, "visititems", spy)
+
+    np.testing.assert_array_equal(load_signal(tree_h5, key=key)[0], 3 * SIG)
+    assert walks == []
+
+
+def test_h5_a_suffix_key_judges_only_its_match(tree_h5, monkeypatch):
+    from tokeye import io
+
+    judged = []
+    usable = io._h5_usable
+
+    def spy(name, dset):
+        judged.append(name)
+        return usable(name, dset)
+
+    monkeypatch.setattr(io, "_h5_usable", spy)
+
+    np.testing.assert_array_equal(load_signal(tree_h5, key="other/data")[0], 3 * SIG)
+    assert judged == ["c/other/data"]
+
+
 def test_h5_key_follows_a_soft_link(tmp_path):
     h5py = pytest.importorskip("h5py")
 
@@ -525,6 +557,33 @@ def test_time_unit_from_a_savetxt_comment_header(tmp_path):
 def test_a_comment_that_is_not_a_header_is_ignored(tmp_path):
     path = _table(tmp_path / "x.csv", "# sampled every 2 ms", 0.5)
     assert load_signal(path)[1] == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize(
+    "comment", ["# sampled at 2 ms, 1 kHz", "# t in ms, value", "# t ms, v"]
+)
+def test_a_two_part_comment_with_phrases_is_not_a_header(tmp_path, comment):
+    # Seconds at 1 kHz: a comment whose names are not single tokens (plus an
+    # optional bracketed unit) says nothing about the time column's unit.
+    path = _table(tmp_path / "x.csv", comment, 0.001)
+    assert load_signal(path)[1] == pytest.approx(1000.0)
+
+
+@pytest.mark.parametrize(
+    ("name", "header", "sep"),
+    [
+        ("x.csv", "# time [ms],value", ","),
+        ("x.csv", "# t(ms), v", ","),
+        ("x.csv", "# t (ms) , v", ","),
+        ("x.txt", "# t_ms value", " "),
+        ("x.txt", "# time [ms] value", " "),
+    ],
+)
+def test_a_comment_header_with_one_token_names_gives_the_unit(
+    tmp_path, name, header, sep
+):
+    path = _table(tmp_path / name, header, 0.5, sep=sep)
+    assert load_signal(path)[1] == pytest.approx(2000.0)
 
 
 @pytest.mark.parametrize(

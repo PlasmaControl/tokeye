@@ -19,13 +19,14 @@ import re
 import warnings
 import zipfile
 import zlib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Iterator
 
 SIGNAL_SUFFIXES = (
     ".npy",
@@ -61,6 +62,9 @@ _TIME_UNIT = re.compile(
     r"(?<![A-Za-z])(ms|msec|us|µs|μs|usec)(?![A-Za-z])", re.IGNORECASE
 )
 _BRACKETED = re.compile(r"\(.*\)|\[.*\]")
+# A column name in a '#' comment header: one token, then optionally a
+# bracketed or parenthesised unit (time [ms], t(ms), t_ms, value).
+_HEADER_NAME = re.compile(r"[^\s()\[\]]+(?:\s*(?:\([^()]*\)|\[[^\[\]]*\]))?")
 
 
 def load_signal(
@@ -245,7 +249,9 @@ def _choose(path: Path, entries: Mapping[str, bool], key: str | None) -> str:
     entries
         Every entry name (an npz key, a ``.mat`` variable or an HDF5
         dataset path without the leading ``/``) mapped to whether it is a
-        usable array: numeric, not bool, with more than one element.
+        usable array: numeric, not bool, with more than one element. Values
+        are read only when needed: all of them without a key or when the
+        key matches nothing (to list the candidates), else only the match's.
     key
         The caller's ``key=``, already checked by :func:`_check_key`.
 
@@ -255,12 +261,16 @@ def _choose(path: Path, entries: Mapping[str, bool], key: str | None) -> str:
         No entry, or several, qualify; or ``key`` matches none, several, or
         an entry that is not usable.
     """
-    candidates = [
-        name
-        for name, usable in entries.items()
-        if usable and _basename(name).lower() not in FS_KEYS
-    ]
+
+    def usable_names() -> list[str]:
+        return [
+            name
+            for name, usable in entries.items()
+            if usable and _basename(name).lower() not in FS_KEYS
+        ]
+
     if key is None:
+        candidates = usable_names()
         named = [name for name in candidates if _basename(name) in DATA_KEYS]
         if len(named) == 1:
             return named[0]
@@ -285,7 +295,7 @@ def _choose(path: Path, entries: Mapping[str, bool], key: str | None) -> str:
     if not matches:
         raise ValueError(
             f"{path}: no array named {key!r}; candidates: "
-            f"{_list_names(candidates) or 'none'}"
+            f"{_list_names(usable_names()) or 'none'}"
         )
     if len(matches) > 1:
         raise ValueError(
@@ -418,9 +428,12 @@ def _time_scale(path: Path, *, csv: bool, header_row: bool) -> float:
 
     The unit comes from the first column name of the header row: the first
     line when it is not numeric (``header_row``), or a ``#`` comment first
-    line with one name per column (``np.savetxt(header=...)`` writes one).
-    A standalone ``ms``/``msec`` gives 1e-3, ``us``/``µs``/``usec`` 1e-6;
-    anything else is seconds.
+    line with one name per column (``np.savetxt(header=...)`` writes one),
+    each name a single token plus an optional bracketed or parenthesised
+    unit (``time [ms]``, ``t(ms)``, ``t_ms``, ``value``). Any other comment,
+    such as ``# sampled at 2 ms, 1 kHz``, is not a header. A standalone
+    ``ms``/``msec`` gives 1e-3, ``us``/``µs``/``usec`` 1e-6; anything else
+    is seconds.
     """
     with path.open(errors="replace") as fh:  # the default encoding, as loadtxt
         line = fh.readline().strip()
@@ -429,7 +442,10 @@ def _time_scale(path: Path, *, csv: bool, header_row: bool) -> float:
             return 1.0
         line = line[1:].lstrip()
     names = _column_names(line, csv=csv)
-    if not header_row and len(names) != 2:  # a comment, not a header
+    if not header_row and (
+        len(names) != 2
+        or not all(_HEADER_NAME.fullmatch(name.strip()) for name in names)
+    ):  # a comment, not a header
         return 1.0
     match = _TIME_UNIT.search(names[0]) if names else None
     if match is None:
@@ -494,6 +510,32 @@ def _h5_usable(name: str, dset: Any) -> bool:
     return empty is None or not np.any(np.asarray(empty) != 0)
 
 
+class _H5Usability(Mapping):
+    """HDF5 dataset name -> :func:`_h5_usable`, judged on first lookup.
+
+    Judging reads attributes, which is slow over a large file on a network
+    file system, so :func:`_choose` judges only the datasets it needs.
+    """
+
+    def __init__(self, datasets: dict[str, Any]) -> None:
+        self._datasets = datasets
+        self._usable: dict[str, bool] = {}
+
+    def __getitem__(self, name: str) -> bool:
+        if name not in self._usable:
+            self._usable[name] = _h5_usable(name, self._datasets[name])
+        return self._usable[name]
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._datasets
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._datasets)
+
+    def __len__(self) -> int:
+        return len(self._datasets)
+
+
 def _load_h5(
     path: Path, key: str | None, *, matlab: bool = False
 ) -> tuple[np.ndarray, float | None]:
@@ -511,23 +553,12 @@ def _load_h5(
         ) from exc
 
     with h5py.File(path, "r") as fh:
-        datasets: dict[str, Any] = {}
-        if matlab:
-            for name, obj in fh.items():
-                if isinstance(obj, h5py.Dataset):
-                    datasets[name] = obj
-        else:
-
-            def collect(name: str, obj: Any) -> None:
-                if isinstance(obj, h5py.Dataset):
-                    datasets[name] = obj
-
-            fh.visititems(collect)
-
         dset = None
         if key is not None and not matlab:
-            # Resolve the key itself first: visititems lists a hard-linked
-            # dataset under one name only and does not follow soft links.
+            # Resolve the key itself first, without walking the file (which
+            # takes seconds for a large one); visititems also lists a
+            # hard-linked dataset under one name only and does not follow
+            # soft links.
             name = key[1:] if key.startswith("/") else key
             obj = fh.get(name) if name else None
             if isinstance(obj, h5py.Dataset):
@@ -535,8 +566,19 @@ def _load_h5(
                     raise _not_usable(path, name)
                 dset = obj
         if dset is None:
-            entries = {name: _h5_usable(name, obj) for name, obj in datasets.items()}
-            dset = datasets[_choose(path, entries, key)]
+            datasets: dict[str, Any] = {}
+            if matlab:
+                for name, obj in fh.items():
+                    if isinstance(obj, h5py.Dataset):
+                        datasets[name] = obj
+            else:
+
+                def collect(name: str, obj: Any) -> None:
+                    if isinstance(obj, h5py.Dataset):
+                        datasets[name] = obj
+
+                fh.visititems(collect)
+            dset = datasets[_choose(path, _H5Usability(datasets), key)]
         data = np.asarray(dset[()])
         root_fs = {
             name: fh[name][()]
