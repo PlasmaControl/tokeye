@@ -50,7 +50,8 @@ golden test now pins its output.
 - `tokeye alfvenspec` writes `<stem>_ae_instances.npy` — an `(H, W)` label map
   where `i + 1` marks detection `i` — for windowed inputs too.
 - `tokeye app --host/--workspace/--no-browser`; the app binds to `127.0.0.1`,
-  or `$GRADIO_SERVER_NAME` when set. A bad `--host`, `--port` or `--workspace`
+  or `$GRADIO_SERVER_NAME` when set (with a `note:` line when that address is
+  reachable from other machines). A bad `--host`, `--port` or `--workspace`
   is a one-line error.
 - `tokeye.export`: the `.npz` export helpers shared by the app and
   `Segmentation.save()`.
@@ -115,6 +116,10 @@ golden test now pins its output.
 - `detect_windowed(window_cols=…)` rejects 1–31; `run_batch` rejects
   colliding stems and a non-finite or non-positive `fs` before loading the
   model.
+- `tokeye.elmspec.summarize` and `write_events_csv` raise `ValueError` when
+  `fs` or `hop` is zero, negative or not finite. 0.12.0 treated `fs=0` as an
+  unknown rate (no ELM frequency, blank times) and `hop=0` as zero-length
+  columns.
 - A container with several candidate arrays now raises and lists them.
   Before, it silently took the first `data`/`signal`/`x`/… name: for example,
   `np.savez(f, x=t, y=v)` returned the time vector, and an HDF5 file with
@@ -132,8 +137,9 @@ golden test now pins its output.
 
 - `run_batch(stft_kwargs=..., log=...)`: use `config=SpectrogramConfig(...)`.
   An `fs` key in `stft_kwargs` moves to `fs=`.
-- Passing a `dict` of STFT settings to `process_file` (or `process_files`).
-  An `fs` key in the dict moves to `fs=`.
+- Passing a `dict` of STFT settings to `process_file` (or `process_files`),
+  including 0.12.0's `process_file(stft_kwargs=...)`: use
+  `config=SpectrogramConfig(...)`. An `fs` key in the dict moves to `fs=`.
 - `--keep-dc`: use `--no-clip-dc`.
 - Integers `0`/`1` for `clip_dc` and `log`: pass `True`/`False`.
 - `tokeye alfvenspec`'s `<stem>_ae_masks.npy` (per-detection soft masks,
@@ -148,6 +154,8 @@ golden test now pins its output.
   the unused `ae_tf_boxrcnn` model, `tokeye.extra`, and other dead code.
 - The `train` extra: training runs from a clone with `uv sync --group train`,
   and `tokeye.training` is no longer shipped in the wheel or sdist.
+- `tokeye.export.modes_csv_text`, with modespec (it was on `main` after
+  0.12.0 but in no release).
 
 ### Fixed
 

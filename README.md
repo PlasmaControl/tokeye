@@ -117,7 +117,7 @@ tokeye run "files/*.npy" --output-dir results
 - **2D array** — a precomputed spectrogram, fed to the model directly. Its columns are assumed to follow the same rule.
 
 For each input file, `tokeye run` writes:
-- `<stem>_mask.npy` — float32 array, shape `(2, H, W)`, sigmoid scores per pixel (channel 0 = coherent, channel 1 = transient).
+- `<stem>_mask.npy` — float32 sigmoid scores per pixel, shape `(C, H, W)`; `(2, H, W)` for the default model (channel 0 = coherent, channel 1 = transient).
 - `<stem>_preview.png` — a grayscale spectrogram with the mask overlaid (green = coherent, red = transient), unless `--no-png` is passed.
 - `<stem>_params.json` — the model, version, device, input, `key`, `fs`, preprocessing settings and tiling used (`tile` as requested; `tile_shape` as `[h, w]`, or `null` when the run was untiled), and the weights used (`weights`: repo, file name, revision and sha256 for a registry model; file name and sha256 for a local checkpoint, which `model` names by its file name only).
 - With `--format npz`, `<stem>_tokeye.npz` (mask + spectrogram + axes, loadable with `tokeye.Segmentation.load`) replaces the `.npy` mask.
