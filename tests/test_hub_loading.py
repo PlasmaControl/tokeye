@@ -165,6 +165,60 @@ class TestTorchScript:
         assert len(calls) == 1
 
 
+def _undecodable_member_name(path) -> None:
+    """A zip whose UTF-8-flagged member name holds invalid UTF-8."""
+    _zip(path, {"ab/constants.pkl": b"x"})
+    data = bytearray(path.read_bytes())
+    entry = data.index(b"PK\x01\x02")  # the central directory entry
+    (flags,) = struct.unpack_from("<H", data, entry + 8)
+    struct.pack_into("<H", data, entry + 8, flags | 0x800)  # names are UTF-8
+    data[entry + 46] = 0xFF  # the name's first byte
+    path.write_bytes(bytes(data))
+
+
+class TestUnreadableCheckpoints:
+    """Every unreadable local checkpoint is ``<name>: not a readable checkpoint``."""
+
+    def test_an_undecodable_zip_member_name(self, tmp_path):
+        path = tmp_path / "u.pt"
+        _undecodable_member_name(path)
+        with pytest.raises(UnicodeDecodeError):
+            zipfile.ZipFile(path)
+
+        with pytest.raises(ValueError, match=re.escape(f"{path}: not a readable")):
+            hub.load_model(str(path), "cpu")
+        assert hub._is_torchscript(path) is False
+
+    @pytest.mark.parametrize(
+        ("payload", "kind"), [(torch.zeros(3), "Tensor"), ([1, 2], "list")]
+    )
+    def test_a_payload_that_is_not_a_model(self, tmp_path, payload, kind):
+        path = tmp_path / "w.pt"
+        torch.save(payload, path)
+
+        with pytest.raises(ValueError) as info:
+            hub.load_model(str(path), "cpu")
+
+        assert str(info.value) == (
+            f"{path}: not a readable checkpoint (TypeError: holds a {kind})"
+        )
+
+    def test_a_legacy_pickle_that_is_not_a_model(self, tmp_path, caplog):
+        path = tmp_path / "legacy.pt"
+        torch.save({"model": nn.Linear(2, 2)}, path)  # weights_only=True refuses
+
+        with (
+            caplog.at_level(logging.WARNING, logger="tokeye"),
+            pytest.raises(ValueError) as info,
+        ):
+            hub.load_model(str(path), "cpu")
+
+        assert str(info.value) == (
+            f"{path}: not a readable checkpoint (TypeError: holds a dict)"
+        )
+        assert _tokeye_warnings(caplog) == []  # one error, no trust warning
+
+
 class TestTorchvisionHint:
     def test_missing_torchvision_gets_the_hint(self, monkeypatch):
         _block_torchvision(monkeypatch)

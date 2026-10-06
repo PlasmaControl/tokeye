@@ -449,6 +449,13 @@ def _unreadable(name: str, exc: Exception) -> ValueError:
     )
 
 
+def _as_module(name: str, loaded: object) -> nn.Module:
+    """``loaded`` if it is a model, else the unreadable-checkpoint error."""
+    if not isinstance(loaded, torch.nn.Module):
+        raise _unreadable(name, TypeError(f"holds a {type(loaded).__name__}"))
+    return loaded
+
+
 def _load_pt2(path: Path, name: str, device: str) -> nn.Module:
     try:
         program = torch.export.load(str(path))
@@ -471,6 +478,7 @@ def _load_legacy_module(path: Path, name: str, device: str) -> nn.Module:
         raise
     except Exception as exc:
         raise _unreadable(name, exc) from exc
+    model = _as_module(name, model)  # a pickled dict, say
     # Logged only once the load worked, so an unreadable file is one error.
     logger.warning(
         "%s could not be loaded safely (weights_only=True), so the full file "
@@ -485,14 +493,16 @@ def _is_torchscript(path: Path) -> bool:
 
     As torch itself decides: a zip file with a ``<top>/constants.pkl``
     member, ``<top>`` being the archive's own top-level directory, which
-    ``torch.save`` never writes. A zip whose directory cannot be read is not.
+    ``torch.save`` never writes. A zip whose directory cannot be read (a
+    bad entry, member names that are not valid UTF-8, ...) is not: the
+    detection is advisory, and ``torch.load`` then reports the file.
     """
     try:
         if not zipfile.is_zipfile(path):
             return False
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
-    except (OSError, zipfile.BadZipFile):
+    except Exception:  # noqa: BLE001 - advisory: torch.load names the file
         return False
     for member in names:
         parts = member.split("/")
@@ -532,7 +542,7 @@ def _load_pt(path: Path, name: str, device: str) -> nn.Module:
     if isinstance(loaded, Mapping):
         return _build_from_state_dict(loaded, device)
 
-    return loaded.to(device).eval()
+    return _as_module(name, loaded).to(device).eval()  # a bare tensor, say
 
 
 def load_model(source: str | Path = DEFAULT_MODEL, device: str = "auto") -> nn.Module:
