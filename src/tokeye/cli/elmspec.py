@@ -10,6 +10,10 @@ from tokeye.cli import _common, _options
 if TYPE_CHECKING:
     import argparse
 
+    import numpy as np
+
+    from tokeye.result import Segmentation
+
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
@@ -19,7 +23,9 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "Segment each input, then turn broadband stripes in the transient "
             "channel into ELM events. Writes elm_events.csv and "
-            "elm_summary.csv (plus <stem>_elm_preview.png with --png)."
+            "elm_summary.csv (plus <stem>_elm_preview.png with --png). Event "
+            "times are column times: column j is j*hop/fs seconds after the "
+            "first sample (j*dt with --dt)."
         ),
     )
     parser.add_argument(
@@ -39,7 +45,8 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help=(
             "seconds per spectrogram column; overrides --hop/--fs (use it for "
-            "2D inputs whose columns are not --hop samples apart)"
+            "2D inputs whose columns are not --hop samples apart) and sets the "
+            "duration used for the ELM frequency (columns x dt)"
         ),
     )
     parser.add_argument(
@@ -74,7 +81,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(handler=_handle)
 
 
-def _transient(seg):
+def _transient(seg: Segmentation) -> np.ndarray:
     """The transient channel: by name, else channel 1 of a 2+ channel mask."""
     if "transient" in seg.channels:
         return seg["transient"]
@@ -92,7 +99,6 @@ def _handle(args: argparse.Namespace) -> int:
     from tokeye.elmspec import (
         event_rows,
         extract_elm_events,
-        seconds_per_col,
         summarize,
         write_event_rows,
         write_summary_csv,
@@ -121,30 +127,39 @@ def _handle(args: argparse.Namespace) -> int:
                 min_gap_cols=args.min_gap_cols,
                 min_duration_cols=args.min_duration_cols,
             )
+            duration_s = None
+            if args.dt is None and spec.n_samples is not None and spec.fs is not None:
+                duration_s = spec.n_samples / spec.fs
+            summary = summarize(
+                events,
+                n_cols=mask.shape[-1],
+                hop=config.hop,
+                fs=spec.fs,
+                dt=args.dt,
+                duration_s=duration_s,
+            )
+            input_rows = event_rows(
+                str(path), events, hop=config.hop, fs=spec.fs, dt=args.dt
+            )
+            if args.png:
+                preview = out_dir / f"{path.stem}_elm_preview.png"
+                save_preview(seg, preview, threshold=args.threshold)
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
             _common.report_failure(path, exc)
             failures += 1
             continue
 
-        dt = args.dt
-        if dt is None and spec.fs is not None:
-            dt = seconds_per_col(config.hop, spec.fs)
-            if spec.kind == "spectrogram":
-                print(
-                    f"note: {path} is a spectrogram; times assume its columns "
-                    f"are --hop={config.hop} samples apart (set --dt to override)",
-                    file=sys.stderr,
-                )
-        summary = summarize(events, n_cols=mask.shape[-1], dt=dt)
-        rows += event_rows(str(path), events, dt=dt)
+        rows += input_rows
         summaries.append((str(path), summary))
+        if spec.kind == "spectrogram" and spec.fs is not None and args.dt is None:
+            print(
+                f"note: {path} is a spectrogram; times assume its columns "
+                f"are --hop={config.hop} samples apart (set --dt to override)",
+                file=sys.stderr,
+            )
         freq = summary["elm_freq_hz"]
         freq_text = f", {freq:.1f} Hz" if freq is not None else ""
         print(f"{path}: {summary['n_events']} ELM event(s){freq_text}")
-
-        if args.png:
-            preview = out_dir / f"{path.stem}_elm_preview.png"
-            save_preview(seg, preview, threshold=args.threshold)
 
     events_csv = out_dir / "elm_events.csv"
     summary_csv = out_dir / "elm_summary.csv"

@@ -1,4 +1,4 @@
-"""Numbers guard: the default path must reproduce the pre-1.0 output.
+"""Numbers guard: the default path must reproduce the recorded golden output.
 
 Needs the real ``big_tf_unet`` weights in the HF cache (``tokeye download``);
 skipped otherwise. See ``golden_utils.py`` for how the golden was made.

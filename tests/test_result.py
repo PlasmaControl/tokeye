@@ -90,6 +90,36 @@ class TestSaveLoad:
         assert again.fs is None
         np.testing.assert_array_equal(again.times, np.arange(seg.mask.shape[2]))
 
+    def test_round_trip_keeps_n_samples(self, tmp_path):
+        seg = _segmentation()
+        assert seg.spectrogram.n_samples == 2048
+
+        again = Segmentation.load(seg.save(tmp_path / "shot.npz"))
+
+        assert again.spectrogram.n_samples == 2048
+
+    def test_round_trip_of_a_2d_input_keeps_n_samples_none(self, tmp_path):
+        spec = prepare(np.random.default_rng(0).random((8, 6)), CFG, fs=FS)
+        seg = Segmentation(np.zeros((2, 8, 6)), spec)
+
+        again = Segmentation.load(seg.save(tmp_path / "shot.npz"))
+
+        assert again.spectrogram.n_samples is None
+
+    def test_an_invalid_n_samples_warns_and_gives_none(self, tmp_path):
+        bundle = export.analysis_bundle(
+            spectrogram=np.zeros((4, 3)),
+            mask=np.zeros((2, 4, 3)),
+            params={"n_samples": "x"},
+            source="analyze",
+        )
+        path = export.save_npz(tmp_path / "b.npz", bundle)
+
+        with pytest.warns(UserWarning, match=r"ignoring n_samples='x' .*using None"):
+            seg = Segmentation.load(path)
+
+        assert seg.spectrogram.n_samples is None
+
     def test_loads_app_bundles(self, tmp_path):
         bundle = export.analysis_bundle(
             spectrogram=np.zeros((6, 8)),

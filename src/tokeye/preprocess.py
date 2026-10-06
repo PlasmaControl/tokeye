@@ -8,6 +8,13 @@ API, the CLI, batch runs and the app:
   (``kind="cross"``);
 - a 2D array is taken as a ready spectrogram (``kind="spectrogram"``),
   ``log1p``-scaled first when ``config.log`` is on.
+
+The STFT frames are centred as in the model's training (see
+:func:`tokeye.transforms.compute_stft`), so ``N`` samples give
+``1 + N // hop`` columns for an even ``n_fft``. Every kind has the same
+axes: row ``r`` is FFT bin ``b = r + 1`` with ``clip_dc`` (else ``b = r``),
+at ``b * fs / n_fft`` Hz, and column ``j`` is at ``j * hop / fs`` seconds
+from the first sample. Without ``fs`` they are the bin and frame indices.
 """
 
 from __future__ import annotations
@@ -17,7 +24,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy import signal as sps
 
 from .config import SpectrogramConfig
 from .transforms import compute_stft, log_scale
@@ -38,16 +44,22 @@ class Spectrogram:
     values
         ``(H, W)`` float32 image, rows = frequency (row 0 lowest).
     freqs
-        ``(H,)`` row centres: Hz when ``fs`` is known, else bin index.
+        ``(H,)`` row centres: FFT bin ``b`` (``r + 1`` with ``clip_dc``,
+        else ``r``) at ``b * fs / n_fft`` Hz when ``fs`` is known, else the
+        bin index ``b``.
     times
-        ``(W,)`` column centres: seconds when ``fs`` is known, else frame
-        index.
+        ``(W,)`` column centres: ``j * hop / fs`` seconds from the first
+        sample when ``fs`` is known, else the frame index ``j``.
     kind
         ``"stft"``, ``"cross"`` or ``"spectrogram"``.
     config
         The :class:`~tokeye.config.SpectrogramConfig` used.
     fs
         Sampling rate in Hz, or ``None`` when unknown.
+    n_samples
+        Length of the 1D signal (and of its reference) the values came
+        from, or ``None`` for 2D input. The signal lasts ``n_samples / fs``
+        seconds; the columns span only ``n_samples // hop`` hops.
     """
 
     values: np.ndarray
@@ -56,6 +68,7 @@ class Spectrogram:
     kind: str
     config: SpectrogramConfig
     fs: float | None
+    n_samples: int | None = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -75,28 +88,44 @@ def prepare(
     ----------
     data
         A 1D signal or a 2D ``(freq, time)`` spectrogram (array-like, real).
+        A 1D signal becomes centred STFT frames (see
+        :func:`tokeye.transforms.compute_stft`): ``1 + N // hop`` columns
+        for ``N`` samples and an even ``n_fft``.
     config
         Preprocessing settings; ``None`` uses the defaults.
     fs
-        Sampling rate in Hz. Only labels the axes; it never changes values.
-        For 2D input the axes assume the config's ``n_fft``/``hop``/``clip_dc``.
+        Sampling rate in Hz. Only labels the axes; it never changes values:
+        row ``r`` is FFT bin ``b`` (``r + 1`` with ``clip_dc``) at
+        ``b * fs / n_fft`` Hz, and column ``j`` is at ``j * hop / fs``
+        seconds. For 2D input the axes assume the config's ``n_fft``,
+        ``hop`` and ``clip_dc``, and centred frames.
     reference
         A second 1D signal, same length as ``data``, for a cross-power
         spectrum.
 
     Raises
     ------
+    TypeError
+        ``fs`` is not a number (a bool, string or bytes value included).
     ValueError
-        On complex, non-numeric, empty or non-finite input, a bad shape,
-        a bad ``fs``, or a mismatched ``reference``.
+        On complex, non-numeric, empty or non-finite input, a bad shape
+        (including a 2D input with a single row or column, which is a 1D
+        signal stored as a vector), a signal shorter than
+        ``n_fft // 2 + 1`` samples, a bad ``fs``, or a mismatched
+        ``reference``.
     """
     cfg = SpectrogramConfig.coerce(config)
     fs = _check_fs(fs)
     values64, kind, n_samples = _values64(data, cfg, reference)
+    if kind == "spectrogram" and 1 in values64.shape:
+        raise ValueError(
+            f"data has shape {values64.shape}; for a 1D signal pass np.ravel(data) "
+            "(a spectrogram needs at least 2 rows and 2 columns)"
+        )
     # Always C-ordered (a plain astype keeps an F-ordered input's layout).
     values = np.ascontiguousarray(values64, dtype=np.float32)
-    freqs, times = _axes(values.shape, kind, cfg, fs, n_samples)
-    return Spectrogram(values, freqs, times, kind, cfg, fs)
+    freqs, times = _axes(values.shape, cfg, fs)
+    return Spectrogram(values, freqs, times, kind, cfg, fs, n_samples)
 
 
 def _values64(
@@ -163,6 +192,9 @@ def _as_real_array(data: Any, name: str) -> np.ndarray:
 def _check_fs(fs: Any) -> float | None:
     if fs is None:
         return None
+    # bool (b), str (U) and bytes (S) convert with float(), but are not rates.
+    if np.asarray(fs).dtype.kind in "bSU":
+        raise TypeError(f"fs must be a number, got {fs!r}")
     try:
         value = float(fs)
     except (TypeError, ValueError):
@@ -173,25 +205,18 @@ def _check_fs(fs: Any) -> float | None:
 
 
 def _axes(
-    shape: tuple[int, int],
-    kind: str,
-    cfg: SpectrogramConfig,
-    fs: float | None,
-    n_samples: int | None,
+    shape: tuple[int, int], cfg: SpectrogramConfig, fs: float | None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Row and column centres for a spectrogram of ``shape``."""
+    """Row and column centres for a spectrogram of ``shape``, for every kind.
+
+    Row ``r`` is FFT bin ``b = r + 1`` with ``clip_dc`` (else ``r``), at
+    ``b * fs / n_fft`` Hz; column ``j`` is at ``j * hop / fs`` seconds.
+    Without ``fs`` they are ``b`` and ``j``.
+    """
     n_rows, n_cols = shape
     offset = 1 if cfg.clip_dc else 0
-    rows = np.arange(n_rows, dtype=np.float64)
-    cols = np.arange(n_cols, dtype=np.float64)
-
+    bins = np.arange(n_rows, dtype=np.float64) + offset
+    frames = np.arange(n_cols, dtype=np.float64)
     if fs is None:
-        freqs = rows if kind == "spectrogram" else rows + offset
-        return freqs, cols
-
-    freqs = (rows + offset) * fs / cfg.n_fft
-    if kind == "spectrogram" or n_samples is None:
-        return freqs, cols * cfg.hop / fs
-    win = sps.get_window(cfg.window, cfg.n_fft)
-    times = sps.ShortTimeFFT(win, cfg.hop, fs).t(n_samples)
-    return freqs, np.asarray(times, dtype=np.float64)
+        return bins, frames
+    return bins * fs / cfg.n_fft, frames * cfg.hop / fs

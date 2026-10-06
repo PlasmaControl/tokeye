@@ -8,8 +8,8 @@ The golden files pin the numerical output of the default path:
 - ``data/stft_contract.npz`` -- ``compute_stft`` on a 1D and a 2-row input.
 
 Regenerate one file at a time, each with a CHANGELOG entry: the golden ONLY
-when the default weights change on purpose, the STFT contract ONLY when the
-STFT contract changes on purpose::
+when the default weights or the default preprocessing change on purpose, the
+STFT contract ONLY when the STFT contract changes on purpose::
 
     uv run --no-sync python tests/golden_utils.py --write golden
     uv run --no-sync python tests/golden_utils.py --write stft

@@ -10,6 +10,7 @@ from cli_helpers import _StubRCNN, _TransientStub
 
 from tokeye.cli import alfvenspec as alfvenspec_cli
 from tokeye.cli import build_parser, main
+from tokeye.cli import elmspec as elmspec_cli
 
 
 def _must_not_load(*args, **kwargs):
@@ -30,6 +31,15 @@ def elm_spectrogram(tmp_path):
 def _read_csv(path):
     with path.open(encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+def _segmentation(channels):
+    from tokeye.preprocess import prepare
+    from tokeye.result import Segmentation
+
+    spec = prepare(np.random.default_rng(0).random((4, 5)))
+    mask = np.random.default_rng(1).random((len(channels), 4, 5))
+    return Segmentation(mask, spec, channels, "stub")
 
 
 def test_elmspec_defaults():
@@ -182,6 +192,102 @@ class TestElmspec:
         assert exit_code == 2
         assert "tokeye alfvenspec" in capsys.readouterr().err
         assert not out.exists()
+
+    def test_each_input_keeps_its_own_timebase(self, elm_spectrogram, tmp_path, capsys):
+        spec = np.load(elm_spectrogram)
+        names = ("a_sr1000.npy", "b_sr2000.npy", "c.npy")
+        for name in names:
+            np.save(tmp_path / name, spec)
+        out = tmp_path / "out"
+
+        exit_code = main(
+            ["elmspec", *(str(tmp_path / n) for n in names), "--hop", "10"]
+            + ["--output-dir", str(out)]
+        )
+
+        assert exit_code == 0
+        rows = _read_csv(out / "elm_events.csv")
+        first = {r["input"]: r["t_start_s"] for r in rows if r["event"] == "0"}
+        assert [first[str(tmp_path / n)] for n in names] == ["0.1", "0.05", ""]
+        summary = {
+            r["input"]: r["elm_freq_hz"] for r in _read_csv(out / "elm_summary.csv")
+        }
+        assert [summary[str(tmp_path / n)] for n in names] == ["3.125", "6.25", ""]
+        notes = [
+            line
+            for line in capsys.readouterr().err.splitlines()
+            if line.startswith("note:")
+        ]
+        assert len(notes) == 2
+        assert "a_sr1000.npy" in notes[0]
+        assert "b_sr2000.npy" in notes[1]
+
+    def test_a_1d_click_is_timed_from_the_first_sample(self, tmp_path):
+        x = np.zeros(40_000)
+        x[20_000] = 1.0  # a click at 2.0 s
+        path = tmp_path / "click_sr10000.npy"
+        np.save(path, x)
+        out = tmp_path / "out"
+
+        exit_code = main(["elmspec", str(path), "--output-dir", str(out)])
+
+        assert exit_code == 0
+        rows = _read_csv(out / "elm_events.csv")
+        assert len(rows) == 1
+        start_col = int(rows[0]["start_col"])
+        t_start, t_end = float(rows[0]["t_start_s"]), float(rows[0]["t_end_s"])
+        col_s = 128 / 10_000
+        assert t_start == start_col * 128 / 10_000
+        assert t_start <= 2.0 < t_end
+        assert 2.0 - t_start < 1024 / (2 * 10_000)
+        assert abs((t_start + t_end - col_s) / 2 - 2.0) < col_s
+        summary = _read_csv(out / "elm_summary.csv")
+        assert float(summary[0]["elm_freq_hz"]) == pytest.approx(0.25, rel=1e-12)
+
+    def test_a_failed_preview_write_fails_only_that_input(
+        self, elm_spectrogram, tmp_path, monkeypatch, capsys
+    ):
+        from tokeye import _plotting
+
+        spec = np.load(elm_spectrogram)
+        a, b = tmp_path / "a.npy", tmp_path / "b.npy"
+        np.save(a, spec)
+        np.save(b, spec)
+        real_save_preview = _plotting.save_preview
+
+        def save_preview(seg, path, *args, **kwargs):
+            if path.name.startswith("a_"):
+                raise OSError("disk full")
+            return real_save_preview(seg, path, *args, **kwargs)
+
+        monkeypatch.setattr(_plotting, "save_preview", save_preview)
+        out = tmp_path / "out"
+
+        exit_code = main(["elmspec", str(a), str(b), "--png", "--output-dir", str(out)])
+
+        assert exit_code == 1
+        errors = [
+            line
+            for line in capsys.readouterr().err.splitlines()
+            if line.startswith("error:")
+        ]
+        assert errors == [f"error: failed to process {a}: OSError: disk full"]
+        assert (out / "b_elm_preview.png").exists()
+        assert {r["input"] for r in _read_csv(out / "elm_events.csv")} == {str(b)}
+        assert [r["input"] for r in _read_csv(out / "elm_summary.csv")] == [str(b)]
+
+    def test_transient_channel_by_name(self):
+        seg = _segmentation(("transient", "coherent"))
+        np.testing.assert_array_equal(elmspec_cli._transient(seg), seg.mask[0])
+
+    def test_transient_channel_falls_back_to_channel_1(self):
+        seg = _segmentation(("a", "b"))
+        np.testing.assert_array_equal(elmspec_cli._transient(seg), seg.mask[1])
+
+    def test_no_transient_channel_raises(self):
+        seg = _segmentation(("only",))
+        with pytest.raises(ValueError, match=r"'stub'.*\('only',\)"):
+            elmspec_cli._transient(seg)
 
 
 class TestAlfvenspec:

@@ -26,15 +26,87 @@ def test_clip_dc_removes_one_frequency_row():
 
 
 def test_expected_frame_count():
-    # For n_samples=4096, n_fft=1024, hop=256, scipy's ShortTimeFFT (with its
-    # edge-padding convention) yields exactly 19 frames; pin that number so a
-    # change to the padding/framing convention is caught as a regression.
+    # Frames are centred on samples 0, hop, 2*hop, ... (torch.stft's
+    # center=True, the training framing), so 4096 samples at hop=256 give
+    # 1 + 4096 // 256 = 17 frames; pin that number so a change to the
+    # padding/framing convention is caught as a regression.
     n_samples = 4096
     n_fft = 1024
     hop = 256
     arr = _sine_signal(n_samples=n_samples)
     out = compute_stft(arr, n_fft=n_fft, hop=hop)
-    assert out.shape[1] == 19
+    assert out.shape[1] == 17
+
+
+_UNCLIPPED = {"clip_dc": False, "clip_low": 0.0, "clip_high": 100.0}
+
+
+def _torch_stft(x: np.ndarray, n_fft: int, hop: int) -> np.ndarray:
+    """The training framing: ``torch.stft`` with centred, reflect-padded frames."""
+    import torch
+
+    return torch.stft(
+        torch.from_numpy(x),
+        n_fft,
+        hop_length=hop,
+        window=torch.hann_window(n_fft, dtype=torch.float64),
+        center=True,
+        pad_mode="reflect",
+        return_complex=True,
+    ).numpy()
+
+
+@pytest.mark.parametrize(
+    ("n_fft", "hop", "n_samples"),
+    [
+        (1024, 128, 4096),
+        (256, 64, 1000),  # N not a multiple of hop
+        (255, 64, 1000),  # odd n_fft
+        (256, 64, 129),  # the minimum length
+        (64, 64, 33),
+    ],
+)
+def test_compute_stft_equals_torch_stft(n_fft, hop, n_samples):
+    x = np.random.default_rng(7).standard_normal(n_samples)
+
+    out = compute_stft(x, n_fft=n_fft, hop=hop, **_UNCLIPPED)
+
+    expected = np.log1p(np.abs(_torch_stft(x, n_fft, hop)))
+    assert out.shape == expected.shape
+    np.testing.assert_allclose(out, expected, rtol=1e-10, atol=1e-12)
+
+
+def test_cross_power_equals_torch_stft():
+    rng = np.random.default_rng(8)
+    x, y = rng.standard_normal(1000), rng.standard_normal(1000)
+
+    out = compute_stft(np.stack([x, y]), n_fft=256, hop=64, **_UNCLIPPED)
+
+    cross = _torch_stft(x, 256, 64) * np.conj(_torch_stft(y, 256, 64))
+    expected = np.log1p(np.abs(cross))
+    assert out.shape == expected.shape
+    np.testing.assert_allclose(out, expected, rtol=1e-10, atol=1e-12)
+
+
+def test_a_click_at_sample_k_hop_peaks_in_column_k():
+    x = np.zeros(4096)
+    x[8 * 64] = 1.0
+
+    spec = compute_stft(x, n_fft=512, hop=64, **_UNCLIPPED)
+
+    assert int(spec.max(axis=0).argmax()) == 8
+    for d in (1, 2, 3):
+        assert spec[:, 8 - d].max() > 0
+        np.testing.assert_allclose(spec[:, 8 - d], spec[:, 8 + d], atol=1e-12)
+
+
+def test_a_signal_shorter_than_half_a_window_raises():
+    with pytest.raises(ValueError, match=r"n_fft=256 needs at least 129"):
+        compute_stft(np.zeros(128), n_fft=256, hop=64)
+
+
+def test_the_minimum_length_gives_one_frame_per_hop_plus_one():
+    assert compute_stft(np.zeros(129), n_fft=256, hop=64).shape[1] == 3
 
 
 def test_values_within_percentile_clip_bounds():

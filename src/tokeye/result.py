@@ -156,6 +156,7 @@ class Segmentation:
             "tokeye_version": __version__,
             "kind": spec.kind,
             "fs": spec.fs,
+            "n_samples": None if spec.n_samples is None else int(spec.n_samples),
             "channels": list(self.channels),
         }
         bundle = export.analysis_bundle(
@@ -167,7 +168,7 @@ class Segmentation:
         )
         written = export.save_npz(path, bundle)
         if spec.fs is None:
-            freqs, times = _axes(spec.shape, spec.kind, spec.config, None, None)
+            freqs, times = _axes(spec.shape, spec.config, None)
             if not (
                 np.array_equal(spec.freqs, freqs) and np.array_equal(spec.times, times)
             ):
@@ -186,10 +187,11 @@ class Segmentation:
         Bundles written by the app (flat ``n_fft``/``hop``/... params, no
         axes) load too; missing settings fall back to the defaults, silently.
         A recorded value that is invalid (an unknown or out-of-range setting,
-        a bad ``fs``, ``kind``, channel list, weights record or stored axis)
-        is not used: it falls back to its default with a ``UserWarning``
-        naming the file. Bundles without a weights record load with
-        ``weights=None``.
+        a bad ``fs``, ``kind``, ``n_samples``, channel list, weights record or
+        stored axis) is not used: it falls back to its default with a
+        ``UserWarning`` naming the file. Bundles without a weights record
+        load with ``weights=None``, and without ``n_samples`` with
+        ``n_samples=None``.
 
         Bundles do not record their STFT framing, so their stored axes
         (``time_ms``/``freq_khz``) are the only record of it: with a valid
@@ -241,7 +243,7 @@ class Segmentation:
             fs = None
         fs = None if fs is None else float(fs)
 
-        freqs, times = _axes(values.shape, kind, cfg, fs, None)
+        freqs, times = _axes(values.shape, cfg, fs)
         if fs is not None:
             stored_times = _stored_axis(path, "time_ms", time_ms, values.shape[1])
             if stored_times is not None:
@@ -249,7 +251,8 @@ class Segmentation:
             stored_freqs = _stored_axis(path, "freq_khz", freq_khz, values.shape[0])
             if stored_freqs is not None:
                 freqs = stored_freqs * 1e3
-        spectrogram = Spectrogram(values, freqs, times, kind, cfg, fs)
+        n_samples = _n_samples_from(path, params.get("n_samples"))
+        spectrogram = Spectrogram(values, freqs, times, kind, cfg, fs, n_samples)
 
         default_channels = resolve_channels(DEFAULT_CHANNELS, mask.shape[0])
         channels = params.get("channels")
@@ -346,6 +349,19 @@ def _positive_finite(value: Any) -> bool:
         return math.isfinite(value) and value > 0
     except OverflowError:  # an int too large for a float
         return False
+
+
+def _n_samples_from(path: str | Path, recorded: Any) -> int | None:
+    """A recorded signal length: a positive int (``4096.0`` reads as 4096)."""
+    if recorded is None:
+        return None
+    value = recorded
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    _warn_ignored(path, "n_samples", recorded, "not a positive integer", "None")
+    return None
 
 
 def _stored_axis(

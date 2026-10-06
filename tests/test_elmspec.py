@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 
 import numpy as np
 import pytest
@@ -115,9 +116,49 @@ def test_seconds_per_col_prefers_dt():
     assert seconds_per_col() is None
 
 
-def test_seconds_per_col_rejects_non_positive_dt():
-    with pytest.raises(ValueError, match="dt must be positive"):
-        seconds_per_col(dt=0.0)
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("dt", v) for v in (0.0, -1.0, float("nan"), math.inf)]
+    + [("hop", v) for v in (0, -128, float("nan"), math.inf)]
+    + [("fs", v) for v in (0.0, -1.0, float("nan"), math.inf)],
+)
+def test_seconds_per_col_rejects_a_non_positive_or_non_finite_timebase(name, value):
+    # The dt message keeps its prefix, "dt must be positive".
+    with pytest.raises(ValueError, match=rf"^{name} must be positive and finite"):
+        if name == "dt":
+            seconds_per_col(None, None, dt=value)
+        elif name == "hop":
+            seconds_per_col(value, 1000.0)
+        else:
+            seconds_per_col(128, value)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: event_rows("x", [], dt=0.0),
+        lambda: event_rows("x", [], hop=128, fs=float("nan")),
+        lambda: summarize([], n_cols=10, hop=0, fs=1000.0),
+        lambda: summarize([], n_cols=10, duration_s=math.inf),
+    ],
+    ids=["rows-dt", "rows-fs", "summary-hop", "summary-duration"],
+)
+def test_a_bad_timebase_raises_even_without_events(call):
+    with pytest.raises(ValueError, match="must be positive and finite"):
+        call()
+
+
+def test_event_times_keep_the_pre_1_0_arithmetic():
+    row = event_rows("x", [ElmEvent(3, 4, 1.0)], hop=128, fs=100_000.0)[0]
+    assert row["t_start_s"] == 3 * 128 / 100_000.0
+    assert repr(row["t_start_s"]) == "0.00384"
+
+
+def test_summarize_divides_by_the_signal_duration():
+    summary = summarize(
+        [ElmEvent(0, 1, 1.0)], n_cols=313, hop=128, fs=10_000.0, duration_s=4.0
+    )
+    assert summary["elm_freq_hz"] == 0.25
 
 
 def test_summarize_with_dt_only():

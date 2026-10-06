@@ -1,8 +1,10 @@
 """STFT and log scaling: the numerical front half of the TokEye contract.
 
 :func:`compute_stft` is the preprocessing the released model was trained
-with (STFT magnitude -> ``log1p`` -> DC drop -> percentile clip).
-Standardization happens later, in :func:`tokeye.inference.infer`.
+with: STFT frames centred on samples 0, hop, 2*hop, ... of the reflected
+signal (``torch.stft(center=True)``) -> magnitude -> ``log1p`` -> DC drop ->
+percentile clip. Standardization happens later, in
+:func:`tokeye.inference.infer`.
 """
 
 from __future__ import annotations
@@ -46,6 +48,10 @@ def compute_stft(
 ) -> np.ndarray:
     """Log-magnitude STFT of a signal, or cross-power of a signal pair.
 
+    Frame ``j`` is centred on sample ``j * hop``, and the signal is reflected
+    at both ends without repeating the end sample, as in
+    ``torch.stft(center=True, pad_mode="reflect")`` (the model's training).
+
     Parameters
     ----------
     arr
@@ -63,7 +69,15 @@ def compute_stft(
     Returns
     -------
     numpy.ndarray
-        ``(n_fft // 2 + 1 - clip_dc, frames)`` float64 spectrogram.
+        ``(n_fft // 2 + 1 - clip_dc, n_frames)`` float64 spectrogram, with
+        ``n_frames = 1 + (N + 2 * (n_fft // 2) - n_fft) // hop`` for ``N``
+        samples (``1 + N // hop`` for an even ``n_fft``).
+
+    Raises
+    ------
+    ValueError
+        A bad shape, or fewer than ``n_fft // 2 + 1`` samples (the reflection
+        needs more than half a window).
     """
     arr = np.asarray(arr)
     if not (arr.ndim == 1 or (arr.ndim == 2 and arr.shape[0] in (1, 2))):
@@ -72,9 +86,17 @@ def compute_stft(
             f"signal pair; got shape {arr.shape}"
         )
 
+    n_samples = arr.shape[-1]
+    if n_samples <= n_fft // 2:
+        raise ValueError(
+            f"signal has {n_samples} samples; n_fft={n_fft} needs at least "
+            f"{n_fft // 2 + 1} (pass a longer signal or a smaller n_fft)"
+        )
+
     win = signal.get_window(window, n_fft)
     transform = signal.ShortTimeFFT(win=win, hop=hop, fs=fs)
-    sxx = transform.stft(arr)
+    n_frames = 1 + (n_samples + 2 * (n_fft // 2) - n_fft) // hop
+    sxx = transform.stft(arr, p0=0, p1=n_frames, padding="even")
 
     if arr.ndim == 2:
         sxx = sxx[0] * np.conj(sxx[1]) if arr.shape[0] == 2 else sxx[0]

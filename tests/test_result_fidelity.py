@@ -26,7 +26,7 @@ H, W = 4, 3
 
 def _spectrogram(fs: float | None, freqs=None, times=None) -> Spectrogram:
     values = np.random.default_rng(0).random((H, W)).astype(np.float32)
-    index_freqs, index_times = _axes((H, W), "stft", DEFAULT_CONFIG, None, None)
+    index_freqs, index_times = _axes((H, W), DEFAULT_CONFIG, None)
     return Spectrogram(
         values,
         index_freqs if freqs is None else np.asarray(freqs, dtype=np.float64),
@@ -250,7 +250,7 @@ class TestLoadRecordedValues:
         assert f"fs={fs!r}" in message
         assert "bin/frame indices" in message
         assert seg.fs is None
-        freqs, times = _axes((H, W), "stft", seg.spectrogram.config, None, None)
+        freqs, times = _axes((H, W), seg.spectrogram.config, None)
         np.testing.assert_array_equal(seg.freqs, freqs)
         np.testing.assert_array_equal(seg.times, times)
 
@@ -294,9 +294,7 @@ class TestLoadRecordedValues:
         seg, message = _load_one_warning(path)
 
         assert f"time_ms={shown}" in message
-        freqs, times = _axes(
-            (H, W), "spectrogram", SpectrogramConfig(hop=10), 1000.0, None
-        )
+        freqs, times = _axes((H, W), SpectrogramConfig(hop=10), 1000.0)
         np.testing.assert_allclose(seg.times, times)
         np.testing.assert_allclose(seg.freqs, self.AXES[1] * 1e3)  # stored, valid
         assert not np.allclose(freqs, seg.freqs)
@@ -319,7 +317,7 @@ class TestLoadRecordedValues:
 
         seg = _load_silently(path)
 
-        _, times = _axes((H, W), "spectrogram", DEFAULT_CONFIG, 1000.0, None)
+        _, times = _axes((H, W), DEFAULT_CONFIG, 1000.0)
         np.testing.assert_allclose(seg.times, times)
         np.testing.assert_allclose(seg.freqs, self.AXES[1] * 1e3)
 

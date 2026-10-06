@@ -71,6 +71,9 @@ def stft_axes(
         time_ms[i] = t0_ms + i * dt        (column centres, i in [0, n_cols))
         freq_khz[r] = (r + offset) * df    (row centres, r in [0, n_rows))
 
+    For :func:`tokeye.transforms.compute_stft` output with ``t0_ms=0``,
+    ``time_ms[i]`` is column ``i``'s centre (to rounding).
+
     Returns ``(None, None)`` when ``stft_meta`` is falsy or ``fs <= 0``.
     Defaults when keys are absent: ``n_fft=1024``, ``hop=128``,
     ``t0_ms=0.0``, ``clip_dc=True``.

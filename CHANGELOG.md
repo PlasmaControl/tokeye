@@ -10,7 +10,8 @@ The first stable release (1.0.0): laptop-friendly inference with the default
 `big_tf_unet` model on Linux, macOS and Windows. Pre-1.0 spellings keep working
 and warn (a `DeprecationWarning`, or a `warning:` line on stderr for the
 `--keep-dc` flag); they are removed in 2.0. The default model is unchanged,
-and a golden test now pins its output.
+1D inputs are now framed exactly as in its training (see Changed), and a
+golden test now pins its output.
 
 ### Added
 
@@ -67,8 +68,20 @@ and a golden test now pins its output.
 ### Changed
 
 - The default STFT hop is 128 samples (was 256), the released model's training
-  recipe. A 1D input now gives twice as many time columns; pass `hop=256`
-  (`--hop 256`) to reproduce 0.12.0 spectrograms.
+  recipe. A 1D input now gives about twice as many time columns; pass
+  `hop=256` (`--hop 256`) for 0.12.0's column spacing. The frames themselves
+  changed too (next bullet), so values are close to 0.12.0's but not
+  identical.
+- 1D inputs are framed as in the model's training: frames are centred on
+  samples 0, hop, 2·hop, …, with the signal reflected at both ends
+  (`torch.stft(center=True)`). N samples give `1 + N // hop` columns (for the
+  default, even, `n_fft`), and column j is at `j·hop/fs` s. 0.12.0 also
+  computed zero-padded partial frames hanging over both ends (1566 columns
+  instead of 1563 for 400,000 samples at its defaults). Mask values change
+  slightly everywhere, because the input's global standardization no longer
+  includes the near-empty edge frames (mean |Δ| under 1e-3 on the example);
+  the largest changes are in the first few columns. The app and the pre-1.0
+  `signal_to_spectrogram` use the same framing.
 - Python 3.11 or newer (was 3.13).
 - Core dependencies are only numpy, scipy, matplotlib, torch, huggingface-hub
   and tqdm, with tested minimum versions. torchvision moved to the `ae` extra
@@ -155,6 +168,10 @@ and a golden test now pins its output.
 - A 2-column table without a strictly increasing first column raises,
   instead of becoming a 2-column spectrogram, and a time column headed `ms`
   or `us` is converted to seconds.
+- `tokeye elmspec` on a 1D input: event times were one hop late with 0.12.0's
+  defaults (the first, partial frame was labelled 0 s; 1.28 ms at 200 kHz),
+  and the ELM frequency divided by the spectrogram's width instead of the
+  signal's duration.
 
 ## [0.12.0] - 2026-07-08
 

@@ -139,7 +139,7 @@ def test_axis_windows_partition_the_axis(n, size):
 
 
 def test_plan_tiles():
-    assert _plan_tiles((512, 3132), "auto") is None  # the example stays untiled
+    assert _plan_tiles((512, 3126), "auto") is None  # the example stays untiled
     assert _plan_tiles((512, 8192), "auto") == (512, 4096)
     assert _plan_tiles((2048, 4096), "auto") == (1024, 2048)
     assert _plan_tiles((512, 8192), None) is None
