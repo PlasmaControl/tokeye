@@ -10,7 +10,7 @@ dependencies:
   - scipy>=1.12
   - matplotlib>=3.8
   # conda-forge installs the CUDA build when it detects a GPU driver. To force
-  # the CPU build (much smaller), write `pytorch=*=cpu*` here instead.
+  # the CPU build (much smaller), write `pytorch >=2.4 cpu*` here instead.
   - pytorch>=2.4
   - torchvision>=0.19
   - huggingface_hub>=0.30

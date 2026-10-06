@@ -6,8 +6,7 @@ central claim (complex vs magnitude STFT representation; ± baseline removal;
 ± multichannel denoising) and (2) report 95% CI / std across 5 CV folds and
 across images on recall/F1/IoU.
 
-Design + plan: `docs/superpowers/specs/2026-05-28-tokeye-ablation-design.md`,
-`docs/superpowers/plans/2026-05-28-tokeye-ablation.md`.
+The design notes and the implementation plan are not published.
 
 ## Variants (leave-one-out from the full recipe)
 

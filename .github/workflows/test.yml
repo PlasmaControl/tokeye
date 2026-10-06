@@ -13,8 +13,9 @@ permissions:
 
 concurrency:
   group: test-${{ github.ref }}
-  # A new commit on a PR cancels that PR's older run. Runs on main and on tags
-  # always finish.
+  # A new commit on a PR cancels that PR's older run. A main or tag run that
+  # has started always finishes, but a queued one gives way to a newer push
+  # (one pending run per group), so the 2 MB guard runs in large-files.yml.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
@@ -162,19 +163,3 @@ jobs:
         run: |
           .floor/bin/tokeye download
           .floor/bin/python -m pytest -n auto -p no:cacheprovider
-
-  large-files:
-    # Every blob the push or PR adds, not only the final tree: a big file that
-    # a later commit deletes still lands in the history.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # full history, so the range below resolves
-      - name: Reject files larger than 2 MB (whole range, and the tree)
-        env:
-          # PR: base..head. Push: before..sha. For the all-zeros `before` of a
-          # new branch or tag, the script scans the tip's whole history.
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          TIP: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: bash .github/scripts/large-files.sh

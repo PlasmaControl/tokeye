@@ -6,16 +6,18 @@ skipped otherwise. See ``golden_utils.py`` for how the golden was made.
 
 from __future__ import annotations
 
-import platform
-import sys
+import os
 
 import numpy as np
 import pytest
 import torch
 from golden_utils import (
     GOLDEN_PATH,
+    _atol,
     centre_crop,
     channel_stats,
+    crop_origin,
+    fp32_cuda,
     golden_inputs,
     pool,
     sha256,
@@ -37,32 +39,54 @@ def golden() -> dict[str, np.ndarray]:
         return dict(data)
 
 
-def _atol(device: str, golden: dict[str, np.ndarray]) -> float:
-    """1e-5 on the platform the golden was made on, 1e-4 elsewhere."""
-    base = torch.__version__.split("+")[0]
-    golden_base = str(golden["torch_version"]).split("+")[0]
-    exact = (
-        device == "cpu"
-        and sys.platform.startswith("linux")
-        and platform.machine() == "x86_64"
-        and base == golden_base
-    )
-    return 1e-5 if exact else 1e-4
+def _compute(device: str) -> tuple[np.ndarray, np.ndarray]:
+    """The spectrogram stats and the mask of the golden input on ``device``."""
+    from tokeye import TokEye
+
+    eye = TokEye(device=device)
+    signal = golden_inputs()
+    stats = spec_stats(eye.spectrogram(signal))
+    if device == "cuda":
+        with fp32_cuda():  # no TF32 on Ampere and newer
+            mask = eye.predict(signal)
+    else:
+        mask = eye.predict(signal)
+    return stats, mask
 
 
 @pytest.fixture(scope="module", params=DEVICES)
-def result(request, real_weights):
-    from tokeye import TokEye
+def result(request, real_weights, tmp_path_factory):
+    """``(device, spectrogram stats, mask)``, computed once per device.
 
-    eye = TokEye(device=request.param)
-    signal = golden_inputs()
-    return request.param, eye.spectrogram(signal), eye.predict(signal)
+    Under pytest-xdist the first worker to get here computes it and saves it
+    beside the workers' temporary directories; the others load that file
+    (the pytest-xdist recipe for fixtures that execute only once).
+    """
+    device = request.param
+    if "PYTEST_XDIST_WORKER" not in os.environ:
+        return (device, *_compute(device))
+
+    from filelock import FileLock
+
+    run = os.environ.get("PYTEST_XDIST_TESTRUNUID", "run")
+    path = tmp_path_factory.getbasetemp().parent / f"golden_{run}_{device}.npz"
+    with FileLock(str(path) + ".lock"):
+        if path.exists():
+            with np.load(path) as data:
+                stats, mask = data["spec_stats"], data["mask"]
+        else:
+            stats, mask = _compute(device)
+            tmp = path.with_suffix(".part")
+            with tmp.open("wb") as fh:  # np.savez appends .npz to a path
+                np.savez(fh, spec_stats=stats, mask=mask)
+            tmp.replace(path)  # os.replace: atomic, no truncated file
+    return device, stats, mask
 
 
 def test_cached_weights_are_the_golden_weights(real_weights, golden):
     assert sha256(real_weights) == str(golden["weights_sha256"]), (
         "default weights changed; regenerate the golden on purpose "
-        "(python tests/golden_utils.py --write) and add a CHANGELOG entry"
+        "(python tests/golden_utils.py --write golden) and add a CHANGELOG entry"
     )
 
 
@@ -71,9 +95,14 @@ def test_shape(result, golden):
     assert mask.shape == tuple(golden["shape"])
 
 
+def test_crop_origin(result, golden):
+    _, _, mask = result
+    assert crop_origin(mask.shape[1:]) == tuple(int(v) for v in golden["crop_origin"])
+
+
 def test_spectrogram_stats(result, golden):
-    _, spec, _ = result
-    np.testing.assert_allclose(spec_stats(spec), golden["spec_stats"], rtol=1e-6)
+    _, stats, _ = result
+    np.testing.assert_allclose(stats, golden["spec_stats"], rtol=1e-6)
 
 
 def test_channel_stats(result, golden):

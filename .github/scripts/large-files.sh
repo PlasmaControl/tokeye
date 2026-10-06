@@ -3,9 +3,9 @@
 # one a later commit deletes (it still lands in the history), and every file in
 # the tree at HEAD.
 #
-# CI (the large-files job in workflows/test.yml) passes the range in the
-# environment: BASE is the PR's base sha or the push's `before`, and TIP is the
-# PR head or the pushed sha. Locally, pass a rev-list range, e.g.
+# CI (the large-files.yml workflow) passes the range in the environment: BASE
+# is the PR's base sha or the push's `before`, and TIP is the PR head or the
+# pushed sha. Locally, pass a rev-list range, e.g.
 # `bash .github/scripts/large-files.sh origin/main..`, or nothing to scan the
 # whole history of HEAD.
 set -euo pipefail

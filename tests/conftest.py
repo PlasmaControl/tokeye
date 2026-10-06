@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _missing(module: str) -> bool:
@@ -37,15 +40,9 @@ if _missing("tokeye.training.big_tf_unet_ablation"):
 @pytest.fixture(scope="session")
 def real_weights() -> Path:
     """Path to the cached default weights; skips when they are not cached."""
-    from huggingface_hub import try_to_load_from_cache
+    import golden_utils
 
-    from tokeye import hub
-
-    spec = hub.MODEL_REGISTRY[hub.DEFAULT_MODEL]
-    cached = try_to_load_from_cache(hub.repo_for(spec.name), spec.filename)
-    if not isinstance(cached, str):
-        pytest.skip(f"{spec.name} weights not cached; run: tokeye download")
-    return Path(cached)
+    return golden_utils.weights_or_skip()
 
 
 SERIAL_MAX_THREADS = 8

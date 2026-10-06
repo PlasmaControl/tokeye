@@ -33,5 +33,3 @@ ignore = [
 "__init__.py" = ["F401"]
 "tests/*" = ["ARG"]
 "*.ipynb" = ["E402"]
-
-"scripts/**" = ["E402", "E702", "E741", "SIM115", "PTH208"]
