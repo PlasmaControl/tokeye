@@ -11,35 +11,14 @@ import pytest
 from tokeye.app.__main__ import (
     DEFAULT_HOST,
     DEFAULT_PORT,
-    MAX_PORT_ATTEMPTS,
     create_app,
     main,
 )
 from tokeye.app.utils.theme import PALETTE, make_theme
 
 
-class TestMainPortRetry:
-    """Test the port-retry logic in main()."""
-
-    def test_retry_upward_on_oserror(self):
-        """Port should increment on OSError, not decrement."""
-        fake_app = Mock()
-        # Fail twice on ports 7860 and 7861, succeed on 7862
-        fake_app.launch.side_effect = [
-            OSError("Port in use"),
-            OSError("Port in use"),
-            None,  # success
-        ]
-
-        with patch("tokeye.app.__main__.create_app", return_value=fake_app):
-            main(port=DEFAULT_PORT)
-
-        # Verify the ports tried were 7860, 7861, 7862
-        assert fake_app.launch.call_count == 3
-        calls = fake_app.launch.call_args_list
-        assert calls[0][1]["server_port"] == DEFAULT_PORT
-        assert calls[1][1]["server_port"] == DEFAULT_PORT + 1
-        assert calls[2][1]["server_port"] == DEFAULT_PORT + 2
+class TestMainLaunch:
+    """main() builds the app and launches it once on the port it is given."""
 
     def test_return_on_success(self):
         """main() should return (not fall through) after successful launch."""
@@ -54,26 +33,8 @@ class TestMainPortRetry:
         # Should only try once
         assert fake_app.launch.call_count == 1
 
-    def test_systemeexit_after_all_attempts_fail(self):
-        """Should raise SystemExit naming the port range after all attempts fail."""
-        fake_app = Mock()
-        fake_app.launch.side_effect = OSError("Port in use")
-
-        with (
-            patch("tokeye.app.__main__.create_app", return_value=fake_app),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            main(port=DEFAULT_PORT)
-
-        # Check the message names the port range
-        message = str(exc_info.value)
-        assert "7860" in message
-        assert str(DEFAULT_PORT + MAX_PORT_ATTEMPTS - 1) in message
-        # Should have tried all MAX_PORT_ATTEMPTS
-        assert fake_app.launch.call_count == MAX_PORT_ATTEMPTS
-
     def test_launch_kwargs_preserved(self):
-        """launch() should receive all original kwargs, only port changes."""
+        """launch() is called once with the host, share, browser and port given."""
         fake_app = Mock()
         fake_app.launch.return_value = None
 
@@ -92,8 +53,21 @@ class TestMainPortRetry:
 
         assert fake_app.launch.call_args[1]["server_name"] == "0.0.0.0"
 
+    def test_oserror_propagates(self):
+        """A taken port is the caller's to report: one launch, OSError raised."""
+        fake_app = Mock()
+        fake_app.launch.side_effect = OSError("Port in use")
+
+        with (
+            patch("tokeye.app.__main__.create_app", return_value=fake_app),
+            pytest.raises(OSError, match="Port in use"),
+        ):
+            main(port=DEFAULT_PORT)
+
+        assert fake_app.launch.call_count == 1
+
     def test_non_oserror_exceptions_propagate(self):
-        """Non-OSError exceptions should propagate (not be caught by retry logic)."""
+        """A launch error other than OSError propagates."""
         fake_app = Mock()
         fake_app.launch.side_effect = RuntimeError("Some other error")
 
@@ -105,7 +79,8 @@ class TestMainPortRetry:
 
 
 def test_cli_defaults_match_the_app():
-    """cli/app.py cannot import this module (gradio), so it repeats these."""
+    """cli/app.py must not import this module, because that would load gradio
+    for ``--help``, so it repeats these."""
     from tokeye.cli import app as app_cli
 
     assert app_cli.DEFAULT_HOST == DEFAULT_HOST
@@ -118,6 +93,7 @@ def test_python_m_tokeye_app_delegates_to_the_cli():
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

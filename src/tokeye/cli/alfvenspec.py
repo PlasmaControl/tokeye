@@ -32,7 +32,7 @@ def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
         help="Detect Alfvén-eigenmode activity (boxes + masks via ae_tf_maskrcnn).",
         description=(
             "Run the ae_tf_maskrcnn instance model (needs the 'ae' extra: "
-            "pip install 'tokeye[ae]'). Writes ae_detections.csv and, unless "
+            'pip install "tokeye[ae]"). Writes ae_detections.csv and, unless '
             "--no-masks, <stem>_ae_instances.npy: an (H, W) int32 map where "
             "i + 1 marks detection i of that input. Unwindowed inputs with "
             "detections also get <stem>_ae_masks.npy, the per-detection soft "

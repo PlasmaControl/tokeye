@@ -394,7 +394,7 @@ def _load_soundfile(path: Path) -> tuple[np.ndarray, float | None]:
     except ImportError as exc:
         raise ImportError(
             f"reading {path.suffix} files needs soundfile: pip install "
-            "soundfile (included in 'tokeye[app]')"
+            'soundfile (included in "tokeye[app]")'
         ) from exc
     data, rate = soundfile.read(path, dtype="float64", always_2d=False)
     return _mono(data, path), float(rate)
@@ -507,7 +507,7 @@ def _load_h5(
     except ImportError as exc:
         what = "MATLAB v7.3 .mat files" if matlab else "HDF5 files"
         raise ImportError(
-            f"reading {what} needs h5py: pip install h5py (or 'tokeye[hdf5]')"
+            f'reading {what} needs h5py: pip install h5py (or "tokeye[hdf5]")'
         ) from exc
 
     with h5py.File(path, "r") as fh:

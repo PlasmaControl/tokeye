@@ -69,6 +69,19 @@ def positive_float(text: str) -> float:
     return value
 
 
+def port_number(text: str) -> int:
+    """argparse ``type=`` for a TCP port: an integer from 1 to 65535."""
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if not 1 <= value <= 65535:
+        raise argparse.ArgumentTypeError(
+            f"must be an integer from 1 to 65535, got {text}"
+        )
+    return value
+
+
 def unit_float(text: str) -> float:
     """argparse ``type=`` for a finite number in [0, 1]."""
     value = _number(text)

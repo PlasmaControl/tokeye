@@ -128,7 +128,8 @@ class TestBuildParser:
             build_parser().parse_args(["run", "a.npy", "--fs", value])
         assert exc_info.value.code == 2
 
-    def test_app_subcommand_defaults(self):
+    def test_app_subcommand_defaults(self, monkeypatch):
+        monkeypatch.delenv("GRADIO_SERVER_NAME", raising=False)
         parser = build_parser()
 
         args = parser.parse_args(["app"])
@@ -379,6 +380,11 @@ class TestAppCommand:
         stub = types.ModuleType("tokeye.app.__main__")
         stub.main = fake_app_main
         monkeypatch.setitem(sys.modules, "tokeye.app.__main__", stub)
+        # No test binds a real port or reads the caller's environment.
+        monkeypatch.delenv("GRADIO_SERVER_NAME", raising=False)
+        monkeypatch.setattr(
+            "tokeye.cli.app.pick_port", lambda host, first, attempts=10: first
+        )
         return calls
 
     def test_local_session_opens_the_browser(self, calls, monkeypatch):
@@ -430,12 +436,13 @@ class TestAppCommand:
         assert Path.cwd() == workspace.resolve()
 
     def test_missing_extra_is_a_usage_error(self, monkeypatch, capsys):
-        monkeypatch.setitem(sys.modules, "tokeye.app.__main__", None)
+        monkeypatch.delitem(sys.modules, "tokeye.app.__main__", raising=False)
+        monkeypatch.setitem(sys.modules, "gradio", None)
 
         exit_code = main(["app"])
 
         assert exit_code == 2
-        assert "pip install 'tokeye[app]'" in capsys.readouterr().err
+        assert 'pip install "tokeye[app]"' in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

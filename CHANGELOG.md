@@ -38,7 +38,7 @@ golden test now pins its output.
 - Apple-silicon GPUs: `device="auto"` tries CUDA, then MPS, then CPU, and an
   op MPS cannot run falls back to CPU with one warning.
 - `tokeye info` reports versions, the device `auto` picks, installed extras
-  and cached models.
+  and cached models, and exits 1 if a check fails.
 - `tokeye run --format npz` writes the `Segmentation` bundle; every run also
   writes `<stem>_params.json` recording the model, version, device, input, `fs`
   and preprocessing settings, and the weights used (`weights`: repo, file
@@ -49,8 +49,9 @@ golden test now pins its output.
   timebase.
 - `tokeye alfvenspec` writes `<stem>_ae_instances.npy` — an `(H, W)` label map
   where `i + 1` marks detection `i` — for windowed inputs too.
-- `tokeye app --host/--workspace/--no-browser`; `--host` defaults to
-  `127.0.0.1`.
+- `tokeye app --host/--workspace/--no-browser`; the app binds to `127.0.0.1`,
+  or `$GRADIO_SERVER_NAME` when set. A bad `--host`, `--port` or `--workspace`
+  is a one-line error.
 - `tokeye.export`: the `.npz` export helpers shared by the app and
   `Segmentation.save()`.
 - Extras `ae` (torchvision, for `ae_tf_maskrcnn`), `hdf5` (h5py) and `all`;
@@ -121,7 +122,11 @@ golden test now pins its output.
 - `tokeye app` opens a browser automatically in a local (non-SSH) session
   (0.12.0 opened one only with `--open`); `--no-browser` turns it off.
 - The app has a dark theme, a one-click Analyze flow with `.npz` export, mask
-  download from Annotate, and moves to the next free port when 7860 is busy.
+  download from Annotate, and moves to the next free port when 7860 is busy
+  and says which.
+- `tokeye.examples.write_example_signal` names its file
+  `tokeye_example_sr200000.npy` by default (was `tokeye_example.npy`), so
+  `tokeye run` reads the rate from the name.
 
 ### Deprecated
 
@@ -146,6 +151,8 @@ golden test now pins its output.
 
 ### Fixed
 
+- Install hints use double quotes (`pip install "tokeye[app]"`), so they work
+  in Windows `cmd.exe` too.
 - Model-load failures (offline without cached weights, unreadable or truncated
   checkpoints, hub errors) are one `error:` line with exit 2, never a
   traceback.

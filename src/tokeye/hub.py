@@ -87,7 +87,7 @@ def _build_ae_tf_maskrcnn() -> nn.Module:
         if missing != "torchvision" and not missing.startswith("torchvision."):
             raise
         raise ImportError(
-            "ae_tf_maskrcnn needs torchvision: pip install 'tokeye[ae]'"
+            'ae_tf_maskrcnn needs torchvision: pip install "tokeye[ae]"'
         ) from exc
     return AETFMaskModel(AETFMaskConfig(weights=None))
 

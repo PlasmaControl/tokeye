@@ -28,7 +28,7 @@ tokeye app                  # opens web app on http://localhost:7860
 - The default model downloads automatically from Hugging Face on first use (~30 MB).
 - No data on hand? Click "Load Example Signal" in the app, or generate one from the shell with `tokeye example`.
 - Runs on Linux, macOS (Apple silicon) and Windows with Python >= 3.11; a laptop CPU is enough. `uvx`/`uv tool install` fetch a compatible Python automatically.
-- Something off? `tokeye info` shows the versions, the device TokEye will use, and which models are cached.
+- Something off? `tokeye info` shows the versions, the device TokEye will use, and which models are cached; it exits 1 if a check fails.
 
 Zero-install trial: `uvx "tokeye[app]" app` runs the app without installing anything into your environment (on Linux without a GPU, add `--torch-backend=cpu`; see below).
 
@@ -170,7 +170,7 @@ Beyond segmentation, `tokeye` bundles the analyses DIII-D researchers usually re
 - **Annotate** — manually draw and save mask annotations over a read-only backdrop image.
 - **Utilities** — audio-format conversion and `.npy` file inspection.
 
-Flags: `tokeye app [--host 127.0.0.1] [--port 7860] [--open | --no-browser] [--workspace DIR] [--share]`. The app binds to `127.0.0.1` (moving to the next free port if 7860 is busy) and opens a browser tab when you run it locally. `--share` creates a public Gradio link that anyone with the URL can use.
+Flags: `tokeye app [--host 127.0.0.1] [--port 7860] [--open | --no-browser] [--workspace DIR] [--share]`. The app binds to `127.0.0.1` (`--host` defaults to `$GRADIO_SERVER_NAME` if set), moves to the next free port if 7860 is busy and says which port it chose, and opens a browser tab when you run it locally. `--share` creates a public Gradio link that anyone with the URL can use.
 
 If you're on a remote server (e.g. an HPC login node), forward the port over SSH instead of using `--share`:
 ```bash
