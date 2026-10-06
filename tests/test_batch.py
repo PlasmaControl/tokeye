@@ -301,3 +301,56 @@ class TestDeprecations:
             batch.process_file(spectrogram_npy, stub_model, {"hop": 64}, tmp_path)
 
         assert (tmp_path / "spectrogram_mask.npy").exists()
+
+    def test_process_file_stft_kwargs_warns_and_matches_config(
+        self, stub_model, signal_npy, tmp_path
+    ):
+        by_config, by_kwargs = tmp_path / "config", tmp_path / "kwargs"
+        by_config.mkdir()
+        by_kwargs.mkdir()
+        batch.process_file(
+            signal_npy,
+            stub_model,
+            config=SpectrogramConfig(n_fft=256, hop=64),
+            out_dir=by_config,
+            fs=1000.0,
+        )
+
+        # The 0.12.0 keyword spelling: stft_kwargs instead of config.
+        with pytest.warns(DeprecationWarning, match="SpectrogramConfig") as record:
+            batch.process_file(
+                signal_npy,
+                stub_model,
+                stft_kwargs={"n_fft": 256, "hop": 64, "fs": 1000.0},
+                out_dir=by_kwargs,
+            )
+
+        deprecations = [w for w in record if w.category is DeprecationWarning]
+        assert len(deprecations) == 1
+        assert deprecations[0].filename == __file__  # points at the caller
+        np.testing.assert_array_equal(
+            np.load(by_kwargs / "signal_mask.npy"),
+            np.load(by_config / "signal_mask.npy"),
+        )
+        kwargs_params = json.loads((by_kwargs / "signal_params.json").read_text())
+        config_params = json.loads((by_config / "signal_params.json").read_text())
+        assert kwargs_params["fs"] == config_params["fs"] == 1000.0
+        assert kwargs_params["config"] == config_params["config"]
+
+    def test_process_file_config_and_stft_kwargs_together_raise(
+        self, stub_model, signal_npy, tmp_path
+    ):
+        with pytest.raises(TypeError, match="pass either config or stft_kwargs"):
+            batch.process_file(
+                signal_npy,
+                stub_model,
+                SpectrogramConfig(),
+                tmp_path,
+                stft_kwargs={"n_fft": 256},
+            )
+
+        assert not list(tmp_path.glob("signal_*"))
+
+    def test_process_file_still_needs_out_dir(self, stub_model, signal_npy):
+        with pytest.raises(TypeError, match="out_dir"):
+            batch.process_file(signal_npy, stub_model, stft_kwargs={"n_fft": 256})

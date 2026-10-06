@@ -292,12 +292,13 @@ def _coerce_config(
 def process_file(
     path: Path,
     model: nn.Module,
-    config: SpectrogramConfig | dict | None,
-    out_dir: Path,
+    config: SpectrogramConfig | dict | None = None,
+    out_dir: Path | None = None,
     save_png: bool = True,
     threshold: float = 0.5,
     log: bool | None = None,
     *,
+    stft_kwargs: Mapping[str, Any] | None = None,
     fs: float | None = None,
     fmt: str = "npy",
     model_name: str | Path | None = None,
@@ -325,7 +326,19 @@ def process_file(
     local path) and ``weights`` as :func:`tokeye.hub.weights_info` of it,
     hashed after inference. Without it they record ``"model": "unknown"``
     and ``"weights": null``.
+
+    ``stft_kwargs`` is the deprecated 0.12.0 name of ``config``: a dict of
+    settings, which warns (``DeprecationWarning``, removed in 2.0) and
+    moves an ``fs`` key to ``fs``. Passing both raises ``TypeError``.
+    ``out_dir`` is required; its default only lets ``config`` be left out
+    for that spelling.
     """
+    if out_dir is None:
+        raise TypeError("process_file() missing required argument: 'out_dir'")
+    if stft_kwargs is not None:
+        if config is not None:
+            raise TypeError("pass either config or stft_kwargs, not both")
+        config = dict(stft_kwargs)
     _check_fmt(fmt)
     check_tile(tile)
     path, out_dir = Path(path), Path(out_dir)
