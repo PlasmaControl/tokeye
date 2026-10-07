@@ -30,6 +30,26 @@ def _hf_major() -> int:
     return int(huggingface_hub.__version__.split(".")[0])
 
 
+def hub_http():
+    """The HTTP module huggingface_hub talks through: httpx2 from 2.0, httpx in 1.x."""
+    if _hf_major() >= 2:
+        import httpx2
+
+        return httpx2
+    import httpx
+
+    return httpx
+
+
+def connect_error(message: str) -> Exception:
+    """A refused connection, as huggingface_hub's own HTTP library raises it."""
+    if _hf_major() >= 1:
+        return hub_http().ConnectError(message)
+    import requests
+
+    return requests.ConnectionError(message)
+
+
 def one_error_line(err: str) -> str:
     """The only non-blank line of ``err``, which must start with ``error: ``."""
     lines = [line for line in err.splitlines() if line.strip()]
@@ -42,12 +62,11 @@ def repository_not_found_error() -> RepositoryNotFoundError:
     """Build a real one-line RepositoryNotFoundError the way huggingface_hub does.
 
     ``HfHubHTTPError`` needs a ``response``: an ``httpx.Response`` on
-    huggingface_hub >= 1.0, a ``requests.Response`` before that (the floor
-    of the supported range).
+    huggingface_hub >= 1.0 (``httpx2`` from 2.0), a ``requests.Response``
+    before that (the floor of the supported range).
     """
     if _hf_major() >= 1:
-        import httpx
-
+        httpx = hub_http()
         response = httpx.Response(404, request=httpx.Request("GET", _REPO_URL))
     else:
         import requests
@@ -65,9 +84,9 @@ def multiline_repository_not_found_error() -> RepositoryNotFoundError:
     that it is built from the same text, so no httpx is needed.
     """
     if _hf_major() >= 1:
-        import httpx
         from huggingface_hub.utils import hf_raise_for_status
 
+        httpx = hub_http()
         response = httpx.Response(
             404,
             headers={"X-Error-Code": "RepoNotFound"},

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 import torch
 import torch.nn as nn
+from cli_helpers import connect_error, repository_not_found_error
+from huggingface_hub.errors import RepositoryNotFoundError
 
 from tokeye import hub
 from tokeye.hub import (
@@ -65,6 +67,26 @@ def test_download_model_uses_per_model_repo(monkeypatch):
 
     download_model("big_tf_unet")
     assert seen["repo_id"] == DEFAULT_REPO_ID
+
+
+def test_a_refused_connection_is_a_download_error(monkeypatch):
+    def refuse(repo_id, filename, **kwargs):
+        raise connect_error("connection refused")
+
+    monkeypatch.setattr("tokeye.hub.hf_hub_download", refuse)
+
+    with pytest.raises(hub.DownloadError, match="connection refused"):
+        download_model("big_tf_unet")
+
+
+def test_a_hub_error_answer_is_not_a_download_error(monkeypatch):
+    def missing(repo_id, filename, **kwargs):
+        raise repository_not_found_error()
+
+    monkeypatch.setattr("tokeye.hub.hf_hub_download", missing)
+
+    with pytest.raises(RepositoryNotFoundError):
+        download_model("big_tf_unet")
 
 
 def test_load_model_from_registry_downloads_and_loads(tmp_path, monkeypatch):

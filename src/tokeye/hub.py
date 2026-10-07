@@ -332,7 +332,13 @@ def _network_errors() -> tuple[type[Exception], ...]:
     closed" (its retry reuses the session it just closed).
     """
     errors: list[type[Exception]] = [RuntimeError]
-    try:  # huggingface_hub >= 1 talks through httpx
+    try:  # huggingface_hub >= 2 talks through httpx2
+        import httpx2
+
+        errors.append(httpx2.HTTPError)
+    except ImportError:
+        pass
+    try:  # huggingface_hub 1.x talks through httpx
         import httpx
 
         errors.append(httpx.HTTPError)
@@ -364,8 +370,8 @@ def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Pat
     try:
         return Path(hf_hub_download(repo, spec.filename))
     except (LocalEntryNotFoundError, HfHubHTTPError):
-        # First: on huggingface_hub 1.x HfHubHTTPError is an httpx.HTTPError,
-        # and on 0.x both are requests.RequestExceptions.
+        # First: HfHubHTTPError is an httpx2.HTTPError on huggingface_hub 2.x
+        # and an httpx.HTTPError on 1.x; on 0.x both are RequestExceptions.
         raise
     except _network_errors() as exc:
         raise DownloadError(
