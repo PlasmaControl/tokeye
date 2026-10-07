@@ -4,10 +4,9 @@ message: >-
   If you use this software, please cite it using the
   metadata from this file.
 version: 1.0.0
-# date-released and doi still describe the last Zenodo release; update both
-# when v1.0.0 is tagged and Zenodo mints its DOI.
-date-released: 2026-07-04
-doi: 10.5281/zenodo.20791110
+date-released: 2026-10-07
+# The concept DOI: it always resolves to the latest Zenodo version.
+doi: 10.5281/zenodo.18600162
 authors:
   - given-names: Nathaniel
     family-names: Chen

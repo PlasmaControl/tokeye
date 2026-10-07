@@ -55,7 +55,7 @@ hdf5 = ["h5py>=3.10"]  # .h5 / v7.3 .mat inputs
 all = ["tokeye[app,ae,hdf5]"]
 
 [project.urls]
-Documentation = "https://plasmacontrol.github.io/tokeye/"
+Documentation = "https://github.com/PlasmaControl/tokeye#readme"
 Source = "https://github.com/PlasmaControl/tokeye"
 Issues = "https://github.com/PlasmaControl/tokeye/issues"
 

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-07
+
 The first stable release (1.0.0): laptop-friendly inference with the default
 `big_tf_unet` model on Linux, macOS and Windows. Pre-1.0 spellings keep working
 and warn (a `DeprecationWarning`, or a `warning:` line on stderr for the
@@ -219,7 +221,8 @@ option for linear-scale spectrograms.
 The `tokeye` CLI with headless batch inference, weights downloaded from Hugging
 Face on first use, and guided onboarding in the app.
 
-[Unreleased]: https://github.com/PlasmaControl/tokeye/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/PlasmaControl/tokeye/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v1.0.0
 [0.12.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.12.0
 [0.11.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.11.0
 [0.10.0]: https://github.com/PlasmaControl/tokeye/releases/tag/v0.10.0
