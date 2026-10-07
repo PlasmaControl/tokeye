@@ -26,27 +26,37 @@ def _v(id, base, den, rep):
 
 
 def test_coherent_threshold_reads_denoised_when_denoise_on():
-    s = build_variant_step_settings(CFG, _v("full", True, True, "complex"), "step_4a_coh", BES)
+    s = build_variant_step_settings(
+        CFG, _v("full", True, True, "complex"), "step_4a_coh", BES
+    )
     assert s["input_h5"].name == "step_3b.h5"
 
 
 def test_coherent_threshold_reads_step2b_when_denoise_off():
-    s = build_variant_step_settings(CFG, _v("nodenoise", True, False, "complex"), "step_4a_coh", BES)
+    s = build_variant_step_settings(
+        CFG, _v("nodenoise", True, False, "complex"), "step_4a_coh", BES
+    )
     assert s["input_h5"].name == "step_2b.h5"
 
 
 def test_transient_threshold_always_reads_baseline():
-    s = build_variant_step_settings(CFG, _v("full", True, True, "complex"), "step_4a_tra", BES)
+    s = build_variant_step_settings(
+        CFG, _v("full", True, True, "complex"), "step_4a_tra", BES
+    )
     assert s["input_h5"].name == "step_2b_baseline.h5"
 
 
 def test_baseline_flag_propagates_to_step2b():
-    s = build_variant_step_settings(CFG, _v("nobaseline", False, True, "complex"), "step_2b", BES)
+    s = build_variant_step_settings(
+        CFG, _v("nobaseline", False, True, "complex"), "step_2b", BES
+    )
     assert s["baseline_enabled"] is False
 
 
 def test_representation_propagates_to_step3a():
-    s = build_variant_step_settings(CFG, _v("mag", True, True, "magnitude"), "step_3a", BES)
+    s = build_variant_step_settings(
+        CFG, _v("mag", True, True, "magnitude"), "step_3a", BES
+    )
     assert s["representation"] == "magnitude"
 
 

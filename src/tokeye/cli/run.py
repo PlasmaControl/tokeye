@@ -1,103 +1,90 @@
-"""``tokeye run`` — headless batch inference."""
+"""``tokeye run`` — headless batch segmentation."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import os
 from typing import TYPE_CHECKING
 
-from tokeye.transforms import (
-    DEFAULT_CLIP_HIGH,
-    DEFAULT_CLIP_LOW,
-    DEFAULT_HOP,
-    DEFAULT_N_FFT,
-)
+from tokeye.cli import _common, _options
 
 if TYPE_CHECKING:
     import argparse
+    from pathlib import Path
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("run", help="Run batch inference on one or more inputs.")
+    parser = subparsers.add_parser(
+        "run",
+        parents=[_options.VERBOSE],
+        help="Segment one or more inputs (files, directories or globs).",
+        description=(
+            "Segment each input and write <stem>_mask.npy (or <stem>_tokeye.npz "
+            "with --format npz), <stem>_preview.png and <stem>_params.json."
+        ),
+    )
     parser.add_argument(
         "inputs",
         nargs="+",
         metavar="INPUT",
-        help="Files, directories of .npy files, or glob patterns.",
+        help="files (.npy .npz .wav .flac .ogg .csv .txt .mat .h5), "
+        "directories, or glob patterns",
+    )
+    _options.add_model_options(parser)
+    _options.add_tile_option(parser)
+    _options.add_output_options(parser, default_dir="tokeye_output", png_default=True)
+    _options.add_fs_option(parser)
+    _options.add_key_option(parser)
+    parser.add_argument(
+        "--format",
+        dest="fmt",
+        choices=("npy", "npz"),
+        default="npy",
+        help="npy = mask only; npz = mask + spectrogram + axes bundle "
+        "(default: %(default)s)",
     )
     parser.add_argument(
-        "--model",
-        default=None,
-        help="Registry name or path to a model checkpoint (default: big_tf_unet).",
+        "--threshold",
+        type=_options.unit_float,
+        default=0.5,
+        help="preview threshold, in [0, 1] (default: %(default)s)",
     )
-    parser.add_argument(
-        "--output-dir",
-        default="tokeye_output",
-        help="Directory to write masks and previews to.",
-    )
-    parser.add_argument("--n-fft", type=int, default=DEFAULT_N_FFT)
-    parser.add_argument("--hop", type=int, default=DEFAULT_HOP)
-    parser.add_argument(
-        "--keep-dc",
-        action="store_true",
-        help="Do not clip the DC bin (clipped by default).",
-    )
-    parser.add_argument("--clip-low", type=float, default=DEFAULT_CLIP_LOW)
-    parser.add_argument("--clip-high", type=float, default=DEFAULT_CLIP_HIGH)
-    parser.add_argument(
-        "--log",
-        action="store_true",
-        help=(
-            "Apply log1p to 2D spectrogram inputs stored in linear scale "
-            "(1D signals are always log-scaled during the STFT)."
-        ),
-    )
-    parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument(
-        "--no-png",
-        dest="save_png",
-        action="store_false",
-        help="Skip PNG overlay previews.",
-    )
-    parser.add_argument("--device", default="auto")
+    _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from huggingface_hub.errors import HfHubHTTPError
-
     from tokeye import batch
-    from tokeye.cli._errors import print_hub_error
-    from tokeye.hub import DEFAULT_MODEL
 
-    stft_kwargs = {
-        "n_fft": args.n_fft,
-        "hop": args.hop,
-        "clip_dc": not args.keep_dc,
-        "clip_low": args.clip_low,
-        "clip_high": args.clip_high,
-    }
-    model = args.model if args.model is not None else DEFAULT_MODEL
+    setup = _common.setup_or_report(args, "segmentation", unique_stems=True)
+    if setup is None:
+        return _common.EXIT_USAGE
+    failures = batch.process_files(
+        setup.paths,
+        setup.model,
+        setup.config,
+        setup.out_dir,
+        save_png=args.png,
+        threshold=args.threshold,
+        fs=args.fs,
+        fmt=args.fmt,
+        tile=args.tile,
+        model_name=args.model,
+        channels=setup.channels,
+        key=args.key,
+        on_error=_common.report_failure,
+    )
+    written = len(setup.paths) - failures
+    print(_summary(written, failures, setup.out_dir, fmt=args.fmt, png=args.png))
+    return _common.EXIT_FAILED if failures else _common.EXIT_OK
 
-    try:
-        return batch.run_batch(
-            args.inputs,
-            model=model,
-            out_dir=Path(args.output_dir),
-            stft_kwargs=stft_kwargs,
-            save_png=args.save_png,
-            threshold=args.threshold,
-            device=args.device,
-            log=args.log,
-        )
-    except (ValueError, FileNotFoundError) as exc:
-        hint = (
-            " (no data yet? create a demo signal with: tokeye example)"
-            if "No input files found" in str(exc)
-            else ""
-        )
-        print(f"error: {exc}{hint}", file=sys.stderr)
-        return 2
-    except (HfHubHTTPError, OSError) as exc:
-        print_hub_error(model, exc)
-        return 2
+
+def _summary(written: int, failed: int, out_dir: Path, *, fmt: str, png: bool) -> str:
+    """The line ``tokeye run`` ends with: how many inputs, where, which files.
+
+    For example ``wrote 3 inputs -> tokeye_output/ (mask, preview, params)``,
+    with ``; 1 failed`` appended when inputs failed.
+    """
+    kinds = ["mask" if fmt == "npy" else "bundle", *(["preview"] if png else [])]
+    inputs = "input" if written == 1 else "inputs"
+    line = f"wrote {written} {inputs} -> {out_dir}{os.sep} ({', '.join(kinds)}, params)"
+    return f"{line}; {failed} failed" if failed else line

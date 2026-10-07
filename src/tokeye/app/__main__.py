@@ -1,10 +1,18 @@
-"""
-TokEye Main Inference
-"""
+"""The TokEye web app: build the Gradio interface and serve it."""
 
 from __future__ import annotations
 
-import argparse
+import sys
+
+if __name__ == "__main__":
+    # `python -m tokeye.app [flags]` == `tokeye app [flags]`. This runs before
+    # the gradio imports below, so a missing gradio is the CLI's one-line
+    # install hint (it imports this module again, under its real name), not
+    # a traceback.
+    from tokeye import cli
+
+    sys.exit(cli.main(["app", *sys.argv[1:]]))
+
 import importlib.resources
 import logging
 from pathlib import Path
@@ -19,8 +27,8 @@ from .utils.theme import CUSTOM_CSS, make_theme
 
 # Constants
 APP_TITLE = "TokEye"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7860
-MAX_PORT_ATTEMPTS = 10
 
 # Set up logging
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -59,41 +67,18 @@ def main(
     port: int = DEFAULT_PORT,
     share: bool = False,
     open_browser: bool = False,
+    host: str = DEFAULT_HOST,
 ) -> None:
+    """Build the app and serve it once on ``host:port``.
+
+    The caller picks a free port (``tokeye app`` probes first). An ``OSError``
+    from ``launch`` (the port was taken meanwhile, say) propagates.
+    """
     logger.info(f"Initializing TokEye in: {Path.cwd()}")
     app = create_app()
-    for attempt in range(MAX_PORT_ATTEMPTS):
-        try:
-            app.launch(
-                share=share,
-                inbrowser=open_browser,
-                server_port=port + attempt,
-            )
-            return
-        except OSError:
-            logger.warning("Port %d in use, trying %d",
-                           port + attempt, port + attempt + 1)
-    raise SystemExit(
-        f"No free port in {port}-{port + MAX_PORT_ATTEMPTS - 1}"
+    app.launch(
+        server_name=host,
+        share=share,
+        inbrowser=open_browser,
+        server_port=port,
     )
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="python -m tokeye.app",
-        description="Launch the TokEye Gradio app.",
-    )
-    parser.add_argument(
-        "--port", type=int, default=DEFAULT_PORT, help="Port to serve the app on."
-    )
-    parser.add_argument(
-        "--share", action="store_true", help="Create a public Gradio share link."
-    )
-    parser.add_argument(
-        "--open",
-        dest="open_browser",
-        action="store_true",
-        help="Open the app in a browser on launch.",
-    )
-    args = parser.parse_args()
-    main(port=args.port, share=args.share, open_browser=args.open_browser)

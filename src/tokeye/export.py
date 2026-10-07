@@ -1,11 +1,9 @@
-"""Shared "save results" backbone: npz bundle schemas + CSV export.
+"""Shared "save results" backbone: npz bundle schemas.
 
 Every TokEye surface that offers a "Save results" feature (Gradio tabs, the
 native Qt GUI, CLI batch) builds its output through this module so every
 saved ``.npz`` follows one consistent schema. **numpy-only** at import time:
-the single vendored import (``tokeye.modespec.classic.generate_modes``)
-happens lazily inside :func:`modes_csv_text`, so importing this module never
-pulls in torch, gradio, Qt, matplotlib, or plotly.
+importing this module never pulls in torch, gradio, Qt, matplotlib, or plotly.
 
 Two schemas:
 
@@ -20,13 +18,13 @@ absent — bundles never store ``None``.
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
+
+from .config import DEFAULT_CONFIG
 
 SCHEMA_ANALYSIS = "tokeye-analysis/v1"
 SCHEMA_MODESPEC = "tokeye-modespec/v1"
@@ -35,10 +33,10 @@ SCHEMA_MODESPEC = "tokeye-modespec/v1"
 # created_utc), or a numpy scalar (e.g. the c95/coh_thresh floats).
 NpzBundle = dict[str, np.ndarray | str | np.generic]
 
-_DEFAULT_N_FFT = 1024
-_DEFAULT_HOP = 256
+_DEFAULT_N_FFT = DEFAULT_CONFIG.n_fft
+_DEFAULT_HOP = DEFAULT_CONFIG.hop
 _DEFAULT_T0_MS = 0.0
-_DEFAULT_CLIP_DC = True
+_DEFAULT_CLIP_DC = DEFAULT_CONFIG.clip_dc
 
 
 def _now_utc_iso() -> str:
@@ -73,8 +71,11 @@ def stft_axes(
         time_ms[i] = t0_ms + i * dt        (column centres, i in [0, n_cols))
         freq_khz[r] = (r + offset) * df    (row centres, r in [0, n_rows))
 
+    For :func:`tokeye.transforms.compute_stft` output with ``t0_ms=0``,
+    ``time_ms[i]`` is column ``i``'s centre (to rounding).
+
     Returns ``(None, None)`` when ``stft_meta`` is falsy or ``fs <= 0``.
-    Defaults when keys are absent: ``n_fft=1024``, ``hop=256``,
+    Defaults when keys are absent: ``n_fft=1024``, ``hop=128``,
     ``t0_ms=0.0``, ``clip_dc=True``.
     """
     if not stft_meta:
@@ -106,15 +107,37 @@ def analysis_bundle(
     raw: tuple[np.ndarray, np.ndarray] | None = None,
     params: dict | None = None,
     source: str = "",
+    axes: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> NpzBundle:
     """Build a ``tokeye-analysis/v1`` npz bundle (key -> array/str).
 
     ``raw``, when given, is a ``(t_ms, x)`` tuple of the raw signal trace,
-    stored as ``raw_t_ms``/``raw_x``. Axes come from :func:`stft_axes`
-    applied to ``spectrogram``'s shape; optional keys are simply omitted
-    when their inputs are unavailable (never stored as ``None``).
+    stored as ``raw_t_ms``/``raw_x``. ``axes``, when given, is the
+    ``(time_ms, freq_khz)`` pair stored as is (float64); otherwise the axes
+    come from :func:`stft_axes` applied to ``spectrogram``'s shape and
+    ``stft_meta``. Optional keys are simply omitted when their inputs are
+    unavailable (never stored as ``None``).
+
+    ``spectrogram`` must be 2D ``(H, W)``; ``mask``, when given, must be
+    ``(C, H, W)`` or ``(H, W)`` with the same ``H, W`` (``ValueError``
+    otherwise, so a stale mask can never be saved next to a new input).
+    ``axes`` must be 1D of lengths ``W`` and ``H``, all finite, and cannot
+    be combined with ``stft_meta`` (``ValueError`` otherwise).
     """
+    if axes is not None and stft_meta is not None:
+        raise ValueError("pass axes or stft_meta, not both")
     spectrogram = np.asarray(spectrogram, dtype=np.float32)
+    if spectrogram.ndim != 2:
+        raise ValueError(
+            f"spectrogram must be 2D (H, W), got shape {spectrogram.shape}"
+        )
+    if mask is not None:
+        mask = np.asarray(mask, dtype=np.float32)
+        if mask.shape[-2:] != spectrogram.shape or mask.ndim not in (2, 3):
+            raise ValueError(
+                f"mask shape {mask.shape} does not match spectrogram shape "
+                f"{spectrogram.shape}; expected (C, H, W) or (H, W)"
+            )
 
     bundle: NpzBundle = {
         "schema": SCHEMA_ANALYSIS,
@@ -125,10 +148,15 @@ def analysis_bundle(
     }
 
     if mask is not None:
-        bundle["mask"] = np.asarray(mask, dtype=np.float32)
+        bundle["mask"] = mask
 
     n_rows, n_cols = spectrogram.shape
-    time_ms, freq_khz = stft_axes(n_rows, n_cols, stft_meta)
+    if axes is None:
+        time_ms, freq_khz = stft_axes(n_rows, n_cols, stft_meta)
+    else:
+        time_ms, freq_khz = axes
+        time_ms = _checked_axis("time_ms", time_ms, n_cols)
+        freq_khz = _checked_axis("freq_khz", freq_khz, n_rows)
     if time_ms is not None:
         bundle["time_ms"] = time_ms
     if freq_khz is not None:
@@ -140,6 +168,19 @@ def analysis_bundle(
         bundle["raw_x"] = np.asarray(raw_x, dtype=np.float32)
 
     return bundle
+
+
+def _checked_axis(name: str, values: np.ndarray, length: int) -> np.ndarray:
+    """``values`` as a float64 axis of ``length`` finite values, else raise."""
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.shape != (length,):
+        raise ValueError(
+            f"{name} must be 1D of length {length} to match the spectrogram, "
+            f"got shape {arr.shape}"
+        )
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{name} contains non-finite values")
+    return arr
 
 
 def modespec_bundle(
@@ -189,41 +230,6 @@ def save_npz(path: str | Path, bundle: NpzBundle) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **bundle)
     return path
-
-
-def modes_csv_text(
-    result: dict, *, array: str = "toroidal", f_min: float, f_max: float
-) -> str:
-    """Render detected mode events as CSV text: byte-compatible with the
-    diiid-batch ``<shot>_modes.csv`` for toroidal arrays (identical output),
-    and matching the vendored ``generate_modes`` driver's n/m ``mode_label``
-    convention for other arrays. ``result`` is the live mode-spectrogram
-    analysis result (must include ``mode_amp``, as ``detect_modes``
-    requires)."""
-    from tokeye.modespec.classic.generate_modes import (
-        CSV_COLUMNS,
-        PARAM_DEFAULTS,
-        detect_modes,
-    )
-
-    cfg = {**PARAM_DEFAULTS, "n_range": list(result["n_range"])}
-    rows = detect_modes(result, cfg)
-    mode_label = "n" if array == "toroidal" else "m"
-
-    buf = io.StringIO(newline="")
-    writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
-    writer.writeheader()
-    for ev in rows:
-        writer.writerow(
-            {
-                "array": array,
-                "mode_label": mode_label,
-                "f_min_khz": f_min,
-                "f_max_khz": f_max,
-                **ev,
-            }
-        )
-    return buf.getvalue()
 
 
 def default_stem(kind: str, *parts: object) -> str:

@@ -5,7 +5,14 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-added-large-files
-        args: [--maxkb=2048]  # 2 MB; largest legit tracked file is uv.lock (< 1 MB)
+        args: [--maxkb=2048]  # 2 MB, the same limit as CI's large-files job
+  # Keep in step with the ruff version CI runs (.github/workflows/test.yml).
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.14
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+        files: ^(src|tests)/
   # Strip notebook outputs before commit -- rendered outputs bloated the repo
   # (scripts/usage/*.ipynb were ~1 MB each of embedded PNGs).
   - repo: https://github.com/kynan/nbstripout

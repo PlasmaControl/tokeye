@@ -20,7 +20,6 @@ from .nn import (
 
 
 class UNet(nn.Module):
-
     def __init__(
         self,
         in_channels: int = 3,
@@ -96,46 +95,3 @@ class UNet(nn.Module):
 
         # Final 1x1 convolution
         return self.out_conv(decode_BCHW)
-
-
-def build_model(
-    num_layers: int = 5,
-    first_layer_size: int = 32,
-    dropout_rate: float = 0.2,
-):
-    return UNet(
-            in_channels=1,
-            out_channels=2,  # 2 channels: normal (ch0) and baseline (ch1)
-            num_layers=num_layers,
-            first_layer_size=first_layer_size,
-            dropout_rate=dropout_rate,
-        )
-
-def load_model(
-    model_path: str,
-    device: str = "auto",
-):
-    model = build_model()
-    model.load_state_dict(torch.load(
-        model_path,
-        map_location=device,
-        weights_only=True,
-    ))
-    return model
-
-
-if __name__ == "__main__":
-    # python -m TokEye.models.unet
-    import torch
-    from torchinfo import summary
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = build_model(first_layer_size=16)
-    input_size = (2, 1, 513, 516)
-    dtype = torch.float32
-
-    summary(model, input_size=input_size, dtypes=[dtype], device=device)
-
-    with torch.no_grad():
-        output = model(torch.randn(input_size).to(device))
-        print(f"Output shape: {output.shape}")

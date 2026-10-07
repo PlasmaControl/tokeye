@@ -2,163 +2,148 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-from tokeye.transforms import (
-    DEFAULT_CLIP_HIGH,
-    DEFAULT_CLIP_LOW,
-    DEFAULT_HOP,
-    DEFAULT_N_FFT,
-)
+from tokeye.cli import _common, _options
 
-if TYPE_CHECKING:
-    import argparse
+# = tokeye.alfvenspec.inference.DEFAULT_WINDOW_COLS and _MIN_WINDOW_COLS;
+# importing them would import torch.
+DEFAULT_WINDOW_COLS = 710
+MIN_WINDOW_COLS = 32
+
+
+def window_cols(text: str) -> int:
+    """argparse ``type=`` for ``--window-cols``: 0 or an integer >= 32."""
+    rule = f"must be 0 (no windowing) or an integer >= {MIN_WINDOW_COLS}"
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{rule}, got {text!r}") from None
+    if value != 0 and value < MIN_WINDOW_COLS:
+        raise argparse.ArgumentTypeError(f"{rule}, got {text}")
+    return value
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "alfvenspec",
+        parents=[_options.VERBOSE],
         help="Detect Alfvén-eigenmode activity (boxes + masks via ae_tf_maskrcnn).",
+        description=(
+            "Run the ae_tf_maskrcnn instance model (needs the 'ae' extra: "
+            'pip install "tokeye[ae]"). Writes ae_detections.csv and, unless '
+            "--no-masks, <stem>_ae_instances.npy: an (H, W) int32 map where "
+            "i + 1 marks detection i of that input. Unwindowed inputs with "
+            "detections also get <stem>_ae_masks.npy, the per-detection soft "
+            "masks (deprecated; no longer written from 2.0)."
+        ),
     )
     parser.add_argument(
         "inputs",
         nargs="+",
         metavar="INPUT",
-        help="Files, directories of .npy files, or glob patterns.",
+        help="files, directories, or glob patterns",
     )
-    parser.add_argument(
-        "--model",
-        default="ae_tf_maskrcnn",
-        help="Registry name or path to a model checkpoint (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="tokeye_ae",
-        help="Directory to write detections CSV, masks, and previews to.",
-    )
-    parser.add_argument("--n-fft", type=int, default=DEFAULT_N_FFT)
-    parser.add_argument("--hop", type=int, default=DEFAULT_HOP)
-    parser.add_argument(
-        "--keep-dc",
-        action="store_true",
-        help="Do not clip the DC bin (clipped by default).",
-    )
-    parser.add_argument("--clip-low", type=float, default=DEFAULT_CLIP_LOW)
-    parser.add_argument("--clip-high", type=float, default=DEFAULT_CLIP_HIGH)
-    parser.add_argument(
-        "--log",
-        action="store_true",
-        help=(
-            "Apply log1p to 2D spectrogram inputs stored in linear scale "
-            "(1D signals are always log-scaled during the STFT)."
-        ),
-    )
+    _options.add_model_options(parser, default="ae_tf_maskrcnn")
+    _options.add_output_options(parser, default_dir="tokeye_ae")
+    _options.add_key_option(parser)
     parser.add_argument(
         "--score-min",
-        type=float,
+        type=_options.unit_float,
         default=0.5,
-        help="Keep detections with at least this score (default: %(default)s).",
+        help="keep detections with at least this score, in [0, 1] "
+        "(default: %(default)s)",
     )
     parser.add_argument(
         "--window-cols",
-        type=int,
-        default=710,
+        type=window_cols,
+        default=DEFAULT_WINDOW_COLS,
         help=(
-            "Process wide spectrograms in windows of this many columns "
-            "(training width; 0 disables windowing; default: %(default)s)."
+            "process wide spectrograms in windows of this many columns (the "
+            "default is the training width): 0 disables windowing, else >= "
+            f"{MIN_WINDOW_COLS} (default: %(default)s)"
         ),
     )
     parser.add_argument(
         "--mean",
-        type=float,
+        type=_options.finite_float,
         default=None,
-        help="Standardization mean (default: per-input statistics).",
+        help="standardization mean, a finite number (default: per-input statistics)",
     )
     parser.add_argument(
         "--std",
-        type=float,
+        type=_options.positive_float,
         default=None,
-        help="Standardization std (default: per-input statistics).",
+        help="standardization std (default: per-input statistics)",
     )
     parser.add_argument(
-        "--no-masks",
-        dest="save_masks",
-        action="store_false",
-        help="Skip writing per-input instance masks (.npy).",
+        "--masks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "write <stem>_ae_instances.npy per input, and the deprecated "
+            "<stem>_ae_masks.npy for unwindowed inputs with detections "
+            "(default: on)"
+        ),
     )
-    parser.add_argument("--device", default="auto")
+    _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
 
 
 def _handle(args: argparse.Namespace) -> int:
-    from huggingface_hub.errors import HfHubHTTPError
+    import numpy as np
 
     from tokeye import batch
     from tokeye.alfvenspec import detect_windowed, write_detections_csv
-    from tokeye.cli._errors import print_hub_error
-    from tokeye.hub import load_model
 
-    stft_kwargs = {
-        "n_fft": args.n_fft,
-        "hop": args.hop,
-        "clip_dc": not args.keep_dc,
-        "clip_low": args.clip_low,
-        "clip_high": args.clip_high,
-    }
+    setup = _common.setup_or_report(args, "instance", unique_stems=args.masks)
+    if setup is None:
+        return _common.EXIT_USAGE
+    out_dir = setup.out_dir
 
-    try:
-        paths = batch.collect_inputs(args.inputs)
-    except (ValueError, FileNotFoundError) as exc:
-        hint = (
-            " (no data yet? create a demo signal with: tokeye example)"
-            if "No input files found" in str(exc)
-            else ""
-        )
-        print(f"error: {exc}{hint}", file=sys.stderr)
-        return 2
-
-    try:
-        model = load_model(args.model, args.device)
-    except (ValueError, FileNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    except (HfHubHTTPError, OSError) as exc:
-        print_hub_error(args.model, exc)
-        return 2
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    import numpy as np
-
+    # Only what the CSV needs: an input's instance map and masks stack are
+    # dropped once its files are written.
     all_detections = []
     failures = 0
-    for path in paths:
+    wrote_masks = False
+    for path in setup.paths:
         try:
-            spectrogram = batch.load_input(path, stft_kwargs, log=args.log)
+            spec = batch.load_spectrogram(path, setup.config, key=args.key)
             detections = detect_windowed(
-                spectrogram,
-                model,
+                spec.values,
+                setup.model,
                 window_cols=args.window_cols,
                 score_min=args.score_min,
                 mean=args.mean,
                 std=args.std,
             )
+            masks = detections["masks"]  # None when the input was windowed
+            has_masks = args.masks and masks is not None and len(masks) > 0
+            if args.masks:
+                np.save(
+                    out_dir / f"{path.stem}_ae_instances.npy",
+                    detections["instance_map"],
+                )
+            if has_masks:
+                np.save(out_dir / f"{path.stem}_ae_masks.npy", masks)
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
-            print(f"error: failed to process {path}: {exc}", file=sys.stderr)
+            _common.report_failure(path, exc)
             failures += 1
             continue
 
-        all_detections.append((str(path), detections))
-        print(f"{path}: {len(detections['boxes'])} detection(s)")
-
-        masks = detections["masks"]  # None when the input was windowed
-        if args.save_masks and masks is not None and len(masks):
-            np.save(out_dir / f"{path.stem}_ae_masks.npy", masks)
+        wrote_masks = wrote_masks or has_masks
+        kept = {key: detections[key] for key in ("boxes", "labels", "scores")}
+        all_detections.append((str(path), kept))
+        print(f"{path}: {len(kept['boxes'])} detection(s)")
 
     detections_csv = out_dir / "ae_detections.csv"
     write_detections_csv(detections_csv, all_detections)
     print(detections_csv)
-    return failures
+    if wrote_masks:
+        print(
+            "note: <stem>_ae_masks.npy (per-detection soft masks) is deprecated "
+            "and is no longer written from 2.0; use <stem>_ae_instances.npy",
+            file=sys.stderr,
+        )
+    return _common.EXIT_FAILED if failures else _common.EXIT_OK

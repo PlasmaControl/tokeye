@@ -3,183 +3,169 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tokeye.transforms import (
-    DEFAULT_CLIP_HIGH,
-    DEFAULT_CLIP_LOW,
-    DEFAULT_HOP,
-    DEFAULT_N_FFT,
-)
+from tokeye.cli import _common, _options
 
 if TYPE_CHECKING:
     import argparse
+
+    import numpy as np
+
+    from tokeye.result import Segmentation
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "elmspec",
+        parents=[_options.VERBOSE],
         help="Detect ELM events (transient-channel intervals, count, frequency).",
+        description=(
+            "Segment each input, then turn broadband stripes in the transient "
+            "channel into ELM events. Writes elm_events.csv and "
+            "elm_summary.csv (plus <stem>_elm_preview.png with --png). Event "
+            "times are column times: column j is j*hop/fs seconds after the "
+            "first sample (j*dt with --dt)."
+        ),
     )
     parser.add_argument(
         "inputs",
         nargs="+",
         metavar="INPUT",
-        help="Files, directories of .npy files, or glob patterns.",
+        help="files, directories, or glob patterns",
     )
+    _options.add_model_options(parser)
+    _options.add_tile_option(parser)
+    _options.add_output_options(parser, default_dir="tokeye_elms", png_default=False)
+    _options.add_fs_option(parser)
+    _options.add_key_option(parser)
     parser.add_argument(
-        "--model",
-        default=None,
-        help="Registry name or path to a model checkpoint (default: big_tf_unet).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="tokeye_elms",
-        help="Directory to write event/summary CSVs (and previews) to.",
-    )
-    parser.add_argument("--n-fft", type=int, default=DEFAULT_N_FFT)
-    parser.add_argument("--hop", type=int, default=DEFAULT_HOP)
-    parser.add_argument(
-        "--keep-dc",
-        action="store_true",
-        help="Do not clip the DC bin (clipped by default).",
-    )
-    parser.add_argument("--clip-low", type=float, default=DEFAULT_CLIP_LOW)
-    parser.add_argument("--clip-high", type=float, default=DEFAULT_CLIP_HIGH)
-    parser.add_argument(
-        "--log",
-        action="store_true",
-        help=(
-            "Apply log1p to 2D spectrogram inputs stored in linear scale "
-            "(1D signals are always log-scaled during the STFT)."
-        ),
-    )
-    parser.add_argument(
-        "--fs",
-        type=float,
+        "--dt",
+        type=_options.positive_float,
         default=None,
         help=(
-            "Sampling rate in Hz of the original signals; enables absolute "
-            "event times and ELM frequency in the CSVs."
+            "seconds per spectrogram column; overrides --hop/--fs (use it for "
+            "2D inputs whose columns are not --hop samples apart) and sets the "
+            "duration used for the ELM frequency (columns x dt)"
         ),
     )
     parser.add_argument(
         "--threshold",
-        type=float,
+        type=_options.unit_float,
         default=0.5,
-        help="Mask binarization threshold (default: %(default)s).",
+        help="mask binarization threshold, in [0, 1] (default: %(default)s)",
     )
     parser.add_argument(
         "--activity-min",
-        type=float,
+        type=_options.unit_float,
         default=0.1,
         help=(
-            "Minimum fraction of active frequency bins for a time column to "
-            "belong to an ELM (default: %(default)s)."
+            "minimum fraction of active frequency bins for a time column to "
+            "belong to an ELM, in [0, 1] (default: %(default)s)"
         ),
     )
     parser.add_argument(
         "--min-gap-cols",
-        type=int,
+        type=_options.nonnegative_int,
         default=3,
-        help="Merge events separated by at most this many columns (default: %(default)s).",
+        help="merge events separated by at most this many columns, >= 0 "
+        "(default: %(default)s)",
     )
     parser.add_argument(
         "--min-duration-cols",
-        type=int,
+        type=_options.positive_int,
         default=1,
-        help="Drop events shorter than this many columns (default: %(default)s).",
+        help="drop events shorter than this many columns, >= 1 (default: %(default)s)",
     )
-    parser.add_argument(
-        "--png",
-        action="store_true",
-        help="Also write a mask-overlay preview PNG per input.",
-    )
-    parser.add_argument("--device", default="auto")
+    _options.add_spectrogram_options(parser)
     parser.set_defaults(handler=_handle)
 
 
-def _handle(args: argparse.Namespace) -> int:
-    from huggingface_hub.errors import HfHubHTTPError
+def _transient(seg: Segmentation) -> np.ndarray:
+    """The transient channel: by name, else channel 1 of a 2+ channel mask."""
+    if "transient" in seg.channels:
+        return seg["transient"]
+    if seg.mask.shape[0] >= 2:
+        return seg.mask[1]
+    raise ValueError(
+        f"model {seg.model!r} has no transient channel (channels: {seg.channels})"
+    )
 
-    from tokeye import batch
-    from tokeye.cli._errors import print_hub_error
+
+def _handle(args: argparse.Namespace) -> int:
+    from tokeye import batch, hub
+    from tokeye._plotting import save_preview
+    from tokeye.config import resolve_channels
     from tokeye.elmspec import (
+        event_rows,
         extract_elm_events,
         summarize,
-        write_events_csv,
+        write_event_rows,
         write_summary_csv,
     )
-    from tokeye.hub import DEFAULT_MODEL, load_model
-    from tokeye.inference import model_infer
+    from tokeye.inference import infer
+    from tokeye.result import Segmentation
 
-    stft_kwargs = {
-        "n_fft": args.n_fft,
-        "hop": args.hop,
-        "clip_dc": not args.keep_dc,
-        "clip_low": args.clip_low,
-        "clip_high": args.clip_high,
-    }
-    model_name = args.model if args.model is not None else DEFAULT_MODEL
+    setup = _common.setup_or_report(args, "segmentation", unique_stems=args.png)
+    if setup is None:
+        return _common.EXIT_USAGE
+    config, out_dir = setup.config, setup.out_dir
+    label = hub.model_label(args.model)  # a file name, never a local path
 
-    try:
-        paths = batch.collect_inputs(args.inputs)
-    except (ValueError, FileNotFoundError) as exc:
-        hint = (
-            " (no data yet? create a demo signal with: tokeye example)"
-            if "No input files found" in str(exc)
-            else ""
-        )
-        print(f"error: {exc}{hint}", file=sys.stderr)
-        return 2
-
-    try:
-        model = load_model(model_name, args.device)
-    except (ValueError, FileNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    except (HfHubHTTPError, OSError) as exc:
-        print_hub_error(model_name, exc)
-        return 2
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    all_events = []
-    all_summaries = []
+    rows = []
+    summaries = []
     failures = 0
-    for path in paths:
+    for path in setup.paths:
         try:
-            spectrogram = batch.load_input(path, stft_kwargs, log=args.log)
-            mask = model_infer(spectrogram, model)
+            spec = batch.load_spectrogram(path, config, fs=args.fs, key=args.key)
+            mask = infer(setup.model, spec.values, tile=args.tile)
+            names = resolve_channels(setup.channels, mask.shape[0])
+            seg = Segmentation(mask, spec, names, label)
             events = extract_elm_events(
-                mask[1],
+                _transient(seg),
                 threshold=args.threshold,
                 activity_min=args.activity_min,
                 min_gap_cols=args.min_gap_cols,
                 min_duration_cols=args.min_duration_cols,
             )
+            duration_s = None
+            if args.dt is None and spec.n_samples is not None and spec.fs is not None:
+                duration_s = spec.n_samples / spec.fs
+            summary = summarize(
+                events,
+                n_cols=mask.shape[-1],
+                hop=config.hop,
+                fs=spec.fs,
+                dt=args.dt,
+                duration_s=duration_s,
+            )
+            input_rows = event_rows(
+                str(path), events, hop=config.hop, fs=spec.fs, dt=args.dt
+            )
+            if args.png:
+                preview = out_dir / f"{path.stem}_elm_preview.png"
+                save_preview(seg, preview, threshold=args.threshold)
         except Exception as exc:  # noqa: BLE001 - mirror `tokeye run`: keep batch going
-            print(f"error: failed to process {path}: {exc}", file=sys.stderr)
+            _common.report_failure(path, exc)
             failures += 1
             continue
 
-        summary = summarize(events, n_cols=mask.shape[-1], hop=args.hop, fs=args.fs)
-        all_events.append((str(path), events))
-        all_summaries.append((str(path), summary))
+        rows += input_rows
+        summaries.append((str(path), summary))
+        if spec.kind == "spectrogram" and spec.fs is not None and args.dt is None:
+            print(
+                f"note: {path} is a spectrogram; times assume its columns "
+                f"are --hop={config.hop} samples apart (set --dt to override)",
+                file=sys.stderr,
+            )
         freq = summary["elm_freq_hz"]
         freq_text = f", {freq:.1f} Hz" if freq is not None else ""
         print(f"{path}: {summary['n_events']} ELM event(s){freq_text}")
 
-        if args.png:
-            preview_path = out_dir / f"{path.stem}_elm_preview.png"
-            batch.save_overlay_png(spectrogram, mask, preview_path, threshold=args.threshold)
-
     events_csv = out_dir / "elm_events.csv"
     summary_csv = out_dir / "elm_summary.csv"
-    write_events_csv(events_csv, all_events, hop=args.hop, fs=args.fs)
-    write_summary_csv(summary_csv, all_summaries)
+    write_event_rows(events_csv, rows)
+    write_summary_csv(summary_csv, summaries)
     print(events_csv)
     print(summary_csv)
-    return failures
+    return _common.EXIT_FAILED if failures else _common.EXIT_OK

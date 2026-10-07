@@ -1,4 +1,9 @@
 line-length = 88
+target-version = "py311"  # = requires-python; keep in sync
+
+[format]
+# Frozen research code: formatting it would only churn paper provenance.
+exclude = ["src/tokeye/training/**", "scripts/**"]
 
 [lint]
 extend-select = [
@@ -28,16 +33,3 @@ ignore = [
 "__init__.py" = ["F401"]
 "tests/*" = ["ARG"]
 "*.ipynb" = ["E402"]
-
-"scripts/**" = ["E402", "E702", "E741", "SIM115", "PTH208"]
-
-"src/tokeye/extra/eval/**" = ["E702"]
-"src/tokeye/modespec/classic/**" = [
-    "E", "W", "I", "UP", "C4", "FA", "ISC", "ICN", "RET", "SIM", "TID", "TC",
-    "PTH", "TD", "NPY", "F401", "F841",
-]
-"src/tokeye/eigspec/**" = [
-    "E", "W", "I", "UP", "C4", "FA", "ISC", "ICN", "RET", "SIM", "TID", "TC",
-    "PTH", "TD", "NPY", "F401", "F841", "F811", "F541",
-]
-

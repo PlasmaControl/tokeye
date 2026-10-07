@@ -1,0 +1,31 @@
+# Separate from test.yml: a queued run in a shared concurrency group can be
+# cancelled, and a cancelled push run would leave that push's commits unscanned.
+name: large-files
+
+on:
+  # Every PR, plus pushes to main and release tags. A branch with an open PR
+  # is tested by the PR run, so its commits don't run every job twice.
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  large-files:
+    # Every blob the push or PR adds, not only the final tree: a big file that
+    # a later commit deletes still lands in the history.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history, so the range below resolves
+      - name: Reject files larger than 2 MB (whole range, and the tree)
+        env:
+          # PR: base..head. Push: before..sha. For the all-zeros `before` of a
+          # new branch or tag, the script scans the tip's whole history.
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TIP: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: bash .github/scripts/large-files.sh

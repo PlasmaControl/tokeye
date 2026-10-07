@@ -10,22 +10,33 @@ from tokeye.alfvenspec import detect, detect_windowed, write_detections_csv
 
 
 class _StubRCNN(nn.Module):
-    """Returns canned torchvision-style detections; records its input."""
+    """Returns canned torchvision-style detections; records its input.
 
-    def __init__(self, n: int = 3, height: int = 8, width: int = 6):
+    Detection ``i`` has a box and a mask over rows ``i:i+2``, cols ``0:2`` of
+    whatever image it is given (masks follow the input shape, like the real
+    model's post-processing).
+    """
+
+    def __init__(self, n: int = 3):
         super().__init__()
         self.dummy = nn.Parameter(torch.zeros(1))
         self.seen = None
-        self.canned = {
-            "boxes": torch.tensor([[0.0, 0.0, 2.0, 2.0]] * n),
-            "labels": torch.ones(n, dtype=torch.int64),
-            "scores": torch.tensor([0.9, 0.6, 0.2][:n]),
-            "masks": torch.zeros(n, 1, height, width),
-        }
+        self.n = n
 
     def forward(self, images):
         self.seen = images
-        return [self.canned]
+        _, height, width = images[0].shape
+        masks = torch.zeros(self.n, 1, height, width)
+        for i in range(self.n):
+            masks[i, 0, i : i + 2, 0:2] = 1.0
+        return [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, 2.0, 2.0]] * self.n),
+                "labels": torch.ones(self.n, dtype=torch.int64),
+                "scores": torch.tensor([0.9, 0.6, 0.2][: self.n]),
+                "masks": masks,
+            }
+        ]
 
 
 def test_detect_filters_by_score_and_returns_numpy():
@@ -100,6 +111,37 @@ def test_detect_windowed_falls_back_to_single_window():
     assert result["masks"] is not None  # single window keeps masks
 
 
+def test_instance_map_single_window_most_confident_wins():
+    model = _StubRCNN()  # scores 0.9, 0.6 kept; 0.2 filtered
+    spectrogram = np.zeros((8, 30), dtype=np.float32)
+
+    result = detect_windowed(spectrogram, model, window_cols=40)
+
+    instance_map = result["instance_map"]
+    assert instance_map.shape == (8, 30)
+    assert instance_map.dtype == np.int32
+    assert instance_map[0, 0] == 1  # detection 0 only
+    assert instance_map[1, 0] == 1  # overlap: score 0.9 beats 0.6
+    assert instance_map[2, 0] == 2  # detection 1 only
+    assert instance_map[3, 0] == 0  # detection 2 was filtered out
+    assert set(np.unique(instance_map)) == {0, 1, 2}
+
+
+def test_instance_map_windowed_uses_global_ids_and_columns():
+    model = _StubRCNN(n=1)
+    spectrogram = np.zeros((8, 112), dtype=np.float32)
+
+    result = detect_windowed(spectrogram, model, window_cols=40)
+
+    instance_map = result["instance_map"]
+    assert instance_map.shape == (8, 112)
+    assert instance_map[0, 0] == 1
+    assert instance_map[0, 40] == 2
+    assert instance_map[0, 80] == 3
+    assert instance_map[0, 2] == 0
+    assert result["masks"] is None  # soft masks are single-window only
+
+
 def test_write_detections_csv(tmp_path):
     out = tmp_path / "ae_detections.csv"
     detections = {
@@ -114,5 +156,10 @@ def test_write_detections_csv(tmp_path):
         rows = list(csv.DictReader(fh))
     assert rows[0]["input"] == "shot1.npy"
     assert rows[0]["detection"] == "0"
-    assert [rows[0][k] for k in ("x1", "y1", "x2", "y2")] == ["1.0", "2.0", "3.0", "4.0"]
+    assert [rows[0][k] for k in ("x1", "y1", "x2", "y2")] == [
+        "1.0",
+        "2.0",
+        "3.0",
+        "4.0",
+    ]
     assert rows[0]["score"] == "0.9"

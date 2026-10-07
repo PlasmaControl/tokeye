@@ -21,30 +21,34 @@ class BigTFUNetConvBlock(nn.Module):
 
         layers: list[nn.Module] = []
 
-        layers.extend([
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=mid_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-            ),
-            nn.BatchNorm2d(mid_channels),
-            nn.LeakyReLU(inplace=True),
-            ])
+        layers.extend(
+            [
+                nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=mid_channels,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                ),
+                nn.BatchNorm2d(mid_channels),
+                nn.LeakyReLU(inplace=True),
+            ]
+        )
 
         if dropout_rate > 0:
             layers.extend([nn.Dropout2d(p=dropout_rate)])
 
-        layers.extend([
-            nn.Conv2d(
-                in_channels=mid_channels,
-                out_channels=out_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True),
-            ])
+        layers.extend(
+            [
+                nn.Conv2d(
+                    in_channels=mid_channels,
+                    out_channels=out_channels,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                ),
+                nn.BatchNorm2d(out_channels),
+                nn.LeakyReLU(inplace=True),
+            ]
+        )
 
         if dropout_rate > 0:
             layers.extend([nn.Dropout2d(p=dropout_rate)])
@@ -109,7 +113,6 @@ class BigTFUNetUpBlock(nn.Module):
         hidden_states_1: torch.Tensor,
         hidden_states_2: torch.Tensor,
     ) -> torch.Tensor:
-
         hidden_states_1 = self.up(hidden_states_1)
 
         diffY = hidden_states_2.size()[2] - hidden_states_1.size()[2]
@@ -125,15 +128,13 @@ class BigTFUNetUpBlock(nn.Module):
 
 
 class BigTFUNetModel(nn.Module):
-
     def __init__(self, config: BigTFUNetConfig):
         super().__init__()
         self.config = config
 
         # Layer sizes
         layer_sizes: list[int] = [
-            config.first_layer_size * 2**i
-            for i in range(config.num_layers)
+            config.first_layer_size * 2**i for i in range(config.num_layers)
         ]
 
         # Initial Channel Convolution
@@ -148,11 +149,13 @@ class BigTFUNetModel(nn.Module):
         for i in range(config.num_layers - 1):
             in_ch = layer_sizes[i]
             out_ch = layer_sizes[i + 1]
-            encoder.append(BigTFUNetDownBlock(
-                in_channels=in_ch,
-                out_channels=out_ch,
-                dropout_rate=config.dropout_rate,
-            ))
+            encoder.append(
+                BigTFUNetDownBlock(
+                    in_channels=in_ch,
+                    out_channels=out_ch,
+                    dropout_rate=config.dropout_rate,
+                )
+            )
         self.encoder = nn.ModuleList(encoder)
 
         # Decoder
@@ -160,11 +163,13 @@ class BigTFUNetModel(nn.Module):
         for i in range(config.num_layers - 1):
             in_ch = layer_sizes[-i - 1]
             out_ch = layer_sizes[-i - 2]
-            decoder.append(BigTFUNetUpBlock(
-                in_channels=in_ch,
-                out_channels=out_ch,
-                dropout_rate=config.dropout_rate,
-            ))
+            decoder.append(
+                BigTFUNetUpBlock(
+                    in_channels=in_ch,
+                    out_channels=out_ch,
+                    dropout_rate=config.dropout_rate,
+                )
+            )
         self.decoder = nn.ModuleList(decoder)
 
         # Final Channel Convolution

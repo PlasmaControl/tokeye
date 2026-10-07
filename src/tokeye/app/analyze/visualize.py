@@ -136,7 +136,6 @@ def amplitude(
     return arr_original * combined_mask.astype(np.float32)
 
 
-
 def show_image(
     view_mode: str,
     arr: np.ndarray,

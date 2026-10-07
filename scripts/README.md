@@ -13,3 +13,6 @@
 
 - **`upload_model.py`** — maintainer-only tool for publishing a verified
   checkpoint to the Hugging Face Hub. See its docstring before running it.
+
+The abandoned `big_tf_unet_2` pipeline and its run-folder template were removed
+in tokeye 1.0; the last version is tagged `big-tf-unet-2-final`.

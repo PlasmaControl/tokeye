@@ -19,21 +19,24 @@ class TokEyeConvBlock(nn.Module):
 
         layers: list[nn.Module] = []
 
-        layers.extend([
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=mid_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-            ),
-            nn.BatchNorm2d(mid_channels),
-            nn.LeakyReLU(inplace=True),
-            ])
+        layers.extend(
+            [
+                nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=mid_channels,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                ),
+                nn.BatchNorm2d(mid_channels),
+                nn.LeakyReLU(inplace=True),
+            ]
+        )
 
         if dropout_rate > 0:
             layers.extend([nn.Dropout2d(p=dropout_rate)])
 
-        layers.extend([
+        layers.extend(
+            [
                 nn.Conv2d(
                     in_channels=mid_channels,
                     out_channels=out_channels,
@@ -42,7 +45,8 @@ class TokEyeConvBlock(nn.Module):
                 ),
                 nn.BatchNorm2d(out_channels),
                 nn.LeakyReLU(inplace=True),
-            ])
+            ]
+        )
 
         if dropout_rate > 0:
             layers.extend([nn.Dropout2d(p=dropout_rate)])
@@ -107,7 +111,6 @@ class TokEyeUpBlock(nn.Module):
         hidden_states_1: torch.Tensor,
         hidden_states_2: torch.Tensor,
     ) -> torch.Tensor:
-
         hidden_states_1 = self.up(hidden_states_1)
 
         diffY = hidden_states_2.size()[2] - hidden_states_1.size()[2]

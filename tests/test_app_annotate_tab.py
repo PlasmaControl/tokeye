@@ -317,9 +317,7 @@ def test_handle_save_mask_missing_canvas_clears_download(tmp_path, monkeypatch):
     assert download is None
 
 
-def test_failed_save_after_successful_save_clears_stale_download(
-    tmp_path, monkeypatch
-):
+def test_failed_save_after_successful_save_clears_stale_download(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     backdrop_arr = np.full((6, 6), 20, dtype=np.uint8)

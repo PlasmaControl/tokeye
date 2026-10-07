@@ -14,9 +14,45 @@ import numpy as np
 from scipy.signal import chirp
 from scipy.signal.windows import tukey
 
+DEFAULT_FS = 200_000.0
 NOISE_SIGMA = 1.0
 CHIRP_AMPLITUDE = 3.0
 BURST_AMPLITUDE = 5.0
+
+
+def format_rate(fs: float) -> str:
+    """A sampling rate as it is written in file names and commands.
+
+    Parameters
+    ----------
+    fs : float
+        Sampling rate [Hz].
+
+    Returns
+    -------
+    str
+        ``"200000"`` for an integer rate (no ``.0``), else ``str(fs)``.
+    """
+    return str(int(fs)) if float(fs).is_integer() else str(fs)
+
+
+def example_filename(fs: float) -> str:
+    """The name of an example signal: ``tokeye_example_sr<fs>.npy``.
+
+    The ``_sr`` suffix records the rate, so ``tokeye run`` reads it from the
+    name (the app does not).
+
+    Parameters
+    ----------
+    fs : float
+        Sampling rate [Hz].
+
+    Returns
+    -------
+    str
+        The file name, e.g. ``tokeye_example_sr200000.npy``.
+    """
+    return f"tokeye_example_sr{format_rate(fs)}.npy"
 
 
 def _add_chirp(
@@ -55,7 +91,7 @@ def _add_burst(
 
 def make_example_signal(
     duration_s: float = 2.0,
-    fs: float = 200_000.0,
+    fs: float = DEFAULT_FS,
     seed: int = 0,
 ) -> np.ndarray:
     rng = np.random.default_rng(seed)
@@ -75,10 +111,15 @@ def make_example_signal(
 
 def write_example_signal(
     directory: Path,
-    filename: str = "tokeye_example.npy",
+    filename: str | None = None,
 ) -> Path:
+    """Write the default example signal into ``directory``.
+
+    ``filename`` defaults to :func:`example_filename` of :data:`DEFAULT_FS`,
+    the name ``tokeye example`` writes.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    out_path = directory / filename
+    out_path = directory / (filename or example_filename(DEFAULT_FS))
     np.save(out_path, make_example_signal())
     return out_path

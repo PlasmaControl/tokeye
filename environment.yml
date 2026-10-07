@@ -1,0 +1,23 @@
+# Conda alternative to `pip install "tokeye[all]"`, run from a clone:
+#     conda env create -f environment.yml && conda activate tokeye
+# Training needs the repo's `train` dependency group instead: uv sync --group train
+name: tokeye
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.11
+  - numpy>=1.26
+  - scipy>=1.12
+  - matplotlib>=3.8
+  # conda-forge installs the CUDA build when it detects a GPU driver. To force
+  # the CPU build (much smaller), write `pytorch >=2.4 cpu*` here instead.
+  - pytorch>=2.4
+  - torchvision>=0.19
+  - huggingface_hub>=0.30
+  - tqdm>=4.66
+  - h5py>=3.10
+  - pip
+  - pip:
+      - "gradio>=5.49,<6"
+      - "soundfile>=0.12"
+      - -e .

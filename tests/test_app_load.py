@@ -72,10 +72,23 @@ def test_load_single_2d_signal_returns_none(tmp_path):
 @pytest.mark.parametrize("cached_value", [None, "/path/to/cached.pt"])
 def test_is_model_cached(monkeypatch, cached_value):
     monkeypatch.setattr(
-        load, "try_to_load_from_cache", lambda repo_id, filename: cached_value
+        "tokeye.hub.try_to_load_from_cache", lambda repo_id, filename: cached_value
     )
 
     assert load.is_model_cached("big_tf_unet") is (cached_value is not None)
+
+
+def test_is_model_cached_uses_the_models_own_repo(monkeypatch):
+    """ae_tf_maskrcnn lives in its own repo (audit bug A2)."""
+    seen = []
+    monkeypatch.setattr(
+        "tokeye.hub.try_to_load_from_cache",
+        lambda repo_id, filename: seen.append(repo_id),
+    )
+
+    load.is_model_cached("ae_tf_maskrcnn")
+
+    assert seen == ["nc1/ae_tf_maskrcnn"]
 
 
 ## NOTE: ensure_model / create_app coverage lives in test_app_analyze_tab.py
