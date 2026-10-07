@@ -563,8 +563,8 @@ def test_a_comment_that_is_not_a_header_is_ignored(tmp_path):
     "comment", ["# sampled at 2 ms, 1 kHz", "# t in ms, value", "# t ms, v"]
 )
 def test_a_two_part_comment_with_phrases_is_not_a_header(tmp_path, comment):
-    # Seconds at 1 kHz: a comment whose names are not single tokens (plus an
-    # optional bracketed unit) says nothing about the time column's unit.
+    # Seconds at 1 kHz: a comment whose time name is not a single token (plus
+    # an optional bracketed unit) says nothing about the time column's unit.
     path = _table(tmp_path / "x.csv", comment, 0.001)
     assert load_signal(path)[1] == pytest.approx(1000.0)
 
@@ -599,6 +599,20 @@ def test_a_comment_header_is_judged_by_its_time_name_alone(tmp_path, header):
     # Only the time column's name is read, so the value column's name may be
     # a phrase: 1 kHz data with the time in milliseconds.
     path = _table(tmp_path / "x.csv", header, 1.0)
+    assert load_signal(path)[1] == pytest.approx(1000.0)
+
+
+@pytest.mark.parametrize("header", ["# Δt [ms], U [V]", "# Época [ms], valor"])
+def test_a_comment_header_time_name_may_start_with_any_letter(tmp_path, header):
+    # 1 kHz data with the time in milliseconds; the name starts with a
+    # non-ASCII letter.
+    path = _table(tmp_path / "x.csv", header, 1.0)
+    assert load_signal(path)[1] == pytest.approx(1000.0)
+
+
+def test_a_comment_of_assignments_is_not_a_header(tmp_path):
+    # 'dt=1ms' has '=' in its first "name": metadata, above seconds at 1 kHz.
+    path = _table(tmp_path / "x.csv", "# dt=1ms, fs=1kHz", 0.001)
     assert load_signal(path)[1] == pytest.approx(1000.0)
 
 

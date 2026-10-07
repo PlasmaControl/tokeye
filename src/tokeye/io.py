@@ -62,10 +62,11 @@ _TIME_UNIT = re.compile(
     r"(?<![A-Za-z])(ms|msec|us|µs|μs|usec)(?![A-Za-z])", re.IGNORECASE
 )
 _BRACKETED = re.compile(r"\(.*\)|\[.*\]")
-# The time column's name in a '#' comment header: it starts with a letter,
-# '_' or a micro sign, continues as one token, then optionally a bracketed or
+# The time column's name in a '#' comment header: it starts with any Unicode
+# letter or '_' (a micro sign included), continues as one token without '='
+# or ':' (those are metadata, dt=1ms), then optionally a bracketed or
 # parenthesised unit (time [ms], t(ms), t_ms, time).
-_HEADER_NAME = re.compile(r"[A-Za-z_µμ][^\s()\[\]]*(?:\s*(?:\([^()]*\)|\[[^\[\]]*\]))?")
+_HEADER_NAME = re.compile(r"[^\W\d][^\s()\[\]=:]*(?:\s*(?:\([^()]*\)|\[[^\[\]]*\]))?")
 
 
 def load_signal(
@@ -438,11 +439,12 @@ def _time_scale(path: Path, *, csv: bool, header_row: bool) -> float:
     line when it is not numeric (``header_row``), or a ``#`` comment first
     line with two names (``np.savetxt(header=...)`` writes one), judged by
     the time column's name alone, since the other is never read. That name,
-    less one pair of surrounding quotes, starts with a letter, ``_`` or a
-    micro sign and is a single token plus an optional bracketed or
-    parenthesised unit (``time [ms]``, ``t(ms)``, ``t_ms``); the value
-    column's name may be anything. Any other comment, such as
-    ``# sampled at 2 ms, 1 kHz`` or ``# 2ms, 1kHz``, is not a header. A
+    less one pair of surrounding quotes, starts with a letter (any Unicode
+    letter) or ``_`` and is a single token without ``=`` or ``:``, plus an
+    optional bracketed or parenthesised unit (``time [ms]``, ``t(ms)``,
+    ``t_ms``, ``Δt [ms]``); the value column's name may be anything. Any
+    other comment, such as ``# sampled at 2 ms, 1 kHz``, ``# 2ms, 1kHz`` or
+    ``# dt=1ms, fs=1kHz``, is not a header. A
     standalone ``ms``/``msec`` gives 1e-3, ``us``/``µs``/``usec`` 1e-6;
     anything else is seconds.
     """
