@@ -136,11 +136,12 @@ class TestTorchScript:
 
     def test_a_corrupt_central_directory_is_not_torchscript(self, tmp_path):
         path = tmp_path / "corrupt.pt"
-        _zip(path, {"archive/constants.pkl": b"x"})
+        _zip(path, {"archive/constants.pkl": b"x", "archive/data.pkl": b"y"})
         data = bytearray(path.read_bytes())
-        eocd = data.rindex(b"PK\x05\x06")
-        (cd_offset,) = struct.unpack_from("<I", data, eocd + 16)
-        data[cd_offset : cd_offset + 4] = b"XXXX"
+        # Break the second central directory entry: is_zipfile checks only the
+        # first one's signature (Python 3.14+), while ZipFile reads them all.
+        second = data.index(b"PK\x01\x02", data.index(b"PK\x01\x02") + 4)
+        data[second : second + 4] = b"XXXX"
         path.write_bytes(bytes(data))
         assert zipfile.is_zipfile(path)
         with pytest.raises(zipfile.BadZipFile):

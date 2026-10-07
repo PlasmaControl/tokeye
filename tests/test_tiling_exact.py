@@ -230,7 +230,9 @@ def _tile_warnings(model: nn.Module, x: np.ndarray, tile) -> list[str]:
 @pytest.mark.parametrize(
     "build",
     [
-        lambda: torch.jit.script(_Interpolates()),
+        # traced, not scripted: torch.jit.script fails on Python 3.14 (torch
+        # reads the instance's __annotations__, which PEP 649 makes lazy)
+        lambda: torch.jit.trace(_Interpolates().eval(), torch.zeros(1, 1, 64, 64)),
         lambda: torch.fx.symbolic_trace(_PoolUp(_bilinear_x2())),
         lambda: _PoolUp(
             nn.Upsample(scale_factor=2, mode="bicubic", align_corners=True)
