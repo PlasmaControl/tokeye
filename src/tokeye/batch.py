@@ -557,8 +557,9 @@ def run_batch(
         a model that cannot be loaded (see :func:`tokeye.hub.load_model`,
         which also lists its other errors).
     TypeError
-        ``fs`` or ``key`` is of the wrong type, or ``tile`` is not
-        ``"auto"``, ``None`` or an int.
+        ``fs`` or ``key`` is of the wrong type, ``tile`` is not
+        ``"auto"``, ``None`` or an int, or both ``config`` and
+        ``stft_kwargs`` are given.
     """
     if stft_kwargs is not None or log is not None:
         warnings.warn(
@@ -568,7 +569,7 @@ def run_batch(
             stacklevel=2,
         )
     if stft_kwargs is not None and config is not None:
-        raise ValueError("pass either config or stft_kwargs, not both")
+        raise TypeError("pass either config or stft_kwargs, not both")
     _check_fmt(fmt)
     if key is not None:
         _check_key(key)

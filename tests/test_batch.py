@@ -313,7 +313,7 @@ class TestDeprecations:
     def test_config_and_stft_kwargs_together_raise(self, tmp_path):
         with (
             pytest.warns(DeprecationWarning),
-            pytest.raises(ValueError, match="not both"),
+            pytest.raises(TypeError, match="not both"),
         ):
             batch.run_batch(
                 [str(tmp_path)],

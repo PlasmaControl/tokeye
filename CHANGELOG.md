@@ -103,9 +103,9 @@ golden test now pins its output.
   four lines and exited 1).
 - `tokeye run` ends with one line on stdout saying how many inputs it wrote,
   where and which files (`wrote 3 inputs -> tokeye_output/ (mask, preview,
-  params)`, then `; 1 failed` when some failed). Its progress bar, and
-  `tokeye.inference.warmup`'s, show only when stderr is a terminal (not in a
-  SLURM log).
+  params)`, then `; 1 failed` when some failed). Its progress bar, like
+  `run_batch`'s and `tokeye.inference.warmup`'s, shows only when stderr is a
+  terminal (not in a SLURM log).
 - In the CLI, a Python warning is one `warning: <message>` line on stderr;
   `-v` shows it in Python's full form.
 - `tokeye --version` prints `tokeye <version>`.
