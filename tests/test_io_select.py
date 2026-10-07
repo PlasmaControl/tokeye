@@ -587,6 +587,28 @@ def test_a_comment_header_with_one_token_names_gives_the_unit(
 
 
 @pytest.mark.parametrize(
+    "header",
+    [
+        "# time [ms], signal value",
+        "# t_ms, raw signal",
+        '# "time [ms]","value"',
+        "# 't_ms', 'raw signal'",
+    ],
+)
+def test_a_comment_header_is_judged_by_its_time_name_alone(tmp_path, header):
+    # Only the time column's name is read, so the value column's name may be
+    # a phrase: 1 kHz data with the time in milliseconds.
+    path = _table(tmp_path / "x.csv", header, 1.0)
+    assert load_signal(path)[1] == pytest.approx(1000.0)
+
+
+def test_a_comment_starting_with_a_digit_is_not_a_header(tmp_path):
+    # '2ms' does not start with a letter: a comment above seconds at 1 kHz.
+    path = _table(tmp_path / "x.csv", "# 2ms, 1kHz", 0.001)
+    assert load_signal(path)[1] == pytest.approx(1000.0)
+
+
+@pytest.mark.parametrize(
     "time",
     [[0, 0, 1, 1, 2, 2], [0, 1]],
     ids=["repeated-time", "two-rows"],

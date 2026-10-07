@@ -62,9 +62,10 @@ _TIME_UNIT = re.compile(
     r"(?<![A-Za-z])(ms|msec|us|µs|μs|usec)(?![A-Za-z])", re.IGNORECASE
 )
 _BRACKETED = re.compile(r"\(.*\)|\[.*\]")
-# A column name in a '#' comment header: one token, then optionally a
-# bracketed or parenthesised unit (time [ms], t(ms), t_ms, value).
-_HEADER_NAME = re.compile(r"[^\s()\[\]]+(?:\s*(?:\([^()]*\)|\[[^\[\]]*\]))?")
+# The time column's name in a '#' comment header: it starts with a letter,
+# '_' or a micro sign, continues as one token, then optionally a bracketed or
+# parenthesised unit (time [ms], t(ms), t_ms, time).
+_HEADER_NAME = re.compile(r"[A-Za-z_µμ][^\s()\[\]]*(?:\s*(?:\([^()]*\)|\[[^\[\]]*\]))?")
 
 
 def load_signal(
@@ -423,17 +424,27 @@ def _column_names(line: str, *, csv: bool) -> list[str]:
     return names
 
 
+def _unquote(name: str) -> str:
+    """``name`` less one pair of surrounding quotes (``"`` or ``'``)."""
+    if len(name) >= 2 and name[0] == name[-1] and name[0] in "\"'":
+        return name[1:-1]
+    return name
+
+
 def _time_scale(path: Path, *, csv: bool, header_row: bool) -> float:
     """Seconds per unit of a 2-column table's time column.
 
     The unit comes from the first column name of the header row: the first
     line when it is not numeric (``header_row``), or a ``#`` comment first
-    line with one name per column (``np.savetxt(header=...)`` writes one),
-    each name a single token plus an optional bracketed or parenthesised
-    unit (``time [ms]``, ``t(ms)``, ``t_ms``, ``value``). Any other comment,
-    such as ``# sampled at 2 ms, 1 kHz``, is not a header. A standalone
-    ``ms``/``msec`` gives 1e-3, ``us``/``µs``/``usec`` 1e-6; anything else
-    is seconds.
+    line with two names (``np.savetxt(header=...)`` writes one), judged by
+    the time column's name alone, since the other is never read. That name,
+    less one pair of surrounding quotes, starts with a letter, ``_`` or a
+    micro sign and is a single token plus an optional bracketed or
+    parenthesised unit (``time [ms]``, ``t(ms)``, ``t_ms``); the value
+    column's name may be anything. Any other comment, such as
+    ``# sampled at 2 ms, 1 kHz`` or ``# 2ms, 1kHz``, is not a header. A
+    standalone ``ms``/``msec`` gives 1e-3, ``us``/``µs``/``usec`` 1e-6;
+    anything else is seconds.
     """
     with path.open(errors="replace") as fh:  # the default encoding, as loadtxt
         line = fh.readline().strip()
@@ -443,8 +454,7 @@ def _time_scale(path: Path, *, csv: bool, header_row: bool) -> float:
         line = line[1:].lstrip()
     names = _column_names(line, csv=csv)
     if not header_row and (
-        len(names) != 2
-        or not all(_HEADER_NAME.fullmatch(name.strip()) for name in names)
+        len(names) != 2 or not _HEADER_NAME.fullmatch(_unquote(names[0].strip()))
     ):  # a comment, not a header
         return 1.0
     match = _TIME_UNIT.search(names[0]) if names else None
