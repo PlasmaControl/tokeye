@@ -10,7 +10,12 @@ if TYPE_CHECKING:
 
 
 def add_subcommand(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("app", help="Launch the TokEye Gradio web app.")
+    parser = subparsers.add_parser(
+        "webui",
+        aliases=["app"],
+        help="Launch the Gradio web UI (browser; tunnel the port). Bare `tokeye` "
+        "opens the native desktop GUI instead.",
+    )
     parser.add_argument(
         "--port", type=int, default=7860, help="Port to serve the app on."
     )

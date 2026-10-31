@@ -82,27 +82,89 @@ TREE_OVERVIEW = {
                   'tinj': '\\NB::TOP:TINJ'},                       # N·m (NBI torque)
 }
 
-# ── Pickle cache helpers ───────────────────────────────────────────────────────
+# ── Signal cache helpers ───────────────────────────────────────────────────────
+#
+# The cache root ($TOKEYE_CACHE, default per-user /cscratch/$USER/.tokeye/cache)
+# holds throwaway fetched signals. Entries are plain numeric ``.npz`` files read
+# with ``allow_pickle=False``, so a cache file can never run code even if the
+# cache is pointed somewhere shared. Legacy ``.pkl`` entries are only unpickled
+# when the current user owns them and they are not group/world-writable;
+# anything else is treated as a cache miss (refetched).
 
 def _shot_dir(shot, data_dir):
     d = os.path.join(data_dir, str(shot))
     os.makedirs(d, exist_ok=True)
     return d
 
-def _cache_path(shot, key, data_dir):
-    return os.path.join(_shot_dir(shot, data_dir), f'{shot}_{key}.pkl')
+def _cache_path(shot, key, data_dir, ext='npz', create=False):
+    base = _shot_dir(shot, data_dir) if create else os.path.join(data_dir, str(shot))
+    return os.path.join(base, f'{shot}_{key}.{ext}')
+
+def _trusted_pickle(path):
+    """Only our own, not-group/world-writable pickles may be unpickled."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return st.st_uid == os.getuid() and not (st.st_mode & 0o022)
+
+def _as_numeric_arrays(data):
+    """``(data, time)``-style payload -> list of non-object arrays, or ``None``."""
+    items = list(data) if isinstance(data, (tuple, list)) else [data]
+    arrays = [np.asarray(a) for a in items]
+    if any(a.dtype == object for a in arrays):
+        return None
+    return arrays
 
 def save_cache(shot, key, data, data_dir):
-    with open(_cache_path(shot, key, data_dir), 'wb') as f:
-        pickle.dump(data, f)
+    """Best-effort atomic ``.npz`` write (no pickle). A read-only / foreign cache
+    dir, or a payload that is not plain arrays, only costs the cache entry."""
+    arrays = _as_numeric_arrays(data)
+    if arrays is None:
+        print(f'  [{shot}] not cached ("{key}" is not plain numeric arrays)')
+        return
+    import tempfile
+
+    tmp = None
+    try:
+        path = _cache_path(shot, key, data_dir, create=True)
+        # mkstemp: unpredictable name, O_EXCL (never follows a planted symlink)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=f'.{shot}_{key}.',
+                                   suffix='.tmp')
+        with os.fdopen(fd, 'wb') as f:
+            np.savez(f, *arrays)
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f'  [{shot}] not cached ({exc})')
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 def load_cache(shot, key, data_dir):
     p = _cache_path(shot, key, data_dir)
     if os.path.exists(p):
-        with open(p, 'rb') as f:
-            return pickle.load(f)
-    # Backward-compat: read old JSON cache if pkl not yet written
-    p_json = os.path.join(_shot_dir(shot, data_dir), f'{shot}_{key}.json')
+        try:
+            with np.load(p, allow_pickle=False) as z:
+                arrays = [z[f'arr_{i}'] for i in range(len(z.files))]
+            if not arrays:
+                raise ValueError('empty archive')
+        except Exception as exc:  # noqa: BLE001 - truncated/swept/corrupt -> refetch
+            # /cscratch is swept daily: a file can vanish or be cut short at any
+            # time, and a bad entry must only ever cost a refetch.
+            print(f'  [{shot}] ignoring unreadable cache entry {p} ({exc})')
+            return None
+        return tuple(arrays) if len(arrays) > 1 else arrays[0]
+    # Legacy pickle cache: never unpickle a file someone else could have written.
+    p_pkl = _cache_path(shot, key, data_dir, 'pkl')
+    if os.path.exists(p_pkl):
+        if _trusted_pickle(p_pkl):
+            with open(p_pkl, 'rb') as f:
+                return pickle.load(f)
+        print(f'  [{shot}] ignoring untrusted legacy cache {p_pkl}')
+    # Backward-compat: read old JSON cache (JSON cannot execute code).
+    p_json = _cache_path(shot, key, data_dir, 'json')
     if os.path.exists(p_json):
         import json
         with open(p_json) as f:
@@ -110,7 +172,7 @@ def load_cache(shot, key, data_dir):
     return None
 
 def fetch_or_load(shot, key, fetch_fn, data_dir):
-    """Return cached pkl if present (falls back to JSON); otherwise fetch, cache as pkl, return."""
+    """Return the cached entry if present; otherwise fetch, cache as ``.npz``, return."""
     cached = load_cache(shot, key, data_dir)
     if cached is not None:
         print(f'  [{shot}] loaded "{key}" from cache')

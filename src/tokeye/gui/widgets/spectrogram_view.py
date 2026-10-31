@@ -390,7 +390,8 @@ class SpectrogramView(QtWidgets.QWidget):
             "pointname": self.diag_probe.pointname(),
             "model": self.model_sel.name(),
             **self.stft.params(),
-            "decimation": self.stft.decimation(),
+            # effective factor actually applied on Load (the control's 0 = auto)
+            "decimation": (self._stft_meta or {}).get("decimation", self.stft.decimation()),
             "fmin_khz": fmin,
             "fmax_khz": fmax,
             "mode": self.view_controls.mode(),

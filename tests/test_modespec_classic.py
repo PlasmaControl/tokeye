@@ -117,7 +117,27 @@ def test_load_config_roundtrip_on_vendored_example():
 
 
 def test_import_does_not_require_mdsplus():
-    # the imports at the top of this file must succeed without MDSplus
+    # the imports at the top of this file must succeed without MDSplus. Checked in
+    # a fresh interpreter: in-process, any earlier test on the same worker that
+    # imported data_utils (which loads MDSplus when installed) would leave it in
+    # sys.modules and make this order-dependent (see test_import_hygiene.py).
+    import subprocess
     import sys
 
-    assert "MDSplus" not in sys.modules
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from tokeye.modespec.classic import detect_modes, load_config, mode_spectrogram; "
+                "from tokeye.modespec.classic.generate_modes import _contiguous_runs, _fill_gaps; "
+                "assert 'MDSplus' not in sys.modules; print('ok')"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout

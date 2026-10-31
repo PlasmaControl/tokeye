@@ -24,6 +24,11 @@ def model_infer(
 
     logger.info(f"Running inference on input shape: {inp_array.shape}")
 
+    from .accel import TorchRunner
+
+    if isinstance(model, TorchRunner):  # CPU runner (OpenVINO or torch) from accel
+        return model.infer(inp_array)
+
     device = next(model.parameters()).device
     inp_array = (inp_array - inp_array.mean()) / (inp_array.std() + 1e-6)
     inp_tensor = torch.from_numpy(inp_array)
@@ -46,8 +51,19 @@ def signal_to_spectrogram(signal: np.ndarray, **stft_kwargs) -> np.ndarray:
 
 
 def warmup(model: nn.Module, iterations: int = 10) -> None:
-    """Run dummy forward passes to trigger lazy init / kernel autotuning."""
+    """Run dummy forward passes to trigger lazy init / kernel autotuning.
+
+    Only worth it on CUDA (cuDNN autotuning). On CPU the kernels are picked per
+    input shape anyway, so the 10x512x512 warmup was ~19 s of pure latency on
+    somega — one pass is enough there, and OpenVINO runners need none.
+    """
+    from .accel import TorchRunner
+
+    if isinstance(model, TorchRunner):
+        return
     device = next(model.parameters()).device
+    if device.type == "cpu":
+        iterations = min(iterations, 1)
     dummy_input = torch.randn(*WARMUP_INPUT_SHAPE, device=device, dtype=torch.float32)
     with torch.no_grad():
         for _ in tqdm(range(iterations)):

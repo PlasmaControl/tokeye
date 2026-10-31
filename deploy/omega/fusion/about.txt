@@ -1,0 +1,7 @@
+TokEye — ML detection of coherent modes / transient events in DIII-D spectrograms.
+Build:      diiid branch, CPU (torch CPU + OpenVINO), shared install
+Maintainer: chenn <nc1514@princeton.edu>
+Repo:       https://github.com/PlasmaControl/tokeye  (branch: diiid)
+Usage:      module use /fusion/projects/codes/tokeye/modulefiles; module load tokeye
+Runbook:    /fusion/projects/codes/tokeye/README.md
+Results:    /fusion/projects/results/tokeye/<shot>/

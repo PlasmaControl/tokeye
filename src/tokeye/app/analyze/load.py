@@ -80,8 +80,17 @@ def model_load(
     source: str | Path,
     device: str = "auto",
 ) -> nn.Module:
-    """Load a model by registry name or local path, then warm it up."""
+    """Load a model by registry name or local path, then warm it up.
+
+    On CPU this returns a :mod:`tokeye.accel` runner (OpenVINO when installed,
+    else torch with the thread pool sized to the CPU quota); ``model_infer``
+    accepts either. GPU devices keep the plain torch module.
+    """
     logger.info(f"Loading model: {source}")
+    if hub.resolve_device(device) == "cpu":
+        from tokeye import accel
+
+        return accel.load_runner(str(source), device="cpu")
     model = hub.load_model(source, device)
     inference.warmup(model)
     logger.info("Model ready for inference")

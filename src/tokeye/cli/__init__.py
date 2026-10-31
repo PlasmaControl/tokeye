@@ -28,6 +28,7 @@ from tokeye.cli import (
     modesearch,
     modespec,
     run,
+    shot,
 )
 
 if TYPE_CHECKING:
@@ -58,6 +59,14 @@ def build_parser() -> argparse.ArgumentParser:
     alfvenspec.add_subcommand(subparsers)
     eigspec.add_subcommand(subparsers)
     modesearch.add_subcommand(subparsers)
+    shot.add_subcommand(subparsers)
+    parser.epilog = (
+        "Quick analysis of one DIII-D signal (modespec-style parameters):\n"
+        "  tokeye <shot> [<signal>] [tmin] [tmax] [key=value ...]\n"
+        "  e.g. tokeye 190904 MPI66M067D tmin=2000 tmax=3000 nfft=1024 hop=128\n"
+        "  (see `tokeye shot --help`). With no arguments, tokeye opens the GUI."
+    )
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
     return parser
 
 
@@ -75,7 +84,21 @@ def _should_autolaunch_gui() -> bool:
     return bool(display) and sys.stdout.isatty()
 
 
+def _is_shot_token(token: str) -> bool:
+    """``tokeye 190904 ...`` — a bare (non-negative) integer first argument."""
+    return token.isdigit()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and _is_shot_token(argv[0]):
+        # `tokeye <shot> <signal> [params]` -> the shot analysis command.
+        return shot._handle(shot.parse(argv))
+    if argv and argv[0] == "shot":
+        # Same command, explicit spelling; modespec-style key=value tokens need
+        # the shot module's own normalisation before argparse sees them.
+        return shot._handle(shot.parse(argv[1:]))
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -89,6 +112,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if _should_autolaunch_gui():
             return gui.launch_default()
         parser.print_help()
+        if sys.stdout.isatty() and not os.environ.get("TOKEYE_NO_GUI"):
+            print(
+                "\ntokeye: no display, so the desktop GUI was not opened. Connect "
+                "with NoMachine (or `ssh -X`) to somega and run `tokeye` again, or "
+                "use the browser UI: `tokeye webui`.",
+                file=sys.stderr,
+            )
         return 2
 
     return args.handler(args)

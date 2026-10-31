@@ -3,7 +3,7 @@
 The vendored ``modespec.classic.fetch_mirnov`` opens a fresh MDSplus connection
 every call and never caches — unusable for an interactive app and impossible on a
 no-internet compute node. This module is the cached analogue: it pulls each probe
-through the same per-probe pickle cache the single-probe path uses
+through the same per-probe signal cache the single-probe path uses
 (:class:`tokeye.sources.MDSSource`), so a shot fetched once on somega replays
 instantly and works offline in a batch job. The vendored ``modespec`` file is left
 untouched.
@@ -39,7 +39,7 @@ def fetch_mirnov_cached(
     """Fetch a Mirnov array (cached per probe) → ``(signals, t_ms, angles, names)``.
 
     ``signals`` is ``(n_probes, n_t)``; probes that fail to fetch are dropped
-    (along with their angle). Reuses the on-disk pickle cache, so this works on a
+    (along with their angle). Reuses the on-disk signal cache, so this works on a
     compute node once the shot has been prefetched on somega.
     """
     if array not in _ARRAYS:

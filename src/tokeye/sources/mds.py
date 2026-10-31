@@ -1,28 +1,39 @@
 """DIII-D MDSplus signal source.
 
 Thin wrapper over the vendored thin-client fetchers in
-``tokeye.modespec.classic.data_utils`` (``fetch_ptdata`` + the pickle
+``tokeye.modespec.classic.data_utils`` (``fetch_ptdata`` + the ``.npz``
 ``fetch_or_load`` cache). Those keep MDSplus behind an import guard, and this
 module defers importing them until :meth:`MDSSource.fetch` is actually called —
 so ``import tokeye.sources`` never imports MDSplus (import-hygiene, matching the
 modespec-classic guarantee).
 
 Access is the atlas.gat.com thin client, reachable from the login / somega
-nodes but often not from batch compute nodes → fetches are cached to disk
-(default ``/cscratch/share/tokeye/cache``, overridable via ``$TOKEYE_CACHE``)
-so a shot fetched on a reachable node can be reused anywhere.
+nodes but often not from batch compute nodes → fetches are cached to disk in
+a **per-user** scratch directory (default ``/cscratch/$USER/.tokeye/cache``,
+overridable via ``$TOKEYE_CACHE``) so a shot fetched on a reachable node can be
+reused from any node by the same user. Per-user on purpose: the cache is
+throwaway data, and nobody ever reads files another user could have written.
 """
 
 from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 
 import numpy as np
 
-# Scratch cache is cluster-wide and shared; note it is not backed up and files
-# older than ~32 days are swept. The Lmod modulefile sets $TOKEYE_CACHE.
-DEFAULT_CACHE_ROOT = "/cscratch/share/tokeye/cache"
+
+def _default_cache_root() -> str:
+    """``/cscratch/$USER/.tokeye/cache`` on Omega (cluster-wide scratch; files are
+    deleted daily, so a same-day cache); ``~/.cache/tokeye/cache`` anywhere else."""
+    user = os.environ.get("USER") or os.environ.get("LOGNAME")
+    if user and Path("/cscratch").is_dir():
+        return str(Path("/cscratch") / user / ".tokeye" / "cache")
+    return str(Path("~/.cache/tokeye/cache").expanduser())
+
+
+DEFAULT_CACHE_ROOT = _default_cache_root()
 
 # MDSplus thin-client server for DIII-D (reachable from login / somega).
 DEFAULT_ATLAS = "atlas.gat.com"
@@ -150,7 +161,7 @@ class MDSSource:
         pointname = str(pointname)
         # CO2 chords and fast ECE channels are NOT plain PTDATA (that source is
         # all-zeros / unreachable); route them to their real D3D-tree fetchers.
-        # Everything else is PTDATA. The pickle cache (keyed by shot+pointname) is
+        # Everything else is PTDATA. The signal cache (keyed by shot+pointname) is
         # shared by all paths.
         if is_co2_chord(pointname):
             fetch_fn = lambda: fetch_co2_chord(shot, pointname)  # noqa: E731

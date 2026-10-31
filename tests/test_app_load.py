@@ -8,7 +8,7 @@ from tokeye.app.analyze import load
 
 
 def test_model_load_delegates_to_hub_and_warmup(monkeypatch):
-    """model_load should just be hub.load_model(...) + inference.warmup(...)."""
+    """On a GPU device model_load is just hub.load_model(...) + inference.warmup(...)."""
     stub_model = nn.Conv2d(1, 2, 1)
     calls = {}
 
@@ -23,12 +23,29 @@ def test_model_load_delegates_to_hub_and_warmup(monkeypatch):
     monkeypatch.setattr("tokeye.hub.load_model", fake_load_model)
     monkeypatch.setattr("tokeye.inference.warmup", fake_warmup)
 
-    result = load.model_load("big_tf_unet", device="cpu")
+    result = load.model_load("big_tf_unet", device="cuda")
 
     assert result is stub_model
     assert calls["source"] == "big_tf_unet"
-    assert calls["device"] == "cpu"
+    assert calls["device"] == "cuda"
     assert calls["warmed_up"] is stub_model
+
+
+def test_model_load_on_cpu_returns_accel_runner(monkeypatch):
+    """On CPU model_load hands back a tokeye.accel runner (torch backend here)."""
+    from tokeye import accel
+
+    stub_model = nn.Conv2d(1, 2, 1)
+    monkeypatch.setenv("TOKEYE_BACKEND", "torch")
+    monkeypatch.setattr("tokeye.hub.load_model", lambda source, device: stub_model)
+
+    result = load.model_load("big_tf_unet", device="cpu")
+
+    assert isinstance(result, accel.TorchRunner)
+    assert result.model is stub_model
+    mask = load.model_infer(np.random.default_rng(0).random((32, 48)), result)
+    assert mask.shape == (2, 32, 48)
+    assert mask.dtype == np.float32
 
 
 def test_find_models_lists_fake_pt_files(tmp_path, monkeypatch):

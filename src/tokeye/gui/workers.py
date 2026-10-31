@@ -93,7 +93,13 @@ class FetchSpectrogramWorker(_Worker):
                 f"{int(self.shot)} / {self.pointname} returned no samples in that window."
             )
 
-        d = int(self.decimation) if self.decimation else 1
+        from tokeye.transforms import auto_decimation, default_target_fs_hz
+
+        # 0 / None = auto: decimate fast signals to ~500 kHz (or TOKEYE_FS_KHZ),
+        # the same rule as the CLI.
+        d = int(self.decimation) if self.decimation else auto_decimation(
+            fs, default_target_fs_hz()
+        )
         if d > 1 and x.size > 64:
             progress(0.5, f"Decimating ×{d} …")
             from scipy.signal import decimate
@@ -113,6 +119,7 @@ class FetchSpectrogramWorker(_Worker):
         )
         meta = {
             "fs": float(fs),
+            "decimation": max(1, d),
             "t0_ms": float(t[0]) if t.size else 0.0,
             "n_fft": int(self.stft["n_fft"]),
             "hop": int(self.stft["hop"]),

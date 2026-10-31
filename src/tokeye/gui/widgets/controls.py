@@ -214,9 +214,13 @@ class StftControls(QtWidgets.QGroupBox):
             sb.setValue(val)
 
         self._decim = QtWidgets.QSpinBox()
-        self._decim.setRange(1, 100)
-        self._decim.setValue(1)
-        self._decim.setToolTip("Anti-aliased decimation applied on Load (1 = off).")
+        self._decim.setRange(0, 100)
+        self._decim.setSpecialValueText("auto")  # shown for 0
+        self._decim.setValue(0)
+        self._decim.setToolTip(
+            "Anti-aliased decimation applied on Load. auto = bring signals faster "
+            "than 500 kHz down to ~500 kHz (the model's training rate); 1 = native."
+        )
 
         form.addRow("FFT bins", self._n_fft)
         form.addRow("Hop", self._hop)

@@ -16,7 +16,7 @@ mirrors ``FusionAIHub/scripts/data_fetching_omega/co2_check/fetch_co2_any.py``.
 
 ``fetch_co2_chord`` returns the same ``(data, time_ms)`` 2-tuple as
 ``data_utils.fetch_ptdata``, so :meth:`tokeye.sources.mds.MDSSource.fetch` can
-route CO2 pointnames here transparently through the existing pickle cache. As
+route CO2 pointnames here transparently through the existing signal cache. As
 with the rest of ``tokeye.sources``, ``import MDSplus`` is deferred so importing
 this module stays MDSplus-free.
 """
@@ -113,7 +113,7 @@ def fetch_co2_chord(
     """Fetch one CO2 chord, auto-selecting the non-zero source.
 
     Returns ``(data, time_ms)`` — the same contract as ``fetch_ptdata`` — so it
-    slots straight into the ``fetch_or_load`` pickle cache. Raises ``RuntimeError``
+    slots straight into the ``fetch_or_load`` signal cache. Raises ``RuntimeError``
     if neither the DPD node nor the BCI segments have non-zero data (never returns
     the all-zeros PTDATA trap).
     """

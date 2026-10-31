@@ -1,12 +1,11 @@
 """Tests for the tokeye.sources layer.
 
 Offline only — live MDSplus/atlas fetches are untestable off the GA cluster, so
-these exercise the cache path (with a seeded pickle) and the preset registry.
+these exercise the cache path (with a seeded .npz entry) and the preset registry.
 """
 
 from __future__ import annotations
 
-import pickle
 import subprocess
 import sys
 
@@ -93,11 +92,10 @@ def test_latest_shot_none_when_mdsplus_missing(monkeypatch):
 
 
 def _seed_cache(data_dir, shot, key, x, t_ms):
-    """Write the {data_dir}/{shot}/{shot}_{key}.pkl layout data_utils expects."""
-    shot_dir = data_dir / str(shot)
-    shot_dir.mkdir(parents=True, exist_ok=True)
-    with (shot_dir / f"{shot}_{key}.pkl").open("wb") as f:
-        pickle.dump((x, t_ms), f)
+    """Seed {data_dir}/{shot}/{shot}_{key}.npz through the real cache writer."""
+    from tokeye.modespec.classic.data_utils import save_cache
+
+    save_cache(shot, key, (np.asarray(x), np.asarray(t_ms)), str(data_dir))
 
 
 def test_fetch_cache_hit_derives_fs_and_skips_mdsplus(tmp_path, monkeypatch):

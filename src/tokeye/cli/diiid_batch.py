@@ -98,8 +98,13 @@ def build_sbatch_script(
         f"#SBATCH --job-name={job_name}",
         f"#SBATCH --partition={partition}",
     ]
-    if gres.strip():
+    if gres.strip() and gres.strip().lower() not in {"none", "no", "0"}:
         header.append(f"#SBATCH --gres={gres.strip()}")
+    # CPU partitions: without an explicit request a job gets one core, and the
+    # CPU inference (tokeye.accel) sizes its thread pool to SLURM_CPUS_PER_TASK.
+    cpus = os.environ.get("TOKEYE_SLURM_CPUS", "").strip()
+    if cpus.isdigit() and int(cpus) > 0:
+        header.append(f"#SBATCH --cpus-per-task={int(cpus)}")
     header += [
         f"#SBATCH --time={time_limit}",
         "#SBATCH --ntasks=1",
@@ -137,6 +142,8 @@ def build_sbatch_script(
     body = [
         "",
         f"module use {_module_use()} && module load {MODULE_NAME}",
+        # srun (Slurm >= 22.05) does not inherit --cpus-per-task by itself.
+        '[ -n "${SLURM_CPUS_PER_TASK:-}" ] && export SRUN_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK',
         " ".join(cmd),
         "",
     ]

@@ -79,6 +79,14 @@ def download_model(name: str = DEFAULT_MODEL, repo_id: str | None = None) -> Pat
         raise ValueError(
             f"Unknown model {name!r}; valid names: {sorted(MODEL_REGISTRY)}"
         ) from exc
+    # Site installs pre-stage the weights in a shared read-only directory
+    # ($TOKEYE_MODEL_DIR, set by the Omega modulefile) so no user ever needs
+    # Hugging Face access or a writable HF cache. Only for the default repo.
+    model_dir = os.environ.get("TOKEYE_MODEL_DIR")
+    if model_dir and repo_id is None:
+        staged = Path(model_dir) / spec.filename
+        if staged.is_file():
+            return staged
     resolved_repo_id = repo_id or spec.repo_id or DEFAULT_REPO_ID
     return Path(hf_hub_download(resolved_repo_id, spec.filename))
 

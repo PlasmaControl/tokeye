@@ -55,6 +55,34 @@ def test_build_sbatch_script_gpu():
     assert "--decimation 1" in s  # default off; emitted so the job is explicit
 
 
+def test_build_sbatch_script_cpu_partition(monkeypatch):
+    from tokeye.cli.diiid_batch import build_sbatch_script
+
+    monkeypatch.setenv("TOKEYE_SLURM_CPUS", "16")
+    s = build_sbatch_script(
+        outdir="/cscratch/u/.tokeye/runs/r1",
+        shots=[100],
+        diag="mag",
+        probe="MPI66M067D",
+        tlim=None,
+        model="big_tf_unet",
+        threshold=0.5,
+        do_tokeye=True,
+        do_modespec=False,
+        do_gate=False,
+        n_range=(-5, 5),
+        f_min=5.0,
+        f_max=200.0,
+        partition="medium",
+        gres="none",
+        time_limit="0-01:00:00",
+    )
+    assert "#SBATCH --partition=medium" in s
+    assert "--gres" not in s
+    assert "#SBATCH --cpus-per-task=16" in s
+    assert "export SRUN_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK" in s
+
+
 def test_build_sbatch_script_threads_decimation():
     from tokeye.cli.diiid_batch import build_sbatch_script
 

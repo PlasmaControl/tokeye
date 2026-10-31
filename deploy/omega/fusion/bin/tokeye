@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# tokeye — launcher for the shared CPU install in /fusion/projects/codes/tokeye.
+#
+# The env is self-contained (Python 3.13, MDSplus, CPU torch, OpenVINO, Qt).
+# Rather than putting its bin/ and lib/ on the user's PATH/LD_LIBRARY_PATH (which
+# would shadow python, pip, IDL's libs, ... for everything else in the shell),
+# the module puts only this launcher on PATH and the env is set up here, for the
+# tokeye process alone:
+#   * PYTHONPATH from the default login (cluster python/3.7 + MDSplus) would
+#     shadow the env's own MDSplus and break it under numpy 2 -> drop it.
+#   * The login LD_LIBRARY_PATH puts an old system libstdc++ ahead of the env's
+#     -> put the env's lib first (what `conda activate` does).
+#
+# Per-user state is split by lifetime, and NOTHING in either place is assumed to
+# exist: every start rebuilds whatever is missing, so an empty or half-deleted
+# folder is the same as a first run.
+#   ~/.tokeye/                 settings + interface state (small, kept)
+#       settings               user settings; a commented template is written
+#                              whenever it is missing
+#       mpl/                   matplotlib config + font cache
+#   /cscratch/$USER/.tokeye/   data (can grow; /cscratch files are deleted daily)
+#       cache/                 fetched signals
+#       runs/                  web-UI "DIII-D Offline" batch jobs
+#       gradio/                web-UI uploads and rendered outputs
+set -euo pipefail
+
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+root="${TOKEYE_ROOT:-$(dirname "$here")}"
+env="$root/env"
+
+if [[ ! -x "$env/bin/python" ]]; then
+  echo "tokeye: env missing at $env — rebuild with $root/src/deploy/omega/fusion/install.sh" >&2
+  exit 1
+fi
+
+unset PYTHONPATH PYTHONHOME
+export LD_LIBRARY_PATH="$env/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Weights + OpenVINO IR are pre-staged read-only in the install: no Hugging Face
+# access (compute nodes have none).
+export TOKEYE_MODEL_DIR="${TOKEYE_MODEL_DIR:-$root/models}"
+export TOKEYE_OV_DIR="${TOKEYE_OV_DIR:-$root/models/openvino}"
+export HF_HUB_DISABLE_TELEMETRY=1
+# Native GUI over NoMachine / ssh -X: pin Qt to X11 (set QT_QPA_PLATFORM=offscreen
+# for a display-less self-test).
+if [[ -n "${DISPLAY:-}" ]]; then
+  export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+fi
+
+# private_dir DIR: create DIR (mode 700) and its parents; fail unless we own it.
+private_dir() {
+  mkdir -p "$1"
+  if [[ ! -d "$1" || ! -O "$1" ]]; then
+    echo "tokeye: refusing $1 (not a directory owned by ${USER:-me})" >&2
+    exit 1
+  fi
+  chmod 700 "$1"
+}
+
+# subdirs DIR NAME...: (re)create each DIR/NAME, replacing a stray file of that name.
+subdirs() {
+  local base="$1" sub
+  shift
+  for sub in "$@"; do
+    if [[ -e "$base/$sub" && ! -d "$base/$sub" ]]; then
+      rm -f "$base/$sub"
+    fi
+    mkdir -p "$base/$sub"
+  done
+}
+
+# --- settings: ~/.tokeye -------------------------------------------------------
+cfg="${TOKEYE_CONFIG_DIR:-${HOME:+$HOME/.tokeye}}"
+if [[ -z "$cfg" ]]; then
+  cfg="$(mktemp -d "${TMPDIR:-/tmp}/tokeye-config.XXXXXXXX")"
+fi
+private_dir "$cfg"
+subdirs "$cfg" mpl
+settings="$cfg/settings"
+if [[ ! -s "$settings" ]]; then
+  tmp="$(mktemp "$cfg/.settings.XXXXXX")"
+  cat > "$tmp" <<'EOF'
+# TokEye user settings. Written automatically when missing; edit freely.
+# Uncomment a line to change a default. An environment variable of the same name
+# overrides this file, and command-line parameters (e.g. out=, fs=) override both.
+
+# Where `tokeye <shot> <signal>` saves PNG/NPZ/JSON (files go in <dir>/<shot>/)
+#TOKEYE_RESULTS=/fusion/projects/results/tokeye
+
+# Default analysis rate in kHz: faster signals are decimated to about this rate.
+# "native" keeps every signal at its own rate.
+#TOKEYE_FS_KHZ=500
+
+# CPU threads for inference (default: Slurm allocation, else your CPU quota)
+#TOKEYE_THREADS=8
+
+# Inference engine: auto (OpenVINO, falls back to torch) | openvino | torch
+#TOKEYE_BACKEND=auto
+
+# Scratch folder for fetched signals, web-UI batch runs and web-UI temp files.
+# Its files may be deleted at any time; TokEye rebuilds it on every start.
+#TOKEYE_DATA_DIR=/cscratch/$USER/.tokeye
+EOF
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$settings"
+fi
+# Load KEY=VALUE lines for known keys only (never `source`d: no code runs from
+# here); keys already set in the environment win. $USER/$HOME and a leading ~
+# are expanded.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" =~ ^[[:space:]]*(TOKEYE_(RESULTS|FS_KHZ|THREADS|BACKEND|DATA_DIR))[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+  key="${BASH_REMATCH[1]}"
+  val="${BASH_REMATCH[3]}"
+  val="${val%"${val##*[![:space:]]}"}"                     # trim trailing space
+  val="${val#\"}"; val="${val%\"}"; val="${val#\'}"; val="${val%\'}"
+  val="${val//\$\{USER\}/${USER:-}}"; val="${val//\$USER/${USER:-}}"
+  val="${val//\$\{HOME\}/${HOME:-}}"; val="${val//\$HOME/${HOME:-}}"
+  [[ "$val" == "~"* ]] && val="${HOME:-}${val:1}"
+  [[ -n "${!key+x}" ]] || export "$key=$val"
+done < "$settings"
+export TOKEYE_CONFIG_DIR="$cfg"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-$cfg/mpl}"
+
+# --- data: /cscratch/$USER/.tokeye ------------------------------------------------
+# Never a predictable /tmp name (another user could pre-create it): the user's
+# own /cscratch (created on first use), else their runtime dir, else mktemp.
+data="${TOKEYE_DATA_DIR:-}"
+if [[ -z "$data" ]]; then
+  scratch="/cscratch/${USER:-}"
+  if [[ -n "${USER:-}" && -d /cscratch && ! -e "$scratch" ]]; then
+    mkdir -m 700 "$scratch" 2>/dev/null || true
+  fi
+  for cand in "$scratch" "${XDG_RUNTIME_DIR:-}"; do
+    if [[ -n "$cand" && -d "$cand" && ! -L "$cand" && -O "$cand" ]]; then
+      data="$cand/.tokeye"
+      break
+    fi
+  done
+fi
+if [[ -z "$data" ]]; then
+  data="$(mktemp -d "${TMPDIR:-/tmp}/tokeye-data.XXXXXXXX")"
+fi
+if [[ -L "$data" ]]; then
+  echo "tokeye: refusing $data (symlink)" >&2
+  exit 1
+fi
+private_dir "$data"
+subdirs "$data" cache runs gradio
+export TOKEYE_DATA_DIR="$data"
+export TOKEYE_CACHE="${TOKEYE_CACHE:-$data/cache}"
+export TOKEYE_RUNS_DIR="${TOKEYE_RUNS_DIR:-$data/runs}"
+export GRADIO_TEMP_DIR="${GRADIO_TEMP_DIR:-$data/gradio}"
+
+exec "$env/bin/python" -m tokeye.cli "$@"

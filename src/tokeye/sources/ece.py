@@ -13,7 +13,7 @@ So this module fetches each channel from the ``D3D`` tree node, chosen by a
 **non-zero gate** (raise if a channel is absent/all-zero), mirroring
 ``tokeye.sources.co2``. ``fetch_ece_channel`` returns the same ``(data, time_ms)``
 2-tuple as ``data_utils.fetch_ptdata``, so :meth:`tokeye.sources.mds.MDSSource.fetch`
-can route ``TECEF`` pointnames here transparently through the existing pickle
+can route ``TECEF`` pointnames here transparently through the existing signal
 cache. As with the rest of ``tokeye.sources``, ``import MDSplus`` is deferred so
 importing this module stays MDSplus-free.
 """
@@ -57,7 +57,7 @@ def fetch_ece_channel(
     """Fetch one fast ECE channel from the D3D-tree TECEF node.
 
     Returns ``(data, time_ms)`` — the same contract as ``fetch_ptdata`` — so it
-    slots straight into the ``fetch_or_load`` pickle cache. Raises ``RuntimeError``
+    slots straight into the ``fetch_or_load`` signal cache. Raises ``RuntimeError``
     if the channel is absent or all-zero for this shot.
     """
     import MDSplus as mds

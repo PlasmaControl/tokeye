@@ -60,7 +60,7 @@ def test_stft_controls_params_and_band(qapp):
     assert p["hop"] == 128  # training-recipe default
     assert p["clip_dc"] is True
     assert p["clip_low"] == 1.0 and p["clip_high"] == 99.0
-    assert s.decimation() == 1
+    assert s.decimation() == 0  # auto: decimate to ~500 kHz on Load
     assert s.band() == (5.0, 250.0)
 
 
