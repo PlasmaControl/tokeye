@@ -11,8 +11,10 @@ It is designed to be used in the context of plasma physics, but can be used for 
 
 Check out [this preprint](https://arxiv.org/abs/2602.20317) for more information.
 
+Read the [TokEye documentation](https://plasmacontrol.github.io/tokeye/) for guides and reference material.
+
 ## Example Demonstration
-<video src="https://github.com/user-attachments/assets/03560db6-1941-483e-b9d7-706c164833f7" autoplay loop muted playsinline controls width="100%"></video>
+![TokEye demonstration of fluctuating activity in a spectrogram](docs/assets/tokeye-demo.gif)
 
 Expected processing time:
 - V100: < 0.5 seconds on any size spectrogram after warmup.

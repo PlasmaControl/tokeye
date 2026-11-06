@@ -1,0 +1,20 @@
+[project]
+site_name = "TokEye documentation"
+site_url = "https://plasmacontrol.github.io/tokeye/"
+repo_url = "https://github.com/PlasmaControl/tokeye"
+strict = true
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = [ { "Installation" = "getting-started/installation.md" }, { "Quickstart" = "getting-started/quickstart.md" } ] },
+  { "Concepts" = [ { "Preprocessing" = "concepts/preprocessing.md" }, { "Outputs" = "concepts/outputs.md" }, { "Models and weights" = "concepts/models.md" } ] },
+  { "Guides" = [ { "Python" = "guides/python.md" }, { "Command line" = "guides/cli.md" }, { "Web app" = "guides/app.md" }, { "Mode analysis" = "guides/mode-suite.md" }, { "HPC" = "guides/hpc.md" }, { "Input formats" = "guides/input-formats.md" } ] },
+  { "Reference" = [ { "Python API" = "reference/api.md" }, { "CLI" = "reference/cli.md" } ] },
+  { "Project" = [ { "Contributing" = "project/contributing.md" }, { "Citation" = "project/citation.md" }, { "Changelog" = "https://github.com/PlasmaControl/tokeye/blob/main/CHANGELOG.md" } ] },
+]
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "numpy"
+show_source = true
