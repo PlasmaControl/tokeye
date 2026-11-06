@@ -66,6 +66,8 @@ class SpectrogramConfig:
         Apply ``log1p`` to 2D inputs stored in linear scale. 1D inputs
         are always log-scaled by the STFT, so this only affects 2D input.
 
+    Notes
+    -----
     ``clip_dc`` and ``log`` take ``True`` or ``False`` (NumPy booleans too);
     the integers ``0`` and ``1`` still work, with a ``DeprecationWarning``.
     """

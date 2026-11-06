@@ -55,7 +55,7 @@ hdf5 = ["h5py>=3.10"]  # .h5 / v7.3 .mat inputs
 all = ["tokeye[app,ae,hdf5]"]
 
 [project.urls]
-Documentation = "https://github.com/PlasmaControl/tokeye#readme"
+Documentation = "https://plasmacontrol.github.io/tokeye/"
 Source = "https://github.com/PlasmaControl/tokeye"
 Issues = "https://github.com/PlasmaControl/tokeye/issues"
 
@@ -100,6 +100,10 @@ module-root = "src"
 source-exclude = ["src/tokeye/training"]
 
 [dependency-groups]
+docs = [
+    "zensical>=0.0.66,<0.1",
+    "mkdocstrings-python>=1.16",
+]
 dev = [
     "ty",
     "pytest",
