@@ -11,4 +11,6 @@ def test_cli_reference_is_current():
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert (root / "docs/reference/cli.md").read_text(encoding="utf-8") == module.render()
+    assert (root / "docs/reference/cli.md").read_text(
+        encoding="utf-8"
+    ) == module.render()
