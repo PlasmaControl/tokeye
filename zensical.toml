@@ -8,6 +8,7 @@ nav = [
   { "Getting started" = [ { "Installation" = "getting-started/installation.md" }, { "Quickstart" = "getting-started/quickstart.md" } ] },
   { "Concepts" = [ { "Preprocessing" = "concepts/preprocessing.md" }, { "Outputs" = "concepts/outputs.md" }, { "Models and weights" = "concepts/models.md" } ] },
   { "Guides" = [ { "Python" = "guides/python.md" }, { "Command line" = "guides/cli.md" }, { "Web app" = "guides/app.md" }, { "Mode analysis" = "guides/mode-suite.md" }, { "HPC" = "guides/hpc.md" }, { "Input formats" = "guides/input-formats.md" } ] },
+  { "Facilities" = [ { "Overview" = "facilities/index.md" }, { "DIII-D" = "facilities/diii-d.md" }, { "PPPL" = "facilities/pppl.md" } ] },
   { "Reference" = [ { "Python API" = "reference/api.md" }, { "CLI" = "reference/cli.md" } ] },
   { "Project" = [ { "Contributing" = "project/contributing.md" }, { "Citation" = "project/citation.md" }, { "Changelog" = "https://github.com/PlasmaControl/tokeye/blob/main/CHANGELOG.md" } ] },
 ]

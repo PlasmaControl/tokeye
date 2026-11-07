@@ -50,12 +50,13 @@ class TestWeightsLookup:
 
 
 @pytest.mark.parametrize("body_raises", [False, True])
-def test_fp32_cuda_turns_tf32_off_inside_only(monkeypatch, body_raises):
+def test_fp32_cuda_turns_tf32_off_inside_only(body_raises):
     cudnn, matmul = torch.backends.cudnn, torch.backends.cuda.matmul
     start = torch.get_float32_matmul_precision()
+    start_cudnn = cudnn.allow_tf32
     try:
-        monkeypatch.setattr(cudnn, "allow_tf32", True)
-        monkeypatch.setattr(matmul, "allow_tf32", True)
+        cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
         inside = []
 
         try:
@@ -69,10 +70,7 @@ def test_fp32_cuda_turns_tf32_off_inside_only(monkeypatch, body_raises):
         assert inside == [(False, False)]
         assert (cudnn.allow_tf32, matmul.allow_tf32) == (True, True)
     finally:
-        monkeypatch.undo()
-        # The undo sets the legacy matmul flag, which leaves torch >= 2.9 with
-        # the legacy and the new precision API mixed (reading the precision
-        # then raises); setting it through the new API puts both in step.
+        cudnn.allow_tf32 = start_cudnn
         torch.set_float32_matmul_precision(start)
 
 
